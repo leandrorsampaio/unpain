@@ -1,0 +1,4 @@
+Buchungstag;Wert;Begünstigter / Auftraggeber;Verwendungszweck;IBAN / Kontonummer;Betrag;Währung
+05.01.2031;;Test employer;Opening adjustment;;100,00;EUR
+20.01.2031;;Test bank;Interest;;25,00;EUR
+Kontostand 31.01.2031;;;;;1.125,00;EUR

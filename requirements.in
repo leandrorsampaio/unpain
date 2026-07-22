@@ -1,0 +1,8 @@
+# Direct dependencies. Edit here, then regenerate the hash-pinned lockfile:
+#   pip install pip-tools           # once, in a Python 3.12 venv (match CI)
+#   pip-compile --generate-hashes requirements.in
+# requirements.txt is the generated lockfile — do not edit it by hand.
+fastapi
+uvicorn[standard]
+openpyxl
+python-multipart

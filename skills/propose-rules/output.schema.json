@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "propose-rules output",
+  "type": "object",
+  "required": ["proposals"],
+  "properties": {
+    "proposals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["pattern", "confidence"],
+        "properties": {
+          "pattern": { "type": "string", "minLength": 3 },
+          "field": { "enum": ["counterparty", "purpose", "any"], "default": "counterparty" },
+          "category": { "type": ["string", "null"], "description": "group/sub slug, e.g. core-living/groceries" },
+          "sharing": { "type": ["string", "null"], "pattern": "^(shared|out-of-scope|personal:[a-z0-9-]+)$" },
+          "action": { "enum": ["review", null], "description": "force review queue (multi-purpose merchants)" },
+          "scope": { "type": "string", "pattern": "^(family|[a-z0-9-]+)$", "description": "family applies to all accounts; a person slug (from config.json people) applies only to that person's accounts and overrides family rules" },
+          "income_owner": { "type": ["string", "null"], "pattern": "^([a-z0-9-]+|couple)$" },
+          "confidence": { "enum": ["high", "low"] },
+          "reasoning": { "type": "string" }
+        }
+      }
+    },
+    "unidentified": { "type": "array", "items": { "type": "string" }, "description": "merchants left for the human" }
+  }
+}

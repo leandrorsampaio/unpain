@@ -1,0 +1,14 @@
+# Ruff configuration — https://docs.astral.sh/ruff/
+# The project targets Python 3.12. Uses Ruff's default lint set (pyflakes `F` plus
+# pycodestyle `E4`/`E7`/`E9`) — deliberately light, matching the existing clean style.
+target-version = "py312"
+line-length = 120
+
+[lint.per-file-ignores]
+# Tests and helper scripts intentionally adjust sys.path / set $FA_ROOT before importing
+# the package under test, so their module-level imports legitimately follow other statements.
+"tests/**" = ["E402"]
+"scripts/**" = ["E402"]
+# server.py co-locates the optional app-lock feature's private imports with their explanatory
+# comment block rather than at the top of the file.
+"app/server.py" = ["E402"]

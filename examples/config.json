@@ -1,0 +1,21 @@
+{
+  "_help": "Global settings. reference_ratio is only the monthly ESTIMATE; the binding settlement is recomputed after Dec 31 from actual ratio income (subcategories with ratio_income=true in categories.json, currently salary only). income_owner 'couple' counts 50/50 to each side. currencies lists what the cash/edit forms offer; EUR is always the base, others must be ECB reference currencies (USD, GBP, CHF, BRL, ...). If the currencies key is ABSENT it defaults to the legacy [EUR, BRL, USD] (backward compatibility for configs created before this key existed); an explicitly present list means exactly what it says. household_name is optional; when absent/blank the footer shows 'Family Accountability'. language is the UI language (default 'en'; 'de' ships built-in) and is editable in the Settings tab.",
+  "people": [
+    "person1",
+    "person2"
+  ],
+  "person_labels": {
+    "person1": "Person1",
+    "person2": "Person2"
+  },
+  "household_name": "Our Household",
+  "reference_ratio": {
+    "person1": 0.5,
+    "person2": 0.5
+  },
+  "items_threshold_eur": 50,
+  "transfer_match_window_days": 4,
+  "transfer_match_tolerance_cents": 200,
+  "base_currency": "EUR",
+  "currencies": ["EUR", "BRL", "USD"]
+}

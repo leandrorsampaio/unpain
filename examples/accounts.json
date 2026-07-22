@@ -1,0 +1,56 @@
+{
+  "_help": "Register every account. owner must match config.json people, or 'couple' for joint accounts.",
+  "owner_names": [
+    "FirstName1",
+    "FirstName2",
+    "SharedSurname"
+  ],
+  "accounts": [
+    {
+      "id": "bank1-person1",
+      "owner": "person1",
+      "bank": "Bank 1",
+      "type": "giro",
+      "currency": "EUR"
+    },
+    {
+      "id": "card1-person1",
+      "owner": "person1",
+      "bank": "Bank 1",
+      "type": "credit-card",
+      "currency": "EUR"
+    },
+    {
+      "id": "bank2-person2",
+      "owner": "person2",
+      "bank": "Bank 2",
+      "type": "giro",
+      "currency": "EUR"
+    },
+    {
+      "id": "joint-account",
+      "owner": "couple",
+      "bank": "Bank 3",
+      "type": "giro",
+      "currency": "EUR"
+    },
+    {
+      "id": "cash-person1",
+      "owner": "person1",
+      "bank": "Cash",
+      "type": "cash",
+      "currency": "EUR"
+    },
+    {
+      "id": "cash-person2",
+      "owner": "person2",
+      "bank": "Cash",
+      "type": "cash",
+      "currency": "EUR"
+    }
+  ],
+  "transfer_markers": [
+    "KREDITKARTENABRECHNUNG",
+    "CREDIT CARD SETTLEMENT"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "barclays-de",
+  "signature": ["Referenznummer", "Buchungsdatum", "Betrag"],
+  "delimiter": ";",
+  "decimal": "comma",
+  "date_format": "%d.%m.%Y",
+  "_note": "Best-guess for Barclays DE Excel export; adjust column names after the first real file (the ingest error will show the actual headers).",
+  "columns": {
+    "date": "Buchungsdatum",
+    "amount": "Betrag",
+    "counterparty": "Beschreibung",
+    "purpose": "Beschreibung"
+  },
+  "currency": "EUR"
+}

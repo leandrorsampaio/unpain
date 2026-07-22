@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Family Accountability</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=20260715">
+<link rel="mask-icon" href="/static/favicon.svg?v=20260715" color="#005bc0">
+<link rel="stylesheet" href="/static/vendor/theme.css?v=20260713-m3">
+<link rel="stylesheet" href="/static/app.css?v=20260722-brandicon">
+<script type="module" src="/static/vendor/material.js?v=20260713-segments"></script>
+<script src="/static/i18n.js?v=20260717"></script>
+<script src="/static/i18n/de.js?v=20260722-brandicon"></script>
+</head>
+<body>
+<div id="tooltip"></div>
+<header class="appbar">
+  <div class="appbar-row">
+    <div class="appbar-title"><md-icon id="appbar-icon">savings</md-icon><span id="appbar-title-text">Family Accountability</span></div>
+    <div class="ml-auto flex items-center gap-2">
+      <md-outlined-select id="year-select" label="Year" aria-label="Year" data-i18n-label="Year" data-i18n-aria="Year"></md-outlined-select>
+    </div>
+  </div>
+  <div class="appbar-row" style="padding-top:0">
+    <md-tabs id="nav-tabs" aria-label="Sections" data-i18n-aria="Sections">
+      <md-primary-tab data-tab="dashboard" inline-icon><md-icon slot="icon">insights</md-icon><span data-i18n="Dashboard">Dashboard</span></md-primary-tab>
+      <md-primary-tab data-tab="transactions" inline-icon><md-icon slot="icon">receipt_long</md-icon><span data-i18n="Transactions">Transactions</span></md-primary-tab>
+      <md-primary-tab data-tab="review" inline-icon><md-icon slot="icon">rule</md-icon><span data-i18n="Review">Review</span>&nbsp;<span id="review-badge" class="chip chip-bad" style="display:none"></span></md-primary-tab>
+      <md-primary-tab data-tab="rules" inline-icon><md-icon slot="icon">tune</md-icon><span data-i18n="Rules">Rules</span></md-primary-tab>
+      <md-primary-tab data-tab="categories" inline-icon><md-icon slot="icon">category</md-icon><span data-i18n="Categories">Categories</span></md-primary-tab>
+      <md-primary-tab data-tab="settlement" inline-icon><md-icon slot="icon">balance</md-icon><span data-i18n="Settlement">Settlement</span></md-primary-tab>
+      <md-primary-tab data-tab="tax" inline-icon><md-icon slot="icon">account_balance</md-icon><span data-i18n="Tax">Tax</span></md-primary-tab>
+      <md-primary-tab data-tab="add" inline-icon><md-icon slot="icon">add_circle</md-icon><span data-i18n="Add entry">Add entry</span></md-primary-tab>
+      <md-primary-tab data-tab="ingest" inline-icon><md-icon slot="icon">upload_file</md-icon><span data-i18n="Ingest">Ingest</span></md-primary-tab>
+      <md-primary-tab data-tab="settings" inline-icon><md-icon slot="icon">settings</md-icon><span data-i18n="Settings">Settings</span></md-primary-tab>
+    </md-tabs>
+  </div>
+</header>
+<main id="main"></main>
+<footer class="app-footer">
+  <div class="app-footer-inner">
+    <span class="type-body-small" id="footer-household">Family Accountability</span>
+    <md-outlined-button href="#feedback"><md-icon slot="icon">feedback</md-icon><span data-i18n="My Notes">My Notes</span></md-outlined-button>
+  </div>
+</footer>
+<script src="/static/vendor/chart.umd.js?v=4.4.9"></script>
+<script src="/static/vendor/chartjs-chart-sankey.umd.js?v=0.12.1"></script>
+<script src="/static/app.js?v=20260722-brandicon"></script>
+</body>
+</html>

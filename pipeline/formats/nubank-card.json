@@ -1,0 +1,16 @@
+{
+  "name": "nubank-card",
+  "signature": ["date", "title", "amount"],
+  "delimiter": ",",
+  "decimal": "dot",
+  "date_format": "%Y-%m-%d",
+  "sign": -1,
+  "_note": "Nubank card CSV lists expenses as positive; sign -1 normalizes to negative=expense",
+  "columns": {
+    "date": "date",
+    "amount": "amount",
+    "counterparty": "title",
+    "purpose": "title"
+  },
+  "currency": "BRL"
+}

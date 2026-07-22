@@ -1,0 +1,99 @@
+{
+  "_help": "Starter tree - replace with your own. Add anytime; never delete, set 'archived': true. 'dynamic': true groups accept new subcategories from the UI.",
+  "categories": [
+    {
+      "slug": "to-receive",
+      "name": "To Receive",
+      "type": "income",
+      "subs": [
+        {
+          "slug": "salary",
+          "name": "Salary",
+          "ratio_income": true
+        },
+        {
+          "slug": "reimbursement",
+          "name": "Reimbursement"
+        }
+      ]
+    },
+    {
+      "slug": "living-costs",
+      "name": "Living Costs",
+      "type": "expense",
+      "subs": [
+        {
+          "slug": "rent",
+          "name": "Rent"
+        },
+        {
+          "slug": "energy",
+          "name": "Energy"
+        }
+      ]
+    },
+    {
+      "slug": "core-living",
+      "name": "Core Living",
+      "type": "expense",
+      "subs": [
+        {
+          "slug": "groceries",
+          "name": "Groceries"
+        }
+      ]
+    },
+    {
+      "slug": "recreation",
+      "name": "Recreation",
+      "type": "expense",
+      "subs": [
+        {
+          "slug": "restaurants",
+          "name": "Restaurants"
+        },
+        {
+          "slug": "hobbies",
+          "name": "Hobbies"
+        }
+      ]
+    },
+    {
+      "slug": "traveling",
+      "name": "Traveling",
+      "type": "expense",
+      "dynamic": true,
+      "subs": []
+    },
+    {
+      "slug": "living-upgrades",
+      "name": "Living Upgrades",
+      "type": "expense",
+      "subs": [
+        {
+          "slug": "furniture",
+          "name": "Furniture"
+        },
+        {
+          "slug": "deco",
+          "name": "Deco"
+        }
+      ]
+    },
+    {
+      "slug": "sports",
+      "name": "Sports",
+      "type": "expense",
+      "subs": [
+        {
+          "slug": "gym",
+          "name": "Gym"
+        },
+        {
+          "slug": "equipment",
+          "name": "Equipment"
+        }
+      ]
+    }
+  ]
+}

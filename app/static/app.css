@@ -1,0 +1,571 @@
+/* App styles on top of the generated M3 tokens (vendor/theme.css). */
+
+/* ---- role mapping ---- */
+:root {
+  --typeface: Roboto, system-ui, sans-serif;
+  --type-caption-size: 12px; --type-caption-line: 16px;
+  --type-label-size: 12px; --type-label-line: 16px;
+  --type-body-small-size: 13px; --type-body-small-line: 18px;
+  --type-body-size: 14px; --type-body-line: 20px;
+  --type-title-size: 16px; --type-title-line: 24px;
+  --type-headline-size: 22px; --type-headline-line: 28px;
+  --font-regular: 400; --font-medium: 500; --font-bold: 700;
+  --md-ref-typeface-brand: var(--typeface);
+  --md-ref-typeface-plain: var(--typeface);
+  --ink: var(--md-sys-color-on-surface);
+  --ink2: var(--md-sys-color-on-surface-variant);
+  --line: var(--md-sys-color-outline-variant);
+  --primary: var(--md-sys-color-primary);
+  --card: var(--md-sys-color-surface-container-low);
+  --chart-1: #005bc0;   /* validated series colors, light */
+  --chart-2: #e37400;
+  --good: #188038;
+  --bad: var(--md-sys-color-error);
+  --good-container: #d3efdb;
+  --on-good-container: #0c5222;
+  --warn-container: #ffefcf;
+  --on-warn-container: #7a4f00;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.3), 0 1px 3px 1px rgba(0,0,0,.15);
+  /* Lift a modal that opens on top of another modal off the one beneath it.
+     The hairline ring is what carries the separation in dark mode. */
+  --dialog-stack-shadow: 0 2px 8px rgba(0,0,0,.28), 0 24px 56px -12px rgba(0,0,0,.5), 0 0 0 1px rgba(0,0,0,.06);
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --chart-1: #3987e5; --chart-2: #c98500;
+  --good: #6dd58c; --good-container: #0f3d1f; --on-good-container: #a5e8b8;
+  --warn-container: #4a3300; --on-warn-container: #ffce7a;
+  --dialog-stack-shadow: 0 2px 10px rgba(0,0,0,.6), 0 28px 64px -12px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,.14);
+} }
+:root[data-theme="dark"] {
+  --chart-1: #3987e5; --chart-2: #c98500;
+  --good: #6dd58c; --good-container: #0f3d1f; --on-good-container: #a5e8b8;
+  --warn-container: #4a3300; --on-warn-container: #ffce7a;
+  --dialog-stack-shadow: 0 2px 10px rgba(0,0,0,.6), 0 28px 64px -12px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,.14);
+}
+
+/* ---- base ---- */
+* { box-sizing: border-box; margin: 0; }
+body {
+  background: var(--md-sys-color-surface);
+  color: var(--ink);
+  font-family: var(--typeface);
+  font-size: var(--type-body-size);
+  font-weight: var(--font-regular);
+  line-height: var(--type-body-line);
+  letter-spacing: .25px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+a { color: var(--primary); text-decoration: none; }
+b, strong { font-weight: var(--font-bold); }
+i, em { font-style: italic; }
+
+/* ---- top app bar ---- */
+header.appbar {
+  background: var(--md-sys-color-surface);
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 10;
+}
+.appbar-row { max-width: 1800px; margin: 0 auto; padding: 10px 24px 0; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.appbar-title { font-size: var(--type-headline-size); line-height: var(--type-headline-line); font-weight: var(--font-medium); letter-spacing: 0; color: var(--ink); display: flex; align-items: center; gap: 10px; }
+.appbar-title md-icon { color: var(--primary); }
+/* Pull the tab row down so the active-tab indicator meets the app bar's bottom divider
+   instead of floating above it (which read as a doubled border under the tabs). */
+md-tabs { --md-primary-tab-container-color: transparent; margin-bottom: -1px; }
+/* Transactions header totals: a highlighted pill so In/Out/Net stands out. */
+.txn-totals {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: var(--md-sys-color-on-secondary-container);
+  background: var(--md-sys-color-secondary-container);
+  border-radius: 12px; padding: 6px 16px;
+}
+/* Keep an icon-button's glyph matched to its icon-size token so it never
+   overflows / clips the container (md-icon defaults to 24px otherwise). */
+md-icon-button md-icon { font-size: var(--md-icon-button-icon-size, 24px); line-height: 1; }
+
+/* ---- surfaces ---- */
+main { width: 100%; max-width: 1800px; margin: 0 auto; padding: 24px; flex: 1; }
+.card {
+  background: var(--card);
+  border-radius: 12px;
+  box-shadow: var(--shadow-1);
+}
+/* Settings page: roomy, sectioned layout with dividers between groups. */
+.settings-page { max-width: 1080px; }
+.settings-section:not(:first-child) { border-top: 1px solid var(--line); padding-top: 24px; }
+
+/* Settings: left navigation rail + content panel (scales to new sub-pages). */
+.settings-shell { display: flex; gap: 24px; align-items: flex-start; max-width: 1280px; }
+.settings-rail { flex: 0 0 220px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: var(--appbar-h, 104px); }
+.settings-rail-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 16px; border: none; background: none; border-radius: 999px; cursor: pointer; text-align: left; color: var(--ink2); font: inherit; font-size: var(--type-body-size); line-height: var(--type-body-line); }
+.settings-rail-item:hover { background: var(--md-sys-color-surface-container-high); }
+.settings-rail-item.active { background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--primary); font-weight: var(--font-medium); }
+.settings-rail-item md-icon { color: inherit; font-size: 20px; }
+.settings-panel { flex: 1 1 auto; min-width: 0; }
+.settings-panel-head { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.settings-panel-head h2 { flex: 1; margin: 0; }
+.save-status { display: inline-flex; align-items: center; gap: 6px; font-size: var(--type-body-small-size); color: var(--ink2); white-space: nowrap; transition: color .15s; }
+.save-status md-icon { font-size: 18px; }
+.save-status.saved { color: var(--good); }
+.save-status.error { color: var(--bad); }
+.save-status.hidden { visibility: hidden; }
+
+/* Settings › Data: folder-structure diagram + export checkboxes */
+.folder-tree { border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; background: var(--md-sys-color-surface-container-low, var(--surface)); }
+.folder-path { color: var(--ink2); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; margin-bottom: 10px; }
+.folder-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; padding-left: calc(var(--depth) * 22px); }
+.folder-branch { color: var(--ink2); font-family: ui-monospace, monospace; width: 20px; }
+.folder-icon { --md-icon-size: 20px; color: var(--primary); }
+.folder-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: var(--font-medium); }
+.folder-note { color: var(--ink2); font-size: var(--type-body-small-size); }
+.export-parts { display: flex; flex-direction: column; gap: 4px; }
+.export-part { display: flex; align-items: flex-start; gap: 10px; padding: 8px; border-radius: 10px; cursor: pointer; }
+.export-part:hover { background: var(--md-sys-color-surface-container-high); }
+.export-part > span { display: flex; flex-direction: column; }
+@media (max-width: 640px) { .folder-note { display: none; } }
+
+/* App lock: full-screen gate over everything (above app bar and dialogs). */
+.lock-screen { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center;
+  background: var(--md-sys-color-surface); padding: 24px; }
+.lock-card { width: 100%; max-width: 380px; text-align: center; display: flex; flex-direction: column; align-items: stretch; }
+.lock-card .lock-icon { --md-icon-size: 44px; color: var(--primary); align-self: center; }
+.lock-card h1, .lock-card p { text-align: center; }
+@media (max-width: 820px) {
+  .settings-shell { flex-direction: column; }
+  .settings-rail { flex-direction: row; overflow-x: auto; position: static; flex: 0 0 auto; width: 100%; }
+  .settings-rail-item { width: auto; white-space: nowrap; }
+}
+h2 { font-size: var(--type-title-size); line-height: var(--type-title-line); font-weight: var(--font-medium); letter-spacing: .15px; }
+
+/* ---- app footer ---- */
+.app-footer { background: var(--md-sys-color-surface-container-low); border-top: 1px solid var(--line); }
+.app-footer-inner {
+  max-width: 1800px; margin: 0 auto; padding: 12px 24px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+
+/* ---- feedback page ---- */
+.feedback-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ---- data doctor ---- */
+.doctor-clear { display: flex; align-items: center; gap: 12px; color: var(--good); }
+.doctor-finding { padding: 10px 12px; border-left: 4px solid var(--line); background: var(--md-sys-color-surface-container); }
+.doctor-finding + .doctor-finding { margin-top: 8px; }
+.doctor-error .doctor-finding { border-left-color: var(--bad); }
+.doctor-warning .doctor-finding { border-left-color: var(--on-warn-container); }
+.doctor-info .doctor-finding { color: var(--ink2); }
+
+/* ---- chips ---- */
+.chip { display: inline-flex; align-items: center; height: 36px; box-sizing: border-box; border-radius: 9999px; padding: 0 14px; font-size: var(--type-label-size); line-height: var(--type-label-line); font-weight: var(--font-medium); letter-spacing: .5px; white-space: nowrap; border: 1px solid var(--md-sys-color-outline-variant); }
+.chip-primary { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); border-color: transparent; }
+.chip-bad     { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); border-color: transparent; }
+.chip-good    { background: var(--good-container); color: var(--on-good-container); border-color: transparent; }
+.chip-warn    { background: var(--warn-container); color: var(--on-warn-container); border-color: transparent; }
+.chip-neutral { background: var(--md-sys-color-surface-container-high); color: var(--ink2); }
+/* Filter toggle: a clickable .chip that changes colour when active (no checkmark). */
+button.chip { appearance: none; -webkit-appearance: none; background: var(--md-sys-color-surface); color: var(--ink); cursor: pointer; font-family: var(--typeface); }
+button.chip:hover { background: var(--md-sys-color-surface-container-high); }
+button.chip.chip-primary { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); border-color: transparent; }
+button.chip.chip-primary:hover { filter: brightness(0.97); }
+.filter-chip { gap: 6px; }
+.filter-chip md-icon { font-size: 18px; width: 18px; height: 18px; }
+/* Removable filter chips (category/account) — keep the leading icon in-bounds. */
+md-input-chip md-icon, md-chip-set md-icon { font-size: 18px; width: 18px; height: 18px; }
+
+/* ---- charts ---- */
+.bar { border-radius: 0 4px 4px 0; height: 14px; background: var(--chart-1); min-width: 2px; transition: width .3s; }
+.bar.over { background: var(--bad); }
+.mbar { border-radius: 4px 4px 0 0; width: 14px; margin: 0 1px; }
+.mbar.income { background: var(--chart-1); }
+.mbar.expense { background: var(--chart-2); }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.swatch.income { background: var(--chart-1); } .swatch.expense { background: var(--chart-2); }
+.barrow:hover .bar { filter: brightness(1.12); }
+.target-mark { position: absolute; top: -2px; width: 2px; height: 18px; background: var(--ink2); }
+/* Chart.js canvas host: sized, relative box (maintainAspectRatio:false needs it). */
+.chart-box { position: relative; height: 260px; }
+.chart-box.tall { height: 320px; }
+.grid2.gap-6 { gap: 24px; }
+/* Year-over-year: separate each row with a hairline so the table reads clearly. */
+.yoy-table { border-collapse: collapse; }
+.yoy-row > td { border-bottom: 1px solid var(--line); }
+.dash-lock { font-size: 16px; vertical-align: -3px; margin-left: 4px; }
+/* Dashboard month/year tab label: keep the lock icon inline beside the text. */
+.tab-label { display: inline-flex; align-items: center; gap: 4px; }
+.tab-label .dash-lock { margin-left: 0; vertical-align: 0; }
+/* Sticky control bar that pins just below the app bar (dashboard tabs, txn filters).
+   The divider stays within the content width (no bleed) and leaves room below it. */
+.page-sticky {
+  position: sticky; top: var(--appbar-h, 104px); z-index: 5;
+  background: var(--md-sys-color-surface);
+  padding-top: 6px; padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+  /* Extend the surface sideways (no blur) so card borders/shadows scrolling
+     underneath are hidden at the edges; the divider stays at content width. */
+  box-shadow: -32px 0 0 var(--md-sys-color-surface), 32px 0 0 var(--md-sys-color-surface);
+}
+
+label { color: var(--ink2); }
+
+md-filled-button, md-outlined-button, md-text-button { --md-filled-button-container-height: 36px; --md-outlined-button-container-height: 36px; font-family: var(--typeface); font-size: var(--type-label-size); line-height: var(--type-label-line); font-weight: var(--font-medium); letter-spacing: .5px; white-space: nowrap; }
+/* Larger call-to-action button. */
+.btn-lg { --md-filled-button-container-height: 48px; --md-outlined-button-container-height: 48px; font-size: var(--type-body-size); }
+/* Leading icons in text/filled/outlined buttons are 18px (24px overflows the pill). */
+md-filled-button md-icon, md-outlined-button md-icon, md-text-button md-icon, md-filled-tonal-button md-icon {
+  font-size: 18px; width: 18px; height: 18px;
+}
+/* Compact search field so it matches the 36px filter buttons/chips. */
+.t-search-field {
+  --md-outlined-text-field-top-space: 6px;
+  --md-outlined-text-field-bottom-space: 6px;
+}
+
+/* ---- category picker ---- */
+.cat-field { display: inline-flex; }
+.cat-trigger { min-width: 190px; }
+
+.cat-search { width: 100%; margin-bottom: 18px; }
+.cat-grid { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+.cat-box {
+  --acc: #546e7a;
+  background: color-mix(in srgb, var(--acc) 9%, var(--md-sys-color-surface));
+  border: 1px solid color-mix(in srgb, var(--acc) 22%, var(--line));
+  border-radius: 12px; padding: 8px; width: 208px; flex: 0 0 auto; overflow: hidden;
+}
+.cat-box.income { border-color: var(--acc); }
+.cat-box h4 {
+  display: flex; align-items: center; gap: 8px;
+  margin: -8px -8px 6px; padding: 9px 12px;
+  background: color-mix(in srgb, var(--acc) 24%, var(--md-sys-color-surface));
+  font-size: var(--type-label-size); line-height: var(--type-label-line); font-weight: var(--font-bold); text-transform: uppercase; letter-spacing: .5px; color: var(--ink);
+}
+.cat-box h4 md-icon { font-size: 19px; color: var(--acc); }
+.cat-sub {
+  display: block; width: 100%; text-align: left; padding: 8px 10px; margin-top: 3px;
+  border: none; border-radius: 8px; background: transparent; color: var(--ink);
+  font: inherit; font-size: var(--type-body-small-size); line-height: var(--type-body-small-line); cursor: pointer;
+}
+.cat-sub:hover { background: color-mix(in srgb, var(--acc) 18%, var(--md-sys-color-surface)); }
+.cat-sub.selected { background: color-mix(in srgb, var(--acc) 42%, var(--md-sys-color-surface)); font-weight: var(--font-medium); }
+
+/* categories admin: tint each group + its subs with the category colour (group
+   stronger, subs lighter) and keep the trailing action icons aligned. */
+.cat-card { --acc: #757575; border-left: 4px solid var(--acc); overflow: hidden; }
+.cat-card .cat-head { background: color-mix(in srgb, var(--acc) 16%, var(--md-sys-color-surface)); }
+.cat-card .cat-sub  { background: color-mix(in srgb, var(--acc) 7%, var(--md-sys-color-surface)); }
+.cat-card .cat-sub:hover { background: color-mix(in srgb, var(--acc) 12%, var(--md-sys-color-surface)); }
+.cat-actions { display: inline-flex; align-items: center; gap: 2px; }
+.cat-actions md-icon-button { --md-icon-button-icon-size: 20px; }
+
+/* category style editor (admin) */
+.icon-pick {
+  width: 38px; height: 38px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--md-sys-color-surface);
+  display: inline-flex; align-items: center; justify-content: center; color: var(--ink);
+}
+.icon-pick:hover { background: var(--md-sys-color-surface-variant); }
+.icon-pick.selected { border-color: var(--primary); border-width: 2px; background: var(--md-sys-color-secondary-container); }
+.icon-pick md-icon { font-size: 21px; }
+.swatch-pick { width: 26px; height: 26px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; }
+.swatch-pick.selected { border-color: var(--ink); }
+
+/* ---- misc ---- */
+/* Danger-zone controls (delete a year). */
+.danger-btn { --md-outlined-button-label-text-color: var(--bad); --md-outlined-button-outline-color: color-mix(in srgb, var(--bad) 50%, transparent); }
+.danger-fill { --md-filled-button-container-color: var(--bad); }
+/* The exact phrase to type — non-selectable so it can't be copied, must be typed out. */
+.dy-phrase { user-select: none; -webkit-user-select: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: var(--font-medium); color: var(--ink); background: var(--md-sys-color-surface-variant); padding: 1px 7px; border-radius: 6px; white-space: nowrap; }
+
+/* The ONE global tooltip (every [data-tip] element uses it). Styled to match the note
+   popover card so all hover surfaces read as one system. */
+#tooltip { position: fixed; pointer-events: none; background: var(--md-sys-color-surface-variant);
+  color: var(--ink); border: 1px solid var(--line);
+  font-size: var(--type-body-small-size); line-height: var(--type-body-small-line); letter-spacing: .2px; padding: 8px 12px; border-radius: 12px;
+  z-index: 2000; display: none; max-width: 320px; box-shadow: var(--shadow-2); }
+details summary { cursor: pointer; color: var(--ink2); font-size: var(--type-caption-size); line-height: var(--type-caption-line); letter-spacing: .4px; }
+table { border-collapse: collapse; }
+.stat-label { font-size: 11px; line-height: var(--type-caption-line); font-weight: var(--font-medium); text-transform: uppercase; letter-spacing: 1px; color: var(--ink2); }
+.stat-value { font-size: 24px; line-height: 32px; font-weight: var(--font-medium); letter-spacing: 0; margin-top: 4px; }
+
+/* ---- utilities (replacing Tailwind) ---- */
+.flex { display: flex; } .flex-col { flex-direction: column; } .flex-wrap { flex-wrap: wrap; }
+.items-center { align-items: center; } .items-end { align-items: flex-end; } .items-start { align-items: flex-start; }
+.justify-between { justify-content: space-between; } .justify-end { justify-content: flex-end; }
+.flex-1 { flex: 1; min-width: 0; } .shrink-0 { flex-shrink: 0; } .ml-auto { margin-left: auto; }
+.gap-1 { gap: 4px; } .gap-2 { gap: 8px; } .gap-3 { gap: 12px; } .gap-4 { gap: 16px; } .gap-5 { gap: 20px; } .gap-6 { gap: 24px; }
+.gap-x-8 { column-gap: 32px; }
+.mt-1 { margin-top: 4px; } .mt-2 { margin-top: 8px; } .mt-3 { margin-top: 12px; } .mt-4 { margin-top: 16px; } .mt-5 { margin-top: 20px; } .mt-6 { margin-top: 24px; } .mt-8 { margin-top: 32px; }
+.mb-1 { margin-bottom: 4px; } .mb-2 { margin-bottom: 8px; } .mb-3 { margin-bottom: 12px; } .mb-4 { margin-bottom: 16px; } .mb-5 { margin-bottom: 20px; } .mb-6 { margin-bottom: 24px; }
+.p-4 { padding: 16px; } .p-5 { padding: 20px; } .p-6 { padding: 24px; } .p-8 { padding: 32px; }
+.px-2 { padding-left: 8px; padding-right: 8px; } .px-3 { padding-left: 12px; padding-right: 12px; } .px-4 { padding-left: 16px; padding-right: 16px; }
+.py-1 { padding-top: 4px; padding-bottom: 4px; } .py-2 { padding-top: 8px; padding-bottom: 8px; } .py-3 { padding-top: 12px; padding-bottom: 12px; }
+.pt-3 { padding-top: 12px; } .pb-1 { padding-bottom: 4px; } .pb-3 { padding-bottom: 12px; }
+.py-05 { padding-top: 2px; padding-bottom: 2px; }
+.w-16 { width: 64px; } .w-20 { width: 80px; } .w-24 { width: 96px; } .w-28 { width: 112px; } .w-44 { width: 176px; }
+.w-52 { width: 208px; } .w-56 { width: 224px; } .w-64 { width: 256px; } .w-72 { width: 288px; } .w-full { width: 100%; }
+.max-w-lg { max-width: 540px; }
+.type-caption { font-size: var(--type-caption-size); line-height: var(--type-caption-line); letter-spacing: .4px; }
+.type-label { font-size: var(--type-label-size); line-height: var(--type-label-line); font-weight: var(--font-medium); letter-spacing: .5px; }
+.type-body-small { font-size: var(--type-body-small-size); line-height: var(--type-body-small-line); letter-spacing: .25px; }
+.type-body { font-size: var(--type-body-size); line-height: var(--type-body-line); letter-spacing: .25px; }
+.type-title { font-size: var(--type-title-size); line-height: var(--type-title-line); font-weight: var(--font-medium); letter-spacing: .15px; }
+.type-headline { font-size: var(--type-headline-size); line-height: var(--type-headline-line); font-weight: var(--font-medium); letter-spacing: 0; }
+.text-right { text-align: right; } .text-center { text-align: center; }
+.font-regular { font-weight: var(--font-regular); }
+.font-medium { font-weight: var(--font-medium); }
+.font-bold { font-weight: var(--font-bold); }
+.font-italic { font-style: italic; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scroll-x { overflow-x: auto; }
+.tax-summary { min-width: 48rem; }
+.tax-bucket-acc .acc-head-main { flex-wrap: wrap; }
+.border-t { border-top: 1px solid var(--line); } .border-b { border-bottom: 1px solid var(--line); }
+.relative { position: relative; }
+.space-y-1 > * + * { margin-top: 4px; } .space-y-3 > * + * { margin-top: 12px; } .space-y-05 > * + * { margin-top: 2px; }
+.grid2 { display: grid; grid-template-columns: 1fr; }
+@media (min-width: 860px) { .grid2 { grid-template-columns: 1fr 1fr; } }
+/* asymmetric 1/3 + 2/3 row (dashboard: money flow + where-money-goes) */
+.grid-1-2 { display: grid; grid-template-columns: 1fr; gap: 24px; }
+@media (min-width: 860px) { .grid-1-2 { grid-template-columns: 1fr 2fr; } }
+/* 3-up responsive grid (settlement monthly cards) with a real column gap. */
+.grid3 { display: grid; grid-template-columns: 1fr; column-gap: 20px; }
+@media (min-width: 1000px) { .grid3 { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1380px) { .grid3 { grid-template-columns: repeat(3, 1fr); } }
+/* Settlement tables: hairline under each row so values are easy to follow. */
+.settle-table { border-collapse: collapse; }
+.settle-table td { border-bottom: 1px solid var(--line); padding-top: 5px; padding-bottom: 5px; }
+.settle-table tr:last-child td { border-bottom: none; }
+/* Ratio slider (native input range, themed). */
+.ratio-range { accent-color: var(--primary); height: 26px; cursor: pointer; }
+@media (max-width: 700px) { .appbar-row, main, .app-footer-inner { padding-left: 12px; padding-right: 12px; } .w-56, .w-64, .w-72 { width: 40%; } }
+
+/* ---- Segmented Control ---- */
+.seg-ctrl { display: inline-flex; align-items: center; border: 1px solid var(--md-sys-color-outline); border-radius: 8px; overflow: hidden; min-height: 42px; }
+.seg-ctrl .seg-option {
+  --md-outlined-button-container-height: 40px;
+  --md-outlined-button-container-shape: 0;
+  --md-outlined-button-outline-width: 0;
+  --md-outlined-button-label-text-color: var(--ink);
+  --md-outlined-button-hover-label-text-color: var(--ink);
+  --md-outlined-button-label-text-size: var(--type-title-size);
+  --md-outlined-button-label-text-line-height: 20px;
+  --md-outlined-button-leading-space: 12px;
+  --md-outlined-button-trailing-space: 12px;
+  flex: 1 1 auto;
+  min-width: max-content;
+  background: var(--md-sys-color-surface-container-lowest);
+  border-right: 1px solid var(--md-sys-color-outline);
+}
+.seg-option-content { display: inline-flex; align-items: center; justify-content: center; gap: 8px; line-height: 20px; vertical-align: middle; }
+/* Some glyphs (faces) are wider/taller than a square box — keep the height fixed but let the
+   width flex and let the glyph overflow rather than clip. */
+.seg-icon { --md-icon-size: 20px; width: auto; height: 20px; line-height: 20px; overflow: visible; }
+.seg-ctrl .seg-option:last-child { border-right: none; }
+.seg-ctrl .seg-option:hover { background: var(--md-sys-color-surface-container); }
+.seg-ctrl .seg-option.selected {
+  --md-outlined-button-label-text-color: var(--md-sys-color-on-secondary-container);
+  --md-outlined-button-hover-label-text-color: var(--md-sys-color-on-secondary-container);
+  background: var(--md-sys-color-secondary-container);
+}
+
+/* ---- Text Colors ---- */
+.text-positive { color: var(--good); }
+.text-negative { color: var(--bad); }
+
+/* ---- Shared Material dialog / choice list ---- */
+/* Dialog above the sticky header/filter bars (md-dialog here is non-modal, so it
+   needs a higher stacking level than .appbar (10) and .page-sticky (5)). The host
+   defaults to display:contents, which generates no box — so z-index is ignored
+   and its scrim (z-index:1 in the shadow root) paints under the sticky bars. Give
+   the host a real positioned box so z-index takes effect; the scrim then rides in
+   the host's z-100 stacking context, above every sticky bar. Each dialog is its
+   own layer, so a stacked dialog cleanly sits above the one beneath it. */
+.app-dialog { --md-dialog-container-color: var(--md-sys-color-surface-container-high); display: block; position: relative; z-index: 100; }
+.generic-modal-body {
+  box-sizing: border-box;
+  width: var(--app-dialog-width, 440px);
+  max-width: 100%;
+  max-height: var(--app-dialog-maxh, calc(100vh - 180px));
+  min-width: 0;
+  overflow-y: auto;
+}
+.generic-modal-footer {
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+}
+.choice-list { background: transparent; min-width: min(360px, calc(100vw - 80px)); }
+.choice-list md-list-item.selected { background: var(--md-sys-color-secondary-container); }
+.md-check { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; color: var(--ink2); }
+.md-file-field { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+md-outlined-text-field, md-outlined-select { min-width: 160px; }
+
+/* ---- Read-only transaction ---- */
+.txn-readonly { opacity: 0.5; filter: grayscale(100%); pointer-events: none; }
+.txn-readonly .txn-readonly-msg { display: inline-block; color: var(--ink2); margin-left: 8px; }
+
+/* ---- Note Popover ---- */
+.note-popover-container {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+/* Positioned as `fixed` by wireNotePopovers() so it escapes the month accordion's
+   overflow-clip; left/top are set in JS on hover. */
+.note-popover {
+  position: fixed;
+  top: 0; left: 0;
+  background: var(--md-sys-color-surface-variant);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  padding: 12px 16px 8px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-2);
+  width: max-content;
+  max-width: 280px;
+  font-size: var(--type-body-small-size);
+  line-height: var(--type-body-small-line);
+  letter-spacing: .25px;
+  z-index: 2000;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s, visibility 0.15s;
+  pointer-events: auto;
+  cursor: default;
+}
+.note-popover-text {
+  white-space: pre-wrap; margin-bottom: 8px;
+}
+.note-popover md-text-button {
+  margin: 0 -8px;
+}
+
+/* Shared tax-bucket field (Review, Transactions edit, Split). The `filled`
+   class marks that a bucket is selected — tint it so the state is obvious. */
+.tax-field.filled {
+  --md-outlined-button-label-text-color: var(--primary);
+  --md-outlined-button-outline-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  border-radius: 20px;
+}
+
+/* Split parts rendered as indented sub-rows under their parent transaction. */
+/* Transaction rows: one shared grid so main rows and split sub-rows align.
+   Columns: date | account | name | purpose | personal | year-cost | tax | category | amount | edit */
+.txn-item { border-bottom: 1px solid var(--line); }
+.txn-grid {
+  display: grid;
+  grid-template-columns: 56px 140px 210px minmax(0, 1fr) 128px 92px 60px 200px 104px 44px;
+  align-items: center; gap: 12px; padding: 8px 16px;
+  font-size: var(--type-body-small-size); line-height: var(--type-body-small-line); letter-spacing: .25px;
+}
+.txn-amount { display: flex; align-items: center; justify-content: flex-end; gap: 3px; font-weight: var(--font-medium); }
+/* Foreign-currency conversion marker, sits just left of the EUR value (flex-centred). */
+.fx-badge { font-size: 16px; color: var(--ink2); cursor: help; }
+.txn-amount-muted { text-align: right; font-weight: var(--font-regular); color: var(--ink2); }
+
+/* Boolean state pill for the year-cost / tax / personal columns. */
+.col-flag {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 24px; padding: 0 10px; border-radius: 12px;
+  font-size: var(--type-caption-size); line-height: var(--type-caption-line); font-weight: var(--font-medium); letter-spacing: .4px; white-space: nowrap;
+  border: 1px solid var(--md-sys-color-outline-variant);
+}
+.col-flag.on { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); border-color: transparent; }
+.col-flag.off { color: var(--ink2); opacity: .4; }
+
+/* Icon-button used inline in rows — keep the glyph inside the container. */
+.txn-edit { width: 36px; height: 36px; --md-icon-button-icon-size: 20px; }
+.txn-edit md-icon { font-size: 20px; }
+
+/* Split parent + its parts are grouped and greyed so they read as one unit. */
+.txn-item.is-split { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.split-child:not(:last-child) { border-bottom: 1px dashed var(--line); }
+.is-split .split-child:first-of-type { border-top: 1px solid var(--line); }
+.split-child-arrow { opacity: .6; }
+
+/* Category badge — the one read-only category display (label + colour + icon). */
+.cat-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 10px 2px 7px; border-radius: 20px;
+  font-size: var(--type-label-size); line-height: var(--type-label-line); font-weight: var(--font-medium); letter-spacing: .5px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--cat, var(--primary)) 15%, transparent);
+}
+.cat-badge md-icon { font-size: 16px; color: var(--cat, var(--primary)); }
+
+/* Accordion / expansion panel — the house component (no md-expansion-panel
+   exists). True height animation via grid-template-rows: 0fr -> 1fr. */
+.acc { overflow: hidden; }
+.acc-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; user-select: none; }
+.acc-head:hover { background: var(--md-sys-color-surface-container-high); }
+.acc-chevron { flex: none; color: var(--ink2); transition: transform .22s ease; }
+.acc.open > .acc-head .acc-chevron { transform: rotate(180deg); }
+.acc-body-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .25s ease; }
+.acc.open > .acc-body-wrap { grid-template-rows: 1fr; }
+.acc-body { overflow: hidden; }
+/* compact variant (e.g. Review "show transactions") */
+.acc-compact > .acc-head { padding: 4px 2px; gap: 6px; color: var(--ink2); }
+.acc-compact .acc-chevron { font-size: 18px; }
+.acc-compact > .acc-head:hover { background: transparent; text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) {
+  .acc-chevron { transition: none; }
+  .acc-body-wrap { transition: none; }
+}
+
+/* Attachment rows in the attachments modal. */
+.att-item { padding: 6px 8px; border-radius: 8px; background: var(--md-sys-color-surface-container-low); }
+
+/* Ingest page: drag-and-drop zone + staging rows. */
+.drop-zone {
+  border: 2px dashed var(--line); border-radius: 12px; padding: 32px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center;
+  transition: border-color .15s ease, background .15s ease;
+}
+.drop-zone.drag { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent); }
+.drop-zone > md-icon { --md-icon-size: 44px; font-size: 44px; width: 44px; height: 44px; color: var(--ink2); }
+/* Manually-edited alert: an always-filled red (error) icon button, not a hover-only one. */
+.alert-btn {
+  --md-icon-button-icon-size: 20px;
+  background: var(--md-sys-color-error-container);
+  --md-icon-button-icon-color: var(--md-sys-color-on-error-container);
+  border-radius: 50%;
+}
+.alert-btn md-icon { color: var(--md-sys-color-on-error-container); }
+.stage-comment { min-width: 240px; }
+.stage-acct { max-width: 320px; }
+
+/* Accounts management table grid. */
+/* Accounts: one card per account, fields wrap to fit (no horizontal scroll). */
+.acct-card { border: 1px solid var(--line); }
+.acct-field { flex: 1 1 150px; min-width: 130px; box-sizing: border-box; }
+.acct-field.ar-label { flex-basis: 200px; }
+.acct-field.ar-type { flex-basis: 120px; }
+
+/* ---- statement coverage ---- */
+.coverage-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) repeat(12, minmax(44px, 1fr)) minmax(150px, auto);
+  gap: 4px;
+  align-items: center;
+  min-width: 1000px;
+}
+.coverage-account { padding: 8px; color: var(--ink); }
+.coverage-month { padding: 8px 4px; color: var(--ink2); text-align: center; }
+.coverage-cell {
+  display: grid;
+  place-items: center;
+  min-height: 36px;
+  border-radius: 8px;
+  color: var(--ink2);
+}
+.coverage-cell.present { background: var(--good-container); color: var(--on-good-container); }
+.coverage-cell.missing { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
+.coverage-cell.muted { background: var(--md-sys-color-surface-container-high); }
+.coverage-anchor { justify-self: center; gap: 4px; }
+.coverage-anchor md-icon { font-size: 18px; width: 18px; height: 18px; }
+.coverage-gap-list { padding-left: 24px; color: var(--ink); }
+.account-checks { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding-block: 4px; }
+/* Inline help affordance: a small muted question mark that shows the shared tooltip on hover. */
+.help-icon { font-size: 18px; color: var(--ink2); cursor: help; margin-left: -8px; }
+.a-owner { width: 180px; }

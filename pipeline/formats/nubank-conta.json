@@ -1,0 +1,14 @@
+{
+  "name": "nubank-conta",
+  "signature": ["Data", "Valor", "Identificador", "Descrição"],
+  "delimiter": ",",
+  "decimal": "dot",
+  "date_format": "%d/%m/%Y",
+  "columns": {
+    "date": "Data",
+    "amount": "Valor",
+    "counterparty": "Descrição",
+    "purpose": "Descrição"
+  },
+  "currency": "BRL"
+}

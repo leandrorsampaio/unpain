@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "extract-statement report",
+  "type": "object",
+  "required": ["account", "period", "transactions_extracted", "reconciliation"],
+  "properties": {
+    "account": { "type": "string" },
+    "period": { "type": "string", "description": "e.g. 2026-06" },
+    "transactions_extracted": { "type": "integer" },
+    "output_file": { "type": ["string", "null"] },
+    "reconciliation": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["ok", "failed", "no-balances"] },
+        "opening_balance": { "type": ["number", "null"] },
+        "closing_balance": { "type": ["number", "null"] },
+        "sum_of_transactions": { "type": ["number", "null"] },
+        "discrepancy": { "type": ["number", "null"] }
+      }
+    },
+    "issues": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "id": "trade-republic",
+  "label": "Trade Republic",
+  "description": "Trade Republic account statements with running-balance reconciliation",
+  "module": "scripts.trade_republic.extract",
+  "callable": "extract_pdf",
+  "account_bank_contains": "trade republic"
+}

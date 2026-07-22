@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How our money tool works</title>
+<style>
+  /* ---- Roboto + Material Symbols, vendored from the app (offline) ---- */
+  @font-face { font-family: Roboto; font-weight: 400; font-display: swap;
+    src: url('app/static/vendor/fonts/roboto-latin-400-normal.woff2') format('woff2'); }
+  @font-face { font-family: Roboto; font-weight: 500; font-display: swap;
+    src: url('app/static/vendor/fonts/roboto-latin-500-normal.woff2') format('woff2'); }
+  @font-face { font-family: Roboto; font-weight: 700; font-display: swap;
+    src: url('app/static/vendor/fonts/roboto-latin-700-normal.woff2') format('woff2'); }
+  @font-face { font-family: 'Material Symbols Outlined'; font-display: swap;
+    src: url('app/static/vendor/fonts/material-symbols-outlined.woff2') format('woff2'); }
+  .mi { font-family: 'Material Symbols Outlined'; font-weight: normal; font-style: normal;
+    line-height: 1; letter-spacing: normal; text-transform: none; white-space: nowrap;
+    direction: ltr; -webkit-font-feature-settings: 'liga'; font-feature-settings: 'liga';
+    -webkit-font-smoothing: antialiased; }
+
+  /* ---- Material 3 tokens, taken from the app (light default) ---- */
+  :root {
+    --primary: #005bc0; --on-primary: #ffffff;
+    --primary-container: #d8e2ff; --on-primary-container: #001a41;
+    --secondary-container: #dbe2f9; --on-secondary-container: #131b2c;
+    --surface: #fefbff; --card: #f4f3fa; --card-lowest: #ffffff; --card-high: #e9e8ef;
+    --ink: #1b1b1f; --ink2: #44474f; --outline: #c4c6d0;
+    --error-container: #ffdad6; --on-error-container: #410002; --error: #ba1a1a;
+    --tertiary: #715574;
+    --chart-1: #005bc0; --chart-2: #e37400;
+    --good: #2f6b34; --good-container: #b6f2b6; --on-good-container: #06390d;
+    --warn-container: #ffdfa0; --on-warn-container: #4a3200;
+    --shadow: 0 1px 2px rgba(0,0,0,.10), 0 3px 10px rgba(0,0,0,.06);
+    --shadow-lg: 0 6px 24px rgba(0,0,0,.14);
+  }
+  :root[data-theme="dark"] {
+    --primary: #adc7ff; --on-primary: #002e68;
+    --primary-container: #004493; --on-primary-container: #d8e2ff;
+    --secondary-container: #3f4759; --on-secondary-container: #dbe2f9;
+    --surface: #131316; --card: #1f1f23; --card-lowest: #0e0e11; --card-high: #2b2b2f;
+    --ink: #e3e2e6; --ink2: #c4c6d0; --outline: #44474f;
+    --error-container: #93000a; --on-error-container: #ffb4ab; --error: #ffb4ab;
+    --tertiary: #debcdf;
+    --chart-1: #3987e5; --chart-2: #c98500;
+    --good: #7fd68a; --good-container: #1c4523; --on-good-container: #b6f2b6;
+    --warn-container: #5b4300; --on-warn-container: #ffdfa0;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 3px 12px rgba(0,0,0,.35);
+    --shadow-lg: 0 8px 30px rgba(0,0,0,.5);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { font-family: Roboto, system-ui, sans-serif; background: var(--surface); color: var(--ink);
+    overflow: hidden; -webkit-font-smoothing: antialiased; }
+
+  .deck { position: fixed; inset: 0; }
+  .slide { position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: clamp(20px, 4.5vw, 70px);
+    opacity: 0; visibility: hidden; transform: translateY(14px) scale(.995);
+    transition: opacity .38s ease, transform .38s ease, visibility .38s; }
+  .slide.active { opacity: 1; visibility: visible; transform: none; }
+  .slide.past { transform: translateY(-14px) scale(.995); }
+
+  .wrap { width: 100%; max-width: 1100px; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-size: clamp(11px,1.2vw,13.5px);
+    font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--primary); margin-bottom: 16px; }
+  .eyebrow .n { background: var(--primary-container); color: var(--on-primary-container);
+    border-radius: 999px; padding: 2px 10px; letter-spacing: .04em; }
+  .eyebrow .tag { background: var(--good-container); color: var(--on-good-container);
+    border-radius: 999px; padding: 2px 10px; letter-spacing: .06em; }
+  h1 { font-size: clamp(32px,5.6vw,62px); font-weight: 700; line-height: 1.04; letter-spacing: -.02em; }
+  h2 { font-size: clamp(26px,4vw,42px); font-weight: 700; line-height: 1.09; letter-spacing: -.015em; }
+  .lede { font-size: clamp(16px,2vw,23px); color: var(--ink2); line-height: 1.5; margin-top: 16px; max-width: 46ch; }
+  .sub { color: var(--ink2); font-size: clamp(14px,1.6vw,18px); margin-top: 12px; line-height: 1.55; max-width: 60ch; }
+
+  .card { background: var(--card); border-radius: 20px; box-shadow: var(--shadow);
+    border: 1px solid color-mix(in srgb, var(--outline) 45%, transparent); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--secondary-container);
+    color: var(--on-secondary-container); border-radius: 999px; padding: 5px 12px; font-size: 13.5px; font-weight: 500; }
+  .chip.primary { background: var(--primary-container); color: var(--on-primary-container); }
+  .chip.good { background: var(--good-container); color: var(--on-good-container); }
+  .chip.bad  { background: var(--error-container); color: var(--on-error-container); }
+  .chip.warn { background: var(--warn-container); color: var(--on-warn-container); }
+
+  /* number badges for tutorial callouts */
+  .pin { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+    background: var(--primary); color: var(--on-primary); font-size: 13px; font-weight: 700; flex: none; }
+
+  /* fake app controls */
+  .fbtn { border-radius: 999px; padding: 8px 16px; font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+  .fbtn.solid { background: var(--primary); color: var(--on-primary); }
+  .fbtn.text { color: var(--primary); }
+  .fbtn.tonal { background: var(--secondary-container); color: var(--on-secondary-container); }
+  .fsel { border: 1px solid var(--outline); border-radius: 8px; padding: 7px 12px; font-size: 14px;
+    background: var(--card-lowest); color: var(--ink); display: inline-flex; align-items: center; gap: 8px; }
+  .fsel .mi { font-size: 18px; color: var(--ink2); }
+
+  /* ===== 1 title ===== */
+  .title-mark { width: 84px; height: 84px; border-radius: 24px;
+    background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--tertiary) 70%, var(--primary)));
+    display: grid; place-items: center; color: var(--on-primary); font-size: 42px; margin-bottom: 28px; box-shadow: var(--shadow-lg); }
+  .signoff { margin-top: 30px; color: var(--ink2); font-size: 16px; }
+
+  /* ===== 2 loop ===== */
+  .loop { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 12px; align-items: stretch; margin-top: 34px; }
+  .step { padding: 24px 20px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 11px; }
+  .step .glyph { width: 62px; height: 62px; border-radius: 18px; display: grid; place-items: center;
+    font-size: 30px; background: var(--primary-container); color: var(--on-primary-container); }
+  .step h3 { font-size: clamp(16px,1.8vw,20px); font-weight: 700; }
+  .step p { color: var(--ink2); font-size: 14px; line-height: 1.45; }
+  .arrow { align-self: center; color: var(--outline); font-size: 28px; font-weight: 700; }
+  .whose { font-size: 11.5px; font-weight: 600; letter-spacing: .03em; padding: 3px 10px; border-radius: 999px; }
+  .whose.me { background: var(--card-high); color: var(--ink2); }
+  .whose.us { background: var(--good-container); color: var(--on-good-container); }
+
+  /* ===== 3 tab bar ===== */
+  .appbar { margin-top: 30px; padding: 0; overflow: hidden; }
+  .appbar-top { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid color-mix(in srgb,var(--outline) 45%,transparent); }
+  .appbar-top .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+  .appbar-top .logo .mi { color: var(--primary); }
+  .tabbar { display: flex; gap: 4px; padding: 8px 12px; overflow-x: auto; }
+  .tab { display: inline-flex; align-items: center; gap: 7px; padding: 9px 16px; border-radius: 999px;
+    font-size: 14.5px; font-weight: 500; color: var(--ink2); white-space: nowrap; }
+  .tab .mi { font-size: 19px; }
+  .tab.on { background: var(--secondary-container); color: var(--on-secondary-container); font-weight: 700; }
+  .tab .badge { background: var(--error); color: #fff; border-radius: 999px; font-size: 11px; font-weight: 700; padding: 1px 7px; }
+  .callouts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 34px; margin-top: 26px; }
+  .callouts .co { display: flex; gap: 12px; align-items: flex-start; font-size: 15.5px; }
+  .callouts .co b { font-weight: 700; }
+  .callouts .co .d { color: var(--ink2); font-size: 13.5px; }
+
+  /* ===== review card anatomy ===== */
+  .revhead { background: var(--card-high); border-radius: 12px; padding: 12px 16px; font-size: 14.5px; color: var(--ink2); margin-bottom: 16px; }
+  .revhead b { color: var(--ink); }
+  .revcard { padding: 18px 20px; }
+  .revrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .revrow .m { font-weight: 700; font-size: 17px; }
+  .revctrls { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .annot { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 30px; margin-top: 24px; }
+  .annot .a { display: flex; gap: 12px; align-items: flex-start; font-size: 15px; }
+  .annot .a .d { color: var(--ink2); font-size: 13px; margin-top: 2px; }
+
+  /* ===== split ===== */
+  .splitwrap { display: grid; grid-template-columns: 1.05fr .95fr; gap: 34px; align-items: center; margin-top: 26px; }
+  .splitcard { padding: 20px 22px; }
+  .splitcard .st { font-weight: 600; font-size: 15px; margin-bottom: 12px; }
+  .srow { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; }
+  .srow .amt { width: 92px; border: 1px solid var(--outline); border-radius: 8px; padding: 7px 10px; font-variant-numeric: tabular-nums; font-weight: 600; background: var(--card-lowest); }
+  .srow .cat { flex: 1; }
+  .srow .fsel { width: 100%; justify-content: space-between; }
+  .sumline { margin-top: 12px; font-size: 13.5px; }
+  .sumline .ok { color: var(--good); font-weight: 600; }
+
+  /* ===== add entry form ===== */
+  .formwrap { display: grid; grid-template-columns: 1fr 1fr; gap: 34px; align-items: center; margin-top: 26px; }
+  .form { padding: 24px 26px; display: flex; flex-direction: column; gap: 14px; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 12.5px; font-weight: 600; color: var(--ink2); text-transform: uppercase; letter-spacing: .05em; }
+  .field .inp { border: 1px solid var(--outline); border-radius: 10px; padding: 11px 14px; font-size: 15px;
+    background: var(--card-lowest); color: var(--ink); display: flex; align-items: center; justify-content: space-between; }
+  .field .inp.ph { color: var(--ink2); }
+
+  /* ===== dashboard ===== */
+  .dash { display: grid; grid-template-columns: auto 1fr; gap: 20px; margin-top: 26px; align-items: stretch; }
+  .ring-card { padding: 26px 32px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+  .ring { width: 158px; height: 158px; border-radius: 50%;
+    background: conic-gradient(var(--good) 0 var(--pct,21%), var(--card-high) 0); display: grid; place-items: center; position: relative; }
+  .ring::after { content: ''; position: absolute; inset: 17px; border-radius: 50%; background: var(--card); }
+  .ring .val { position: relative; z-index: 1; font-size: 42px; font-weight: 700; }
+  .ring-card .cap { font-weight: 600; } .ring-card .cap2 { color: var(--ink2); font-size: 13.5px; }
+  .dash-right { display: grid; grid-template-rows: auto 1fr; gap: 16px; }
+  .flow { padding: 18px 22px; display: flex; gap: 28px; }
+  .flow .k { color: var(--ink2); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+  .flow .v { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 3px; }
+  .flow .v.in { color: var(--chart-1); } .flow .v.out { color: var(--chart-2); } .flow .v.save { color: var(--good); }
+  .monthchart { padding: 18px 22px; display: flex; align-items: flex-end; gap: 12px; min-height: 140px; }
+  .mcol { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; justify-content: flex-end; }
+  .mcol .bars { display: flex; gap: 3px; align-items: flex-end; height: 86px; }
+  .mcol .bars i { width: 11px; border-radius: 3px 3px 0 0; display: block; }
+  .mcol .bars .in { background: var(--chart-1); } .mcol .bars .out { background: var(--chart-2); }
+  .mcol .lbl { font-size: 11.5px; color: var(--ink2); }
+
+  /* ===== categories ===== */
+  .cats { margin-top: 24px; padding: 24px 28px; }
+  .catrow { display: grid; grid-template-columns: 150px 1fr 90px; gap: 16px; align-items: center; padding: 10px 0; }
+  .catrow + .catrow { border-top: 1px solid color-mix(in srgb, var(--outline) 40%, transparent); }
+  .catname { font-weight: 600; font-size: 14.5px; }
+  .track { position: relative; height: 15px; background: var(--card-high); border-radius: 999px; }
+  .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--chart-1); }
+  .fill.over { background: var(--error); }
+  .budgetmark { position: absolute; top: -4px; bottom: -4px; width: 3px; border-radius: 2px; background: var(--ink2); }
+  .catval { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 14.5px; }
+  .catval.over { color: var(--error); }
+
+  /* ===== settlement ===== */
+  .settle-tbl { margin-top: 24px; padding: 22px 26px; }
+  .settle-tbl table { width: 100%; border-collapse: collapse; font-size: 15px; }
+  .settle-tbl td { padding: 9px 4px; }
+  .settle-tbl thead td { color: var(--ink2); font-size: 12.5px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+  .settle-tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .settle-tbl tr.bal { border-top: 2px solid var(--outline); font-weight: 700; font-size: 16px; }
+  .settle-tbl .pos { color: var(--good); } .settle-tbl .neg { color: var(--error); }
+  .settle-note { margin-top: 16px; padding: 16px 20px; display: flex; align-items: center; gap: 14px; }
+  .settle-note .glyph { width: 46px; height: 46px; border-radius: 14px; background: var(--good-container); color: var(--on-good-container); display: grid; place-items: center; font-size: 24px; flex: none; }
+
+  /* ===== tax ===== */
+  .tax { margin-top: 26px; display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: center; }
+  .folder { padding: 32px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+  .folder .glyph { width: 104px; height: 104px; border-radius: 26px; background: var(--primary-container); color: var(--on-primary-container); display: grid; place-items: center; font-size: 52px; box-shadow: var(--shadow-lg); }
+  .folder .fname { font-weight: 700; font-size: 17px; } .folder .fsub { color: var(--ink2); font-size: 13.5px; }
+  .taxlist { list-style: none; display: flex; flex-direction: column; gap: 13px; }
+  .taxlist li { display: flex; gap: 13px; align-items: flex-start; font-size: 16px; }
+  .taxlist .tick { width: 28px; height: 28px; border-radius: 50%; background: var(--good-container); color: var(--on-good-container); display: grid; place-items: center; flex: none; font-weight: 700; }
+  .taxlist .t2 { color: var(--ink2); font-size: 13.5px; margin-top: 2px; }
+
+  /* ===== routine recap ===== */
+  .routine { margin-top: 26px; display: flex; flex-direction: column; gap: 12px; }
+  .rstep { padding: 16px 20px; display: flex; align-items: center; gap: 16px; }
+  .rstep .num { width: 34px; height: 34px; border-radius: 50%; background: var(--primary); color: var(--on-primary); display: grid; place-items: center; font-weight: 700; flex: none; }
+  .rstep .txt b { font-size: 16px; } .rstep .txt p { color: var(--ink2); font-size: 13.5px; margin-top: 1px; }
+  .rstep .when { margin-left: auto; }
+
+  /* ===== chrome ===== */
+  .chrome { position: fixed; z-index: 20; }
+  .progress { top: 0; left: 0; right: 0; height: 4px; }
+  .progress .fillp { height: 100%; background: var(--primary); width: 0; transition: width .38s ease; }
+  .dots { bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; max-width: 70vw; flex-wrap: wrap; justify-content: center; }
+  .dots button { width: 8px; height: 8px; border-radius: 50%; border: none; padding: 0; cursor: pointer;
+    background: color-mix(in srgb, var(--ink2) 45%, transparent); transition: all .25s; }
+  .dots button.on { background: var(--primary); width: 24px; border-radius: 999px; }
+  .counter { bottom: 18px; right: 22px; color: var(--ink2); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .toolbar { top: 14px; right: 18px; display: flex; gap: 8px; }
+  .toolbar button { width: 38px; height: 38px; border-radius: 11px; border: 1px solid var(--outline);
+    background: var(--card); color: var(--ink2); cursor: pointer; font-size: 17px; display: grid; place-items: center; }
+  .toolbar button:hover { background: var(--card-high); color: var(--ink); }
+  .arrowbtn { top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 50%; border: none;
+    background: var(--card); color: var(--ink2); box-shadow: var(--shadow); cursor: pointer; font-size: 21px; display: grid; place-items: center; opacity: .55; transition: opacity .2s; }
+  .arrowbtn:hover { opacity: 1; }
+  .arrowbtn.prev { left: 16px; } .arrowbtn.next { right: 16px; }
+  .arrowbtn[hidden] { display: none; }
+  .notes { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: var(--card-lowest);
+    border-top: 2px solid var(--primary); box-shadow: var(--shadow-lg); padding: 18px 26px 22px; max-height: 42vh; overflow-y: auto;
+    transform: translateY(101%); transition: transform .3s ease; }
+  .notes.open { transform: none; }
+  .notes .nh { font-size: 11.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--primary); margin-bottom: 7px; }
+  .notes .nbody { font-size: 15.5px; line-height: 1.55; color: var(--ink); max-width: 84ch; }
+  .hint { position: fixed; bottom: 18px; left: 22px; color: var(--ink2); font-size: 12px; opacity: .7; z-index: 20; transition: opacity .5s; }
+
+  @media (max-width: 820px) {
+    .loop { grid-template-columns: 1fr; } .arrow { transform: rotate(90deg); }
+    .dash, .tax, .splitwrap, .formwrap { grid-template-columns: 1fr; }
+    .callouts, .annot { grid-template-columns: 1fr; } .arrowbtn { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="chrome progress"><div class="fillp" id="prog"></div></div>
+<div class="toolbar chrome">
+  <button id="themeBtn" title="Light / dark">◐</button>
+  <button id="notesBtn" title="Speaker notes (N)">☰</button>
+  <button id="fsBtn" title="Fullscreen (F)">⛶</button>
+</div>
+<button class="arrowbtn prev chrome" id="prevBtn" aria-label="Previous">‹</button>
+<button class="arrowbtn next chrome" id="nextBtn" aria-label="Next">›</button>
+
+<main class="deck" id="deck">
+
+  <!-- 1 title -->
+  <section class="slide" data-notes="Just us, a few minutes. Nothing to sell — we already decided to do this together. I want to actually walk you through the app so it's not a black box: what the screens are, what you'd click, and what we get out of it. It's genuinely just a few clicks a month.">
+    <div class="wrap" style="text-align:center; display:flex; flex-direction:column; align-items:center;">
+      <div class="title-mark">€</div>
+      <h1>How our money tool works</h1>
+      <p class="lede" style="margin-left:auto;margin-right:auto;">A calm walkthrough of the app we set up — the screens, the few clicks you'd do, and what we finally get to see.</p>
+      <div class="signoff">Made by us · for us · a short hands-on tour</div>
+    </div>
+  </section>
+
+  <!-- 2 loop -->
+  <section class="slide" data-notes="Big picture first. The whole thing is a loop of three steps. One: our bank exports drop into a folder and the computer reads them — that's on me, you never touch it. Two: whatever it isn't sure about, it asks us, in the browser — that's the only part that needs a person. Three: everything after — totals, charts, the fair split, the tax pack — happens by itself and stays current. So the only real 'work' is step two, and it shrinks every month.">
+    <div class="wrap">
+      <div class="eyebrow"><span class="n">01</span> The whole thing, in one loop</div>
+      <h2>Three steps — only one needs us</h2>
+      <div class="loop">
+        <div class="card step"><div class="glyph">📥</div><h3>Files come in</h3><p>Bank exports drop into a folder; the computer reads them.</p><span class="whose me">My job</span></div>
+        <div class="arrow">→</div>
+        <div class="card step"><div class="glyph">✅</div><h3>Quick review</h3><p>It asks us about anything new. We confirm or fix.</p><span class="whose us">The only human bit</span></div>
+        <div class="arrow">→</div>
+        <div class="card step"><div class="glyph">✨</div><h3>The rest is automatic</h3><p>Totals, charts, the split, the tax pack — always current.</p><span class="whose us">Automatic</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 meet the app / tabs -->
+  <section class="slide" data-notes="This is the app itself, in a browser on our home network. Up top: the year, and my buttons (Ingest, backup) — ignore those. The row of tabs is the whole app. Dashboard is the picture. Transactions is every line if we ever need to look something up. Review — the one with the red number — is the only tab you really live in; the number is how many things are waiting. The rest (Rules, Categories, Settlement, Tax) mostly run themselves; we'll peek at Settlement and Tax later. Add entry is for cash. That's the entire map.">
+    <div class="wrap">
+      <div class="eyebrow"><span class="n">02</span> Meet the app</div>
+      <h2>One screen, a row of tabs</h2>
+      <div class="card appbar">
+        <div class="appbar-top">
+          <span class="logo"><span class="mi">savings</span> Family Accountability</span>
+          <span class="fsel" style="margin-left:auto">2026 <span class="mi">expand_more</span></span>
+          <span class="fbtn tonal"><span class="mi">upload_file</span> Ingest inbox</span>
+          <span class="mi" style="color:var(--ink2)">cloud_download</span>
+          <span class="mi" style="color:var(--ink2)">dark_mode</span>
+        </div>
+        <div class="tabbar">
+          <span class="tab"><span class="mi">insights</span> Dashboard</span>
+          <span class="tab"><span class="mi">receipt_long</span> Transactions</span>
+          <span class="tab on"><span class="mi">rule</span> Review <span class="badge">12</span></span>
+          <span class="tab"><span class="mi">tune</span> Rules</span>
+          <span class="tab"><span class="mi">category</span> Categories</span>
+          <span class="tab"><span class="mi">balance</span> Settlement</span>
+          <span class="tab"><span class="mi">account_balance</span> Tax</span>
+          <span class="tab"><span class="mi">add_circle</span> Add entry</span>
+        </div>
+      </div>
+      <div class="callouts">
+        <div class="co"><span class="pin">1</span><div><b>Review</b> — your home. <span class="d">The red number is how many things are waiting for us.</span></div></div>
+        <div class="co"><span class="pin">2</span><div><b>Dashboard</b> — the picture. <span class="d">Savings, categories, where the money goes.</span></div></div>
+        <div class="co"><span class="pin">3</span><div><b>Settlement &amp; Tax</b> — the payoffs. <span class="d">Who owes whom; the year-end tax pack.</span></div></div>
+        <div class="co"><span class="pin">4</span><div><b>Top bar</b> — my stuff. <span class="d">Year, Ingest, backup. You can ignore it.</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 review overview -->
+  <section class="slide" data-notes="Now the Review tab up close — this is the whole job. It doesn't hand you 200 lines. It groups them: all the REWE visits together, all the DM visits together. So instead of tagging every transaction, you tag each shop once. This month it's 12 transactions but only 5 groups. That's the phrase across the top of the real screen, word for word.">
+    <div class="wrap">
+      <div class="eyebrow"><span class="n">03</span> The Review tab · the whole job</div>
+      <h2>It groups, so you decide once per shop</h2>
+      <div class="revhead">💡 <b>12 transactions in 5 groups.</b> Pick a category once per group — <b>“Apply + rule”</b> books everything matching and remembers it forever.</div>
+      <div class="card revcard" style="margin-bottom:12px;">
+        <div class="revrow"><span class="m">REWE</span><span class="chip primary">6×</span><span class="chip" style="color:var(--ink2)">€261,40</span></div>
+      </div>
+      <div class="card revcard" style="margin-bottom:12px; opacity:.6;">
+        <div class="revrow"><span class="m">DM Drogerie</span><span class="chip primary">3×</span><span class="chip" style="color:var(--ink2)">€54,10</span></div>
+      </div>
+      <div class="card revcard" style="opacity:.4;">
+        <div class="revrow"><span class="m">Shell</span><span class="chip primary">2×</span><span class="chip" style="color:var(--ink2)">€122,00</span></div>
+      </div>
+      <p class="sub">Groups are sorted biggest first. Clear the top one, it disappears, the next moves up.</p>
+    </div>
+  </section>
+
+  <!-- 5 anatomy of a review card -->
+  <section class="slide" data-notes="Here's one group opened up, with every control numbered. One: what it found — REWE, six times. Two: you pick the category — Groceries. Three: is this shared, or just mine/yours, or out of scope (not our accounting at all). Leave it Shared almost always. Four: 'Apply' books just these six. Five — the important one — 'Apply + rule' books them AND writes the rule, so REWE is never asked about again. That fifth button is why the pile shrinks to almost nothing. That's the entire skill: pick category, hit Apply + rule.">
+    <div class="wrap">
+      <div class="eyebrow"><span class="n">04</span> Anatomy of one group</div>
+      <h2>Pick a category, tap <span style="color:var(--primary)">Apply + rule</span></h2>
+      <div class="card revcard">
+        <div class="revrow">
+          <span class="pin">1</span><span class="m">REWE</span><span class="chip primary">6×</span><span class="chip" style="color:var(--ink2)">€261,40</span>
+          <div class="revctrls">
+            <span class="pin">2</span><span class="fsel">Groceries <span class="mi">expand_more</span></span>
+            <span class="pin">3</span><span class="fsel">Shared <span class="mi">expand_more</span></span>
+            <span class="pin">4</span><span class="fbtn solid">Apply</span>
+            <span class="pin">5</span><span class="fbtn text">Apply + rule</span>
+          </div>
+        </div>
+      </div>
+      <div class="annot">
+        <div class="a"><span class="pin">1</span><div>What it found<div class="d">The shop and how many times it appeared.</div></div></div>
+        <div class="a"><span class="pin">2</span><div>Pick the category<div class="d">Groceries, Transport, Home… one choice.</div></div></div>
+        <div class="a"><span class="pin">3</span><div>Shared / Personal / Out of scope<div class="d">Almost always leave it <b>Shared</b>.</div></div></div>
+        <div class="a"><span class="pin">4</span><div><b>Apply</b><div class="d">Books just these, this once.</div></div></div>
+        <div class="a"><span class="pin">5</span><div><b>Apply + rule</b> ✨<div class="d">Books them <b>and</b> remembers REWE forever — use this one.</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 split -->
+  <section class="slide" data-notes="One special case worth knowing: a single purchase that's really several things — the classic is Amazon. Say an €80 order that was €50 of kids' stuff and €30 for the house. On that transaction you hit 'Split', type the parts, and they must add up to exactly the original — the app won't let you save if they don't. Now each part lands in the right category. You won't do this often, but when Amazon shows up, this is the move.">
+    <div class="wrap">
+      <div class="eyebrow"><span class="n">05</span> The one special case</div>
+      <h2>Splitting a mixed purchase</h2>
+      <div class="splitwrap">
+        <div class="card splitcard">
+          <div class="st">Split €80,00 into parts (must sum exactly)</div>
+          <div class="srow"><span class="amt">50,00</span><span class="cat"><span class="fsel">Kids <span class="mi">expand_more</span></span></span><span class="fsel">Shared <span class="mi">expand_more</span></span></div>
+          <div class="srow"><span class="amt">30,00</span><span class="cat"><span class="fsel">Home <span class="mi">expand_more</span></span></span><span class="fsel">Shared <span class="mi">expand_more</span></span></div>
+          <div style="display:flex; gap:8px; margin-top:10px;"><span class="fbtn text">+ part</span><span class="fbtn solid">Save split</span></div>
+          <div class="sumline"><span class="ok">✓ 50,00 + 30,00 = 80,00</span> — matches, ready to save.</div>
+        </div>
+        <div>
+          <h2 style="font-size:clamp(22px,3vw,32px)">One charge → several categories</h2>
+          <p class="sub">Amazon and PayPal always land here on purpose — they're never just one thing. Type the parts; they must total the original to the cent.</p>
+          <div style="margin-top:16px;"><span class="chip warn">The app blocks saving if the parts don't add up</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 add entry -->
+  <section class="slide" data-notes="The banks cover almost everything, but cash doesn't leave a trail. If you paid cash — say €25 at the market — the 'Add entry' tab lets you type it in: date, amount, category, done. That's the only time you ever type a transaction by hand. Everything else comes from the bank files automatically.">
+    <div class="wrap">
+      <div class="eyebrow"><span class="n">06</span> The only thing you type by hand</div>
+      <h2>Cash goes in “Add entry”</h2>
+      <div class="formwrap">
+        <div class="card form">
+          <div class="st" style="font-weight:700; font-size:16px;">Add cash transaction</div>
+          <div class="field"><label>Date</label><div class="inp">14 June 2026 <span class="mi">calendar_today</span></div></div>
+          <div class="field"><label>Amount (€)</label><div class="inp">25,00</div></div>
+          <div class="field"><label>Category</label><div class="inp">Market / Groceries <span class="mi">expand_more</span></div></div>
+          <div style="margin-top:4px;"><span class="fbtn solid">Save</span></div>
+        </div>
+        <div>
+          <h2 style="font-size:clamp(22px,3vw,32px)">Only for cash</h2>
+          <p class="sub">Card, transfers, direct debits — all automatic from the bank files. This tab is just for the rare cash spend so nothing goes missing.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 dashboard -->
+  <section class="slide" data-notes="That's everything you'd ever do. The rest is just looking. The Dashboard is the thing we never had: at a glance, how much of what came in we actually kept — our savings rate — plus money in, money out, and the shape of the months. No spreadsheet, no adding up. It's just there, and it's always current.">
+    <div class="wrap">
+      <div class="eyebrow"><span class="n">07</span> What we finally get to see</div>
+      <h2>The whole picture, at a glance</h2>
+      <div class="dash">
+        <div class="card ring-card"><div class="ring" style="--pct:21%"><span class="val">21%</span></div><div class="cap">Savings rate</div><div class="cap2">of what came in, we kept</div></div>
+        <div class="dash-right">
+          <div class="card flow">
+            <div><div class="k">In</div><div class="v in">€6.400</div></div>
+            <div><div class="k">Out</div><div class="v out">€5.050</div></div>
+            <div><div class="k">Saved</div><div class="v save">€1.350</div></div>
+          </div>
+          <div class="card monthchart" id="mc"></div>
+        </div>
+      </div>
+      <p class="sub">Example numbers — the real ones update themselves as we clear the queue.</p>
+    </div>
+  </section>
+
+  <!-- 9 categories -->
+  <section class="slide" data-notes="Same picture, broken down. Every category, what we spent, and a little mark for the budget we set. The point isn't to be cheap — it's to spot where money quietly leaks, so we can ease off there without giving up anything we enjoy. Groceries and dining are fine here; the red one went over budget — that's just a place to look, not a rule to obey.">
+    <div class="wrap">
+      <div class="eyebrow"><span class="n">08</span> Where it goes · where we could ease off</div>
+      <h2>Categories &amp; budgets</h2>
+      <div class="card cats">
+        <div class="catrow"><span class="catname">Groceries</span><div class="track"><div class="fill" style="width:62%"></div><div class="budgetmark" style="left:75%"></div></div><span class="catval">€560</span></div>
+        <div class="catrow"><span class="catname">Dining out</span><div class="track"><div class="fill" style="width:48%"></div><div class="budgetmark" style="left:60%"></div></div><span class="catval">€210</span></div>
+        <div class="catrow"><span class="catname">Transport</span><div class="track"><div class="fill" style="width:35%"></div><div class="budgetmark" style="left:50%"></div></div><span class="catval">€140</span></div>
+        <div class="catrow"><span class="catname">Subscriptions</span><div class="track"><div class="fill over" style="width:100%"></div><div class="budgetmark" style="left:70%"></div></div><span class="catval over">€96 ⚠</span></div>
+        <div class="catrow"><span class="catname">Home</span><div class="track"><div class="fill" style="width:28%"></div><div class="budgetmark" style="left:45%"></div></div><span class="catval">€120</span></div>
+      </div>
+      <p class="sub">The vertical mark is the budget. Red means we went past it — worth a look, nothing more.</p>
+    </div>
+  </section>
+
+  <!-- 10 settlement -->
+  <section class="slide" data-notes="The fairness part, in the app's own words. It counts what each of us actually paid toward shared costs, works out each person's fair share by income — not 50/50 — and the difference is the balance. Green means you're owed, red means you owe. Then it's one transfer to settle. Month to month it's an estimate; the real, binding count is once after December 31st on what we actually earned that year. No tallying receipts, no arguing — one number.">
+    <div class="wrap">
+      <div class="eyebrow"><span class="n">09</span> How we keep it fair</div>
+      <h2>Settlement — split by income</h2>
+      <div class="card settle-tbl">
+        <table>
+          <thead><tr><td></td><td class="num">Alex</td><td class="num">Sam</td></tr></thead>
+          <tbody>
+            <tr><td>Salary income counted</td><td class="num">€4.100</td><td class="num">€2.700</td></tr>
+            <tr><td>Paid for shared expenses</td><td class="num">€3.200</td><td class="num">€1.850</td></tr>
+            <tr><td>Fair share (of €5.050)</td><td class="num">€3.045</td><td class="num">€2.005</td></tr>
+            <tr class="bal"><td>Balance</td><td class="num pos">+€155</td><td class="num neg">−€155</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card settle-note"><div class="glyph">🤝</div><div><b>Sam transfers €155 to Alex</b> — one payment squares the month.</div></div>
+      <p class="sub">Salary only · monthly is an estimate · the binding count is after Dec 31. (Numbers are an example.)</p>
+    </div>
+  </section>
+
+  <!-- 11 tax -->
+  <section class="slide" data-notes="And the once-a-year payoff: tax. Because everything's already categorized as we go, at year-end it's one click to get a tidy Excel for the Steuerberater — the refund-relevant amounts per bucket, with the evidence behind them. No January panic, no shoebox of receipts.">
+    <div class="wrap">
+      <div class="eyebrow"><span class="n">10</span> The once-a-year payoff</div>
+      <h2>Tax, already done</h2>
+      <div class="tax">
+        <div class="card folder"><div class="glyph">📄</div><div class="fname">Steuer-Pack 2026.xlsx</div><div class="fsub">Generated · one click</div></div>
+        <ul class="taxlist">
+          <li><span class="tick">✓</span><div>Everything's categorized as we go<div class="t2">so nothing has to be sorted in January</div></div></li>
+          <li><span class="tick">✓</span><div>One Excel for the Steuerberater<div class="t2">the refund-relevant amounts, per bucket</div></div></li>
+          <li><span class="tick">✓</span><div>With the evidence attached<div class="t2">receipts and figures behind each number</div></div></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 routine recap -->
+  <section class="slide" data-notes="So here's your whole routine, and it's short. Once a month: open the app on our home network, go to the Review tab — the red number tells you how much is waiting — and for each group pick the category and hit Apply + rule. Split the odd Amazon order. Then glance at the Dashboard if you're curious. That's it. Five minutes, and it never falls behind again.">
+    <div class="wrap">
+      <div class="eyebrow"><span class="tag">Recap</span> Your monthly routine</div>
+      <h2>The whole thing, once a month</h2>
+      <div class="routine">
+        <div class="card rstep"><span class="num">1</span><div class="txt"><b>Open the app</b><p>Browser bookmark, on our home network.</p></div><span class="chip when">~5 min total</span></div>
+        <div class="card rstep"><span class="num">2</span><div class="txt"><b>Go to the Review tab</b><p>The red number is how many groups are waiting.</p></div></div>
+        <div class="card rstep"><span class="num">3</span><div class="txt"><b>For each group: category → Apply + rule</b><p>It remembers, so next month is even shorter.</p></div></div>
+        <div class="card rstep"><span class="num">4</span><div class="txt"><b>Split the odd Amazon order</b><p>Only when a charge is really several things.</p></div></div>
+        <div class="card rstep"><span class="num">5</span><div class="txt"><b>Glance at the Dashboard</b><p>Savings, categories — whenever you're curious.</p></div></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div class="dots chrome" id="dots"></div>
+<div class="counter chrome" id="counter"></div>
+<div class="hint" id="hint">← → to move · N notes · F fullscreen</div>
+
+<div class="notes" id="notes"><div class="nh">What I'll say</div><div class="nbody" id="notesBody"></div></div>
+
+<script>
+  const slides = [...document.querySelectorAll('.slide')];
+  const dotsWrap = document.getElementById('dots');
+  const counter = document.getElementById('counter');
+  const prog = document.getElementById('prog');
+  const notes = document.getElementById('notes');
+  const notesBody = document.getElementById('notesBody');
+  let i = 0, notesOpen = false;
+
+  slides.forEach((_, k) => { const b = document.createElement('button'); b.onclick = () => go(k); dotsWrap.appendChild(b); });
+  const dots = [...dotsWrap.children];
+
+  function render() {
+    slides.forEach((s, k) => { s.classList.toggle('active', k === i); s.classList.toggle('past', k < i); });
+    dots.forEach((d, k) => d.classList.toggle('on', k === i));
+    counter.textContent = (i + 1) + ' / ' + slides.length;
+    prog.style.width = (i / (slides.length - 1) * 100) + '%';
+    document.getElementById('prevBtn').hidden = (i === 0);
+    document.getElementById('nextBtn').hidden = (i === slides.length - 1);
+    notesBody.textContent = slides[i].dataset.notes || '';
+  }
+  function go(n) { i = Math.max(0, Math.min(slides.length - 1, n)); render(); }
+  const next = () => go(i + 1), prev = () => go(i - 1);
+
+  document.getElementById('nextBtn').onclick = next;
+  document.getElementById('prevBtn').onclick = prev;
+  document.getElementById('notesBtn').onclick = toggleNotes;
+  document.getElementById('fsBtn').onclick = () =>
+    document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  document.getElementById('themeBtn').onclick = () => {
+    const r = document.documentElement;
+    const cur = r.getAttribute('data-theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    r.setAttribute('data-theme', cur === 'dark' ? 'light' : 'dark');
+  };
+  function toggleNotes() { notesOpen = !notesOpen; notes.classList.toggle('open', notesOpen); }
+
+  addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); next(); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); prev(); }
+    else if (e.key === 'Home') go(0);
+    else if (e.key === 'End') go(slides.length - 1);
+    else if (e.key.toLowerCase() === 'n') toggleNotes();
+    else if (e.key.toLowerCase() === 'f') document.getElementById('fsBtn').click();
+  });
+
+  // little month chart (illustrative in/out pairs)
+  const mc = document.getElementById('mc');
+  const data = [[70,60],[62,66],[80,58],[74,63],[68,55],[85,61]];
+  const months = ['Jan','Feb','Mar','Apr','May','Jun'];
+  data.forEach((d, k) => {
+    const col = document.createElement('div'); col.className = 'mcol';
+    col.innerHTML = `<div class="bars"><i class="in" style="height:${d[0]}px"></i><i class="out" style="height:${d[1]}px"></i></div><div class="lbl">${months[k]}</div>`;
+    mc.appendChild(col);
+  });
+
+  // apply system dark preference initially
+  if (matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.setAttribute('data-theme','dark');
+  setTimeout(() => { const h = document.getElementById('hint'); if (h) h.style.opacity = '0'; }, 6000);
+  render();
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+"Booking Date","Value Date","Partner Name","Partner Iban","Type","Payment Reference","Account Name","Amount (EUR)","Original Amount","Original Currency","Exchange Rate"
+"2026-06-02","2026-06-02","EMPLOYER TECH GMBH","DE66666666666666666666","Credit Transfer","SALARY JUNE","Main Account","4800.0","","",""
+"2026-06-08","2026-06-08","LIDL DIENSTLEISTUNG","DE77777777777777777777","Debit Transfer","","Main Account","-33.45","","",""
+"2026-06-21","2026-06-21","FirstName2 SharedSurname","DE55555555555555555555","Credit Transfer","AUSGLEICH MAI","Main Account","250.0","","",""
+"2026-06-25","2026-06-25","UNKNOWN VENDOR XYZ","DE88888888888888888888","Debit Transfer","INVOICE 42","Main Account","-120.0","","",""
+"2026-06-28","2026-06-28","BANK CARD SERVICE","","Debit Transfer","CREDIT CARD SETTLEMENT","Main Account","-75.0","","",""

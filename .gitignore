@@ -1,0 +1,22 @@
+# --- personal data: never committed ---
+data/
+inbox/
+receipts/
+feedback/
+rules/
+/config.json
+
+# --- environment ---
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.claude/settings.local.json
+
+backups/
+demo/
+app/vendor-build/node_modules/
+app/vendor-build/.tokens-bundle.mjs
+node_modules/
+tests/screenshots/
+scripts/expected.json

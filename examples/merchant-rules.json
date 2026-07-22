@@ -1,0 +1,59 @@
+{
+  "_help": "Deterministic categorization rules, applied top-down; first match wins. 'contains' is a case-insensitive substring on the given field (counterparty|purpose|any). category 'auto:items' resolves to core-living/items-up-to-50 or items-over-50 by amount. action 'review' forces the review queue (e.g. multi-purpose merchants like Amazon). Confirmations in the review UI append rules here automatically.",
+  "rules": [
+    {
+      "id": "amazon-review",
+      "match": {
+        "field": "counterparty",
+        "contains": "AMAZON"
+      },
+      "action": "review",
+      "note": "orders often mix purposes; split manually"
+    },
+    {
+      "id": "paypal-review",
+      "match": {
+        "field": "counterparty",
+        "contains": "PAYPAL"
+      },
+      "action": "review",
+      "note": "actual merchant hidden behind PayPal"
+    },
+    {
+      "id": "rewe",
+      "match": {
+        "field": "counterparty",
+        "contains": "REWE"
+      },
+      "category": "core-living/groceries",
+      "sharing": "shared"
+    },
+    {
+      "id": "lidl",
+      "match": {
+        "field": "counterparty",
+        "contains": "LIDL"
+      },
+      "category": "core-living/groceries",
+      "sharing": "shared"
+    },
+    {
+      "id": "aldi",
+      "match": {
+        "field": "counterparty",
+        "contains": "ALDI"
+      },
+      "category": "core-living/groceries",
+      "sharing": "shared"
+    },
+    {
+      "id": "edeka",
+      "match": {
+        "field": "counterparty",
+        "contains": "EDEKA"
+      },
+      "category": "core-living/groceries",
+      "sharing": "shared"
+    }
+  ]
+}

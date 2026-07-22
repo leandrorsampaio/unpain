@@ -1,0 +1,15 @@
+{
+  "name": "dkb-giro",
+  "signature": ["Buchungsdatum", "Zahlungsempfänger*in", "Verwendungszweck"],
+  "delimiter": ";",
+  "decimal": "comma",
+  "date_format": "%d.%m.%y",
+  "columns": {
+    "date": "Buchungsdatum",
+    "amount": "Betrag (€)",
+    "counterparty": "Zahlungsempfänger*in",
+    "purpose": "Verwendungszweck",
+    "iban": "IBAN"
+  },
+  "currency": "EUR"
+}

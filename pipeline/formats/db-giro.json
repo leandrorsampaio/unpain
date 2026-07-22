@@ -1,0 +1,21 @@
+{
+  "name": "deutsche-bank-giro",
+  "signature": ["Buchungstag", "Verwendungszweck", "Betrag", "Währung"],
+  "delimiter": ";",
+  "decimal": "comma",
+  "date_format": "%d.%m.%Y",
+  "_note": "Transaction columns verified against real export 2026-07. 'Betrag' is signed; Soll/Haben also exist but are redundant. Kontostand capture is fail-soft; verify the exact trailer layout against a real export before relying on its anchor.",
+  "balance_row": {
+    "match": "Kontostand",
+    "date_regex": "(\\d{2}\\.\\d{2}\\.\\d{4})",
+    "amount_column": "Betrag"
+  },
+  "columns": {
+    "date": "Buchungstag",
+    "amount": "Betrag",
+    "counterparty": "Begünstigter / Auftraggeber",
+    "purpose": "Verwendungszweck",
+    "iban": "IBAN / Kontonummer",
+    "currency": "Währung"
+  }
+}

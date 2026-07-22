@@ -1,0 +1,15 @@
+{
+  "name": "volksbank",
+  "signature": ["Buchungstag", "Name Zahlungsbeteiligter", "Betrag"],
+  "delimiter": ";",
+  "decimal": "comma",
+  "date_format": "%d.%m.%Y",
+  "columns": {
+    "date": "Buchungstag",
+    "amount": "Betrag",
+    "counterparty": "Name Zahlungsbeteiligter",
+    "purpose": "Verwendungszweck",
+    "iban": "IBAN Zahlungsbeteiligter",
+    "currency": "Waehrung"
+  }
+}

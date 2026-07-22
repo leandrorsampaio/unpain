@@ -1,0 +1,8 @@
+{
+  "name": "family-accountability-dev",
+  "private": true,
+  "description": "Development-only browser smoke test dependencies",
+  "devDependencies": {
+    "playwright": "1.61.1"
+  }
+}

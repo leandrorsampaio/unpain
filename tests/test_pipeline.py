@@ -1,0 +1,700 @@
+"""End-to-end pipeline regression test on synthetic fixtures.
+
+Runs in an isolated temp root (FA_ROOT), so it never touches real data.
+Usage: .venv/bin/python tests/test_pipeline.py
+"""
+import csv
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from datetime import date
+from pathlib import Path
+
+from sandbox import FIXTURES, PROJECT, build_sandbox
+
+tmp = Path(tempfile.mkdtemp(prefix="fa-test-"))
+os.environ["FA_ROOT"] = str(tmp)
+build_sandbox(tmp)
+
+sys.path.insert(0, str(PROJECT))
+from fastapi import HTTPException  # noqa: E402
+from pipeline import anchors, coverage, doctor, formats, ingest, settle, store, transfers  # noqa: E402
+from pipeline.util import cents, load_accounts, write_json  # noqa: E402
+from app import server  # noqa: E402
+
+failures = []
+total_checks = 0
+
+
+def check(name, cond, detail=""):
+    global total_checks
+    total_checks += 1
+    print("  %s %s %s" % ("OK " if cond else "FAIL", name, detail if not cond else ""))
+    if not cond:
+        failures.append(name)
+
+
+def tree_snapshot(path):
+    return {str(item.relative_to(path)): (item.stat().st_mtime_ns, item.read_bytes())
+            for item in sorted(path.rglob("*")) if item.is_file()}
+
+
+# --- ingest ---
+ingest.run(verbose=False)
+txns = store.effective_year(2026)
+check("12 transactions ingested", len(txns) == 12, "got %d" % len(txns))
+check("duplicate same-day REWE kept twice", sum(1 for t in txns if "REWE" in (t["counterparty"] or "")) == 2)
+
+# --- doctor starts clean, is read-only, and exits successfully through the CLI ---
+clean_before = tree_snapshot(tmp / "data")
+clean_doctor = doctor.run()
+clean_after = tree_snapshot(tmp / "data")
+check("doctor reports clean fixture", clean_doctor["findings"] == [], str(clean_doctor["findings"]))
+check("doctor clean scan writes nothing", clean_before == clean_after)
+clean_cli = subprocess.run([sys.executable, "-m", "pipeline.cli", "doctor", "2026"],
+                           cwd=str(PROJECT), env=os.environ.copy(), capture_output=True, text=True)
+check("doctor CLI exits zero on clean fixture", clean_cli.returncode == 0, clean_cli.stdout + clean_cli.stderr)
+
+# --- statement coverage: effective account counts, active range and low-activity flags ---
+statement_coverage = coverage.coverage(2026, today=date(2026, 6, 30))
+coverage_accounts = {account["id"]: account for account in statement_coverage["accounts"]}
+check("coverage preserves account order",
+      [account["id"] for account in statement_coverage["accounts"]]
+      == ["bank1-person1", "card1-person1", "bank2-person2", "joint-account",
+          "cash-person1", "cash-person2"])
+check("coverage fixture counts per month",
+      coverage_accounts["bank1-person1"]["months"][5] == 5
+      and coverage_accounts["bank2-person2"]["months"][5] == 6
+      and coverage_accounts["cash-person1"]["months"][5] == 1
+      and all(sum(coverage_accounts[account]["months"]) == 0
+              for account in ("card1-person1", "joint-account", "cash-person2")))
+check("coverage active range follows fixture month", statement_coverage["active_range"] == [6, 6])
+check("cash defaults low activity while normal accounts do not",
+      coverage_accounts["cash-person2"]["low_activity"] is True
+      and coverage_accounts["card1-person1"]["low_activity"] is False)
+
+coverage_raw = store.load_year_by_file(2026)
+future_txn = dict(store.load_year_raw(2026)[0])
+future_txn.update({"id": "coverage-future", "date": "2026-12-01",
+                   "source": {"file": "coverage-future.csv", "format": "test"}})
+store.append_transactions(2026, "coverage-future", [future_txn])
+check("coverage current-year active range caps at today",
+      coverage.coverage(2026, today=date(2026, 9, 15))["active_range"] == [6, 9])
+(tmp / "data" / "2026" / "transactions" / "coverage-future.jsonl").unlink()
+store.rewrite_year(2026, coverage_raw)
+
+reassigned_txn = next(t for t in store.load_year_raw(2026) if t["account"] == "bank1-person1")
+store.save_decisions(2026, {reassigned_txn["id"]: {"account": "joint-account"}})
+reassigned = {account["id"]: account for account in coverage.coverage(2026)["accounts"]}
+check("coverage counts decision-reassigned account",
+      reassigned["bank1-person1"]["months"][5] == 4
+      and reassigned["joint-account"]["months"][5] == 1)
+store.save_decisions(2026, {})
+
+# the bank account is now a resettable RAW correction (moved out of the main decision modal)
+acct_txn = next(t for t in store.load_year_raw(2026) if t["account"] == "bank1-person1")
+server.transaction_edit(server.TxnEdit(year=2026, id=acct_txn["id"], date=acct_txn["date"],
+                                       counterparty=acct_txn["counterparty"] or "x",
+                                       amount_eur=acct_txn["amount_eur"], account="joint-account"))
+check("raw account edit moves the entry",
+      next(t for t in store.effective_year(2026) if t["id"] == acct_txn["id"])["account"] == "joint-account"
+      and next(t for t in store.load_year_raw(2026) if t["id"] == acct_txn["id"]).get("manual_edit"))
+server.transaction_edit_reset(server.DecisionClear(year=2026, id=acct_txn["id"]))
+check("raw account edit resets to imported account",
+      next(t for t in store.effective_year(2026) if t["id"] == acct_txn["id"])["account"] == "bank1-person1")
+try:
+    server.transaction_edit(server.TxnEdit(year=2026, id=acct_txn["id"], date=acct_txn["date"],
+                                           counterparty=acct_txn["counterparty"] or "x",
+                                           amount_eur=acct_txn["amount_eur"], account="no-such-account"))
+    check("raw account edit rejects unknown account", False)
+except HTTPException as exc:
+    check("raw account edit rejects unknown account", exc.status_code == 400)
+
+server.account_update(server.AccountUpdate(id="cash-person2", low_activity=False))
+cash_meta = next(account for account in server.meta()["accounts"] if account["id"] == "cash-person2")
+cash_coverage = next(account for account in coverage.coverage(2026)["accounts"]
+                     if account["id"] == "cash-person2")
+check("low activity false round-trips and overrides cash default",
+      cash_meta["low_activity"] is False and cash_coverage["low_activity"] is False)
+server.account_update(server.AccountUpdate(id="cash-person2", low_activity=True))
+check("low activity true round-trips through update",
+      next(account for account in server.meta()["accounts"]
+           if account["id"] == "cash-person2")["low_activity"] is True)
+
+# --- idempotency: re-ingesting the same file adds nothing ---
+shutil.copy(FIXTURES / "bank2-person2__2026-06.csv", tmp / "inbox" / "bank2-person2__2026-06.csv")
+ingest.run(verbose=False)
+check("re-ingest is a no-op", len(store.effective_year(2026)) == 12)
+
+# --- internal transfers: the equalization pair ---
+internal = [t for t in store.effective_year(2026) if t["kind"] == "internal-transfer"]
+check("pair and marker transfers detected", len(internal) == 3, "got %d" % len(internal))
+check("pair matching works without account IBANs", sum(t.get("transfer_reason", "").startswith("pair:") for t in internal) == 2)
+check("marker matching works without account IBANs", sum(t.get("transfer_reason") == "marker" for t in internal) == 1)
+
+# --- a transfer decision can restore a false positive and survives re-detection ---
+original_by_file = store.load_year_by_file(2026)
+pair_txn = next(t for t in store.load_year_raw(2026) if t.get("transfer_reason", "").startswith("pair:"))
+transfer_decs = store.decisions(2026)
+transfer_decs[pair_txn["id"]] = {"kind": "normal"}
+store.save_decisions(2026, transfer_decs)
+transfers.mark_internal(2026)
+restored = next(t for t in store.effective_year(2026) if t["id"] == pair_txn["id"])
+check("kind normal overrides detected transfer", restored["kind"] == "normal" and restored["sharing"] != "out-of-scope")
+forced_transfer = store.rules_engine.effective(
+    next(t for t in store.load_year_raw(2026) if t.get("kind") == "normal"),
+    {"kind": "internal-transfer"}, store.rules_engine.load_rules(), owner="person1")
+check("kind internal-transfer decision is out of scope",
+      forced_transfer["kind"] == "internal-transfer" and forced_transfer["sharing"] == "out-of-scope")
+store.save_decisions(2026, {})
+store.rewrite_year(2026, original_by_file)
+
+# --- rules: groceries auto-booked, Amazon forced to review ---
+txns = store.effective_year(2026)
+matched = {t["counterparty"]: t for t in txns}
+check("REWE rule-matched", any(t["status"] == "rule-matched" and t["category"] == "core-living/groceries"
+                               for t in txns if "REWE" in (t["counterparty"] or "")))
+check("Amazon in review queue", any(t["status"] == "needs_review"
+                                    for t in txns if "AMAZON" in (t["counterparty"] or "")))
+
+# --- extraction safety: force_review must override even a matching merchant rule ---
+forced = dict(next(t for t in store.load_year_raw(2026) if "REWE" in (t["counterparty"] or "")))
+forced["force_review"] = True
+check("forced extraction row ignores merchant rule",
+      store.rules_engine.effective(forced, None, store.rules_engine.load_rules(), owner="person2")["status"] == "needs_review")
+
+# --- "Send to review": a decision force_review overrides an otherwise-matching rule ---
+rewe = next(t for t in store.load_year_raw(2026) if "REWE" in (t["counterparty"] or ""))
+check("decision force_review overrides matching rule",
+      store.rules_engine.effective(dict(rewe), {"force_review": True}, store.rules_engine.load_rules())["status"] == "needs_review")
+server.decision(server.Decision(year=2026, id=rewe["id"], fields={"force_review": True}))
+check("force_review decision persists to needs_review",
+      next(t for t in store.effective_year(2026) if t["id"] == rewe["id"])["status"] == "needs_review")
+try:
+    server.decision(server.Decision(year=2026, id=rewe["id"], fields={"force_review": "yes"}))
+    check("decision rejects non-bool force_review", False)
+except HTTPException as exc:
+    check("decision rejects non-bool force_review", exc.status_code == 400)
+# send-to-review KEEPS the chosen category while still surfacing the item in the queue
+server.decision(server.Decision(year=2026, id=rewe["id"],
+                                fields={"force_review": True, "category": "core-living/groceries", "sharing": "shared"}))
+kept = next(t for t in store.effective_year(2026) if t["id"] == rewe["id"])
+check("send-to-review keeps category while in review",
+      kept["status"] == "needs_review" and kept["category"] == "core-living/groceries")
+# confirming (force_review:false) takes it back out of the queue, category intact
+server.decision(server.Decision(year=2026, id=rewe["id"],
+                                fields={"category": "core-living/groceries", "sharing": "shared", "force_review": False}))
+confirmed = next(t for t in store.effective_year(2026) if t["id"] == rewe["id"])
+check("confirming clears force_review",
+      confirmed["status"] == "confirmed" and confirmed["category"] == "core-living/groceries")
+store.save_decisions(2026, {})  # reset so later checks start from a clean decision set
+
+# --- rule scoping: person rules only hit their accounts, and beat family rules ---
+rules_path = tmp / "rules" / "merchant-rules.json"
+rules_data = json.loads(rules_path.read_text())
+rules_data["rules"].insert(0, {"id": "scope-test", "scope": "person2",
+                               "match": {"field": "counterparty", "contains": "UNKNOWN VENDOR"},
+                               "category": "sports/equipment", "sharing": "shared"})
+rules_data["rules"].append({"id": "scope-test-2", "scope": "person2",
+                            "match": {"field": "counterparty", "contains": "REWE"},
+                            "category": "recreation/hobbies", "sharing": "shared"})
+rules_path.write_text(json.dumps(rules_data))
+scoped = store.effective_year(2026)
+vendor_t = next(t for t in scoped if "UNKNOWN VENDOR" in (t["counterparty"] or ""))
+check("person2 rule ignores person1 account", vendor_t["status"] == "needs_review")
+rewe_t = next(t for t in scoped if "REWE" in (t["counterparty"] or ""))
+check("person2 rule beats family rule on her account", rewe_t["category"] == "recreation/hobbies"
+      and rewe_t["matched_rule"] == "scope-test-2")
+rules_data["rules"] = [r for r in rules_data["rules"] if not r["id"].startswith("scope-test")]
+rules_path.write_text(json.dumps(rules_data))
+
+# --- decisions: categorize salaries, settlement goes income-proportional ---
+decs = store.decisions(2026)
+for t in txns:
+    p = (t.get("purpose") or "")
+    if "GEHALT" in p or "SALARY" in p:
+        owner = "person2" if t["account"].endswith("person2") else "person1"
+        decs[t["id"]] = {"category": "to-receive/salary", "sharing": "shared", "income_owner": owner}
+store.save_decisions(2026, decs)
+s = settle.settlement(2026)
+check("ratio from actual salaries (60/40)", abs(s["ratio"]["person1"] - 0.6) < 1e-9, str(s["ratio"]))
+check("total shared expenses 393.49", abs(s["total_shared_expenses"] - 393.49) < 0.005, str(s["total_shared_expenses"]))
+check("transfer person1->person2 70.14", s["transfer"] == {"from": "person1", "to": "person2", "amount": 70.14}, str(s["transfer"]))
+
+# --- out-of-scope income is invisible to summaries and settlement ratios ---
+income_before_oos = settle.year_summary(2026)["income"]
+person2_salary = next(t for t in txns if "GEHALT" in (t.get("purpose") or ""))
+decs[person2_salary["id"]]["sharing"] = "out-of-scope"
+store.save_decisions(2026, decs)
+oos_settlement = settle.settlement(2026)
+income_after_oos = settle.year_summary(2026)["income"]
+check("out-of-scope income excluded from ratio", oos_settlement["ratio"] == {"person1": 1.0, "person2": 0.0}, str(oos_settlement["ratio"]))
+check("out-of-scope income excluded from summary", abs(income_before_oos - income_after_oos - 3200.0) < 0.005, str(income_after_oos))
+decs[person2_salary["id"]]["sharing"] = "shared"
+store.save_decisions(2026, decs)
+
+# --- splits must sum exactly ---
+amazon = next(t for t in txns if "AMAZON" in (t["counterparty"] or ""))
+decs[amazon["id"]] = {"splits": [
+    {"amount": -40.0, "category": "living-upgrades/deco", "sharing": "shared"},
+    {"amount": -49.0, "category": "recreation/hobbies", "sharing": "personal:person1"}]}
+store.save_decisions(2026, decs)
+summary = settle.year_summary(2026)
+check("split lands in both categories", summary["by_category"].get("living-upgrades/deco") == -40.0
+      and summary["by_category"].get("recreation/hobbies") == -49.0)
+check("personal split excluded from shared", abs(settle.settlement(2026)["total_shared_expenses"] - (393.49 - 49.0)) < 0.005)
+
+bad = dict(decs)
+bad[amazon["id"]] = {"splits": [{"amount": -40.0, "category": "living-upgrades/deco", "sharing": "shared"}]}
+store.save_decisions(2026, bad)
+bad_effective = next(t for t in store.effective_year(2026) if t["id"] == amazon["id"])
+check("bad stored split degrades to review", bad_effective["status"] == "needs_review"
+      and bad_effective.get("error") == "invalid split" and not bad_effective.get("splits"))
+check("bad stored split does not break year summary", isinstance(settle.year_summary(2026)["expenses"], float))
+store.save_decisions(2026, decs)
+before_bad_post = dict(store.decisions(2026))
+try:
+    server.decision(server.Decision(year=2026, id=amazon["id"], fields={"splits": [
+        {"amount": -40.0, "category": "living-upgrades/deco", "sharing": "shared"}]}))
+    check("bad split POST rejected", False)
+except HTTPException as exc:
+    check("bad split POST rejected", exc.status_code == 400, str(exc.detail))
+check("bad split POST leaves decisions unchanged", store.decisions(2026) == before_bad_post)
+bulk_before = store.decisions(2026)
+try:
+    server.decisions_bulk(server.DecisionsBulk(year=2026, items=[
+        {"id": amazon["id"], "fields": {"note": "must not persist"}},
+        {"id": vendor_t["id"], "fields": {"category": "missing/category"}},
+    ]))
+    check("invalid bulk decision rejected", False)
+except HTTPException as exc:
+    check("invalid bulk decision rejected", exc.status_code == 400)
+check("bulk decisions are atomic", store.decisions(2026) == bulk_before)
+for label, fields in (
+        ("unknown field", {"surprise": True}),
+        ("unknown category", {"category": "missing/category"}),
+        ("unknown sharing owner", {"sharing": "personal:nobody"}),
+        ("unknown income owner", {"income_owner": "nobody"}),
+        ("unknown account", {"account": "missing-account"}),
+        ("unknown kind", {"kind": "maybe-transfer"})):
+    try:
+        server.decision(server.Decision(year=2026, id=amazon["id"], fields=fields))
+        check("decision rejects " + label, False)
+    except HTTPException as exc:
+        check("decision rejects " + label, exc.status_code == 400)
+null_category = dict(decs)
+null_category[amazon["id"]] = {"category": None, "sharing": "shared"}
+store.save_decisions(2026, null_category)
+null_effective = next(t for t in store.effective_year(2026) if t["id"] == amazon["id"])
+check("null category remains in review", null_effective["status"] == "needs_review" and null_effective["category"] is None)
+auto_category = dict(decs)
+auto_category[amazon["id"]] = {"category": "auto:items", "sharing": "shared"}
+store.save_decisions(2026, auto_category)
+auto_effective = next(t for t in store.effective_year(2026) if t["id"] == amazon["id"])
+check("manual auto-items category resolves by amount",
+      auto_effective["category"] == "core-living/items-over-50" and auto_effective["status"] == "confirmed")
+store.save_decisions(2026, decs)
+
+# --- year_cost excluded monthly, included annually ---
+vendor = next(t for t in store.effective_year(2026) if "UNKNOWN VENDOR" in (t["counterparty"] or ""))
+decs[vendor["id"]] = {"category": "sports/equipment", "sharing": "shared", "year_cost": True}
+store.save_decisions(2026, decs)
+ys = settle.year_summary(2026)
+june = ys["months"][5]
+# personal splits still count as family expenses (only equalization ignores them)
+check("year_cost excluded from month", june["year_costs_excluded"] == -120.0 and
+      abs(june["expenses"] - (-393.49 + 120.0)) < 0.005, json.dumps(june))
+check("year_cost included annually", abs(ys["expenses"] - -393.49) < 0.005, str(ys["expenses"]))
+monthly_without_year_cost = settle.settlement(2026, 6)["total_shared_expenses"]
+decs[vendor["id"]]["year_cost"] = False
+store.save_decisions(2026, decs)
+monthly_with_regular_cost = settle.settlement(2026, 6)["total_shared_expenses"]
+check("year_cost excluded from monthly settlement",
+      abs(monthly_with_regular_cost - monthly_without_year_cost - 120.0) < 0.005)
+decs[vendor["id"]]["year_cost"] = True
+store.save_decisions(2026, decs)
+
+# --- tax workflow: category mappings are candidates until explicitly reviewed ---
+tax_path = tmp / "rules" / "tax-buckets.json"
+tax_data = json.loads(tax_path.read_text())
+medical = next(b for b in tax_data["buckets"] if b["slug"] == "aussergewoehnliche-belastungen")
+medical["category_map"] = ["health/doctors"]
+tax_path.write_text(json.dumps(tax_data))
+decs[vendor["id"]] = {"category": "health/doctors", "sharing": "shared"}
+store.save_decisions(2026, decs)
+candidate = next(t for t in store.effective_year(2026) if t["id"] == vendor["id"])
+candidate_report = next(b for b in settle.tax_report(2026) if b["bucket"] == "aussergewoehnliche-belastungen")
+check("mapped tax category is a candidate", candidate["tax_bucket_source"] == "category-map"
+      and not candidate["tax_confirmed"] and candidate_report["candidate_count"] == 1)
+
+decs[vendor["id"]].update({
+    "tax_confirmed": True, "tax_owner": "person2",
+    "attachments": [{"file": "2026/doctor.pdf", "description": "Invoice"}],
+})
+store.save_decisions(2026, decs)
+confirmed_report = next(b for b in settle.tax_report(2026) if b["bucket"] == "aussergewoehnliche-belastungen")
+confirmed_item = confirmed_report["owners"]["person2"]["items"][0]
+check("confirmed tax item uses explicit claimant", confirmed_item["confirmed"]
+      and confirmed_item["tax_owner"] == "person2" and confirmed_report["confirmed_count"] == 1)
+check("tax evidence readiness is derived", confirmed_item["ready"]
+      and confirmed_item["has_receipt"] and confirmed_item["payment_proof"])
+
+# --- cash.csv is authoritative; duplicate deletion/editing is safe ---
+cash_payload = dict(date="2026-08-10", account="cash-person1", amount=-10.0,
+                    currency="EUR", description="Duplicate coffee", category="sports/equipment")
+first_cash = server.cash(server.CashEntry(**cash_payload))
+second_cash = server.cash(server.CashEntry(**cash_payload))
+duplicate_cash = [t for t in store.effective_year(2026) if t.get("counterparty") == "Duplicate coffee"]
+check("two identical cash entries added", len(duplicate_cash) == 2)
+second_id = second_cash["id"]
+server.decision(server.Decision(year=2026, id=second_id, fields={
+    "category": "sports/equipment", "sharing": "shared", "note": "Keep this note",
+    "attachments": [{"file": "2026/coffee.pdf", "description": "Receipt"}],
+}))
+server.cash_delete(server.CashDelete(year=2026, id=first_cash["id"]))
+ingest.regenerate_cash()
+duplicate_cash = [t for t in store.effective_year(2026) if t.get("counterparty") == "Duplicate coffee"]
+check("deleting first duplicate stays deleted after ingest", len(duplicate_cash) == 1)
+survivor = duplicate_cash[0]
+check("surviving duplicate decision rekeyed", survivor.get("note") == "Keep this note"
+      and len(survivor.get("attachments") or []) == 1)
+
+edited = server.cash_edit(server.CashEdit(
+    year=2026, id=survivor["id"], date="2026-08-11", account="cash-person1",
+    amount=-11.0, currency="EUR", description="Edited coffee", category="sports/equipment"))
+edited_txn = next(t for t in store.effective_year(2026) if t["id"] == edited["id"])
+check("cash edit preserves note and attachments", edited_txn.get("note") == "Keep this note"
+      and len(edited_txn.get("attachments") or []) == 1)
+try:
+    server.cash_edit(server.CashEdit(
+        year=2026, id=edited["id"], date="2026-08-12", account="missing-account",
+        amount=-12.0, currency="EUR", description="Invalid edit", category="sports/equipment"))
+    check("invalid cash edit rejected", False)
+except HTTPException as exc:
+    check("invalid cash edit rejected", exc.status_code == 400)
+check("invalid cash edit leaves original", any(t["id"] == edited["id"] for t in store.load_year_raw(2026)))
+
+# The CLI ingest path must rebuild cash.jsonl from the edited CSV rather than
+# incrementally appending a now-deleted duplicate back into canonical data.
+cli_payload = dict(date="2026-08-20", account="cash-person1", amount=-7.0,
+                   currency="EUR", description="CLI duplicate", category="sports/equipment")
+server.cash(server.CashEntry(**cli_payload))
+server.cash(server.CashEntry(**cli_payload))
+cash_path = tmp / "inbox" / "cash.csv"
+with open(cash_path, newline="", encoding="utf-8") as f:
+    cash_rows = list(csv.reader(f))
+for i, row in enumerate(cash_rows):
+    if "CLI duplicate" in row:
+        del cash_rows[i]
+        break
+with open(cash_path, "w", newline="", encoding="utf-8") as f:
+    csv.writer(f).writerows(cash_rows)
+ingest.run(verbose=False)
+check("CLI ingest respects cash CSV deletion",
+      sum(t.get("counterparty") == "CLI duplicate" for t in store.load_year_raw(2026)) == 1)
+
+months = store.months_state(2026)
+months["2026-08"] = "closed"
+store.save_months_state(2026, months)
+blocked = []
+for operation in (
+        lambda: server.cash(server.CashEntry(**cash_payload)),
+        lambda: server.cash_delete(server.CashDelete(year=2026, id=edited["id"])),
+        lambda: server.cash_edit(server.CashEdit(
+            year=2026, id=edited["id"], date="2026-09-01", account="cash-person1",
+            amount=-11.0, currency="EUR", description="Blocked edit", category="sports/equipment"))):
+    try:
+        operation()
+        blocked.append(False)
+    except HTTPException as exc:
+        blocked.append(exc.status_code == 409)
+check("closed month rejects cash add/edit/delete", all(blocked), str(blocked))
+months["2026-08"] = "open"
+store.save_months_state(2026, months)
+
+# Effective account use blocks deletion; orphan references fail clearly.
+decs_now = store.decisions(2026)
+decs_now[edited["id"]]["account"] = "cash-person2"
+store.save_decisions(2026, decs_now)
+check("account usage counts decision reassignment", server.account_usage()["counts"].get("cash-person2", 0) >= 1)
+decs_now[edited["id"]]["account"] = "missing-account"
+store.save_decisions(2026, decs_now)
+try:
+    settle.settlement(2026)
+    check("missing effective account fails clearly", False)
+except ValueError as exc:
+    check("missing effective account fails clearly", "missing-account" in str(exc))
+decs_now[edited["id"]].pop("account")
+store.save_decisions(2026, decs_now)
+
+# Parsing must fail loudly on changed/bad date formats and sign debit/credit columns.
+bad_dates = tmp / "bad-dates.csv"
+bad_dates.write_text("date,account,amount,description\nnot-a-date,cash-person1,-5.00,Bad row\n")
+try:
+    formats.parse(bad_dates, formats.detect(bad_dates))
+    check("all-bad dates rejected", False)
+except ValueError as exc:
+    check("all-bad dates rejected", "invalid dates" in str(exc))
+small_export = tmp / "small-export.csv"
+small_export.write_text(
+    "Date,Amount,Name\n"
+    "2026-01-01,-1.00,One\n"
+    "2026-01-02,-2.00,Two\n"
+    "2026-01-03,-3.00,Three\n"
+    "Kontostand,100.00,Trailer\n")
+small_cfg = {"signature": ["Date", "Amount"], "delimiter": ",", "decimal": "dot",
+             "date_format": "%Y-%m-%d", "columns": {"date": "Date", "amount": "Amount",
+             "counterparty": "Name"}}
+small_rows, small_stats = formats.parse(small_export, small_cfg, with_stats=True)
+check("small export accepts one trailer row", len(small_rows) == 3 and small_stats["skipped"] == 1)
+debit_credit = tmp / "debit-credit.csv"
+debit_credit.write_text("Date,Debit,Credit,Name\n2026-01-01,10.00,,Purchase\n2026-01-02,,5.00,Refund\n")
+dc_cfg = {"signature": ["Date", "Debit", "Credit"], "delimiter": ",", "decimal": "dot",
+          "date_format": "%Y-%m-%d", "columns": {"date": "Date", "amount_debit": "Debit",
+          "amount_credit": "Credit", "counterparty": "Name"}}
+dc_rows = formats.parse(debit_credit, dc_cfg)
+check("debit and credit signs are deterministic", [row["amount"] for row in dc_rows] == [-10.0, 5.0])
+
+# Administrative guards: unique safe rule ids, valid close states, non-zero ratios.
+pattern = "Same / quoted ' pattern " + ("x" * 60)
+rule_one = server.add_rule(server.RulePayload(pattern=pattern, category="sports/equipment"))["rule"]
+rule_two = server.add_rule(server.RulePayload(pattern=pattern, category="sports/equipment"))["rule"]
+check("rule ids are safe and unique", rule_one["id"] != rule_two["id"]
+      and all(ch.isalnum() or ch == "-" for ch in rule_one["id"]))
+store.rules_engine.remove_rule(rule_one["id"])
+check("removing one rule leaves colliding peer", any(rule["id"] == rule_two["id"] for rule in store.rules_engine.load_rules()))
+store.rules_engine.remove_rule(rule_two["id"])
+try:
+    server.close_month(server.MonthState(year=2026, month=6, state="colsed"))
+    check("invalid month state rejected", False)
+except HTTPException as exc:
+    check("invalid month state rejected", exc.status_code == 400)
+try:
+    server.set_ratio_override(server.RatioOverride(year=2026, key="annual", ratio={"person1": 0, "person2": 0}))
+    check("zero-sum ratio rejected", False)
+except HTTPException as exc:
+    check("zero-sum ratio rejected", exc.status_code == 400)
+
+split_parent = {"id": "split-null", "amount_eur": -10.0, "sharing": "shared", "account": "cash-person1"}
+split_entries = settle.entries([{**split_parent, "splits": [
+    {"amount": -10.0, "category": "sports/equipment", "sharing": None}]}])
+check("null split sharing consistently inherits parent", split_entries[0]["sharing"] == "shared")
+
+# --- tolerant, conservative, and cross-year transfer matching ---
+def transfer_txn(txn_id, account, day, eur, currency="EUR", counterparty=""):
+    return {
+        "id": txn_id, "account": account, "date": day, "amount_original": eur,
+        "currency": currency, "amount_eur": eur, "fx_rate": None,
+        "counterparty": counterparty, "purpose": "", "counterparty_iban": "",
+        "force_review": False, "kind": "normal",
+        "source": {"file": "transfer-tests.csv", "format": "test"},
+    }
+
+
+store.append_transactions(2027, "transfer-tests", [
+    transfer_txn("fx-out", "bank1-person1", "2027-06-01", -500.00),
+    transfer_txn("fx-in", "card1-person1", "2027-06-02", 499.87, "BRL"),
+    transfer_txn("different-owner-out", "bank1-person1", "2027-09-01", -75.00),
+    transfer_txn("different-owner-in", "bank2-person2", "2027-09-02", 75.00),
+    transfer_txn("near-out", "bank1-person1", "2027-10-01", -100.00, counterparty="REWE Markt"),
+    transfer_txn("near-in", "card1-person1", "2027-10-02", 91.00, "BRL"),
+    transfer_txn("salary-far", "bank1-person1", "2027-11-01", 3000.00),
+    transfer_txn("rewe-far", "card1-person1", "2027-11-02", -89.40, counterparty="REWE Markt"),
+    transfer_txn("boundary-out", "bank1-person1", "2027-12-30", -200.00),
+])
+store.append_transactions(2028, "transfer-tests", [
+    transfer_txn("boundary-in", "card1-person1", "2028-01-02", 200.00),
+])
+transfers.mark_internal(2027)
+transfer_results = {t["id"]: t for y in (2027, 2028) for t in store.effective_year(y)}
+check("FX-tolerant pair marked", all(transfer_results[x]["kind"] == "internal-transfer"
+      and transfer_results[x]["transfer_reason"] == "pair:fx-tolerant" for x in ("fx-out", "fx-in")))
+check("different-owner exact pair untouched", all(transfer_results[x]["kind"] == "normal"
+      for x in ("different-owner-out", "different-owner-in")))
+check("near-miss pair surfaced as a hint", all(transfer_results[x].get("possible_transfer")
+      for x in ("near-out", "near-in")))
+check("transfer hint does not suppress merchant rule",
+      transfer_results["near-out"]["status"] == "rule-matched"
+      and transfer_results["near-out"]["category"] == "core-living/groceries"
+      and transfer_results["near-in"]["status"] == "needs_review")
+check("far opposite-sign pair is not hinted",
+      not transfer_results["salary-far"].get("possible_transfer")
+      and not transfer_results["rewe-far"].get("possible_transfer")
+      and transfer_results["rewe-far"]["status"] == "rule-matched")
+check("cross-year pair marked in both years", all(transfer_results[x]["kind"] == "internal-transfer"
+      for x in ("boundary-out", "boundary-in")))
+
+# --- balance anchors: trailer capture, raw chain verification and conflicts ---
+anchor_fixture = FIXTURES / "anchors" / "db-giro__2031-01.csv"
+anchor_cfg = formats.detect(anchor_fixture)
+anchor_rows, anchor_parse_stats = formats.parse(anchor_fixture, anchor_cfg, with_stats=True)
+check("balance trailer captured without skipped row",
+      len(anchor_rows) == 2 and anchor_parse_stats["skipped"] == 0
+      and anchor_parse_stats["anchors"] == [{"date": "2031-01-31", "balance": 1125.0}])
+
+fallback_csv = tmp / "balance-fallback.csv"
+fallback_csv.write_text(
+    "Buchungstag;Wert;Begünstigter / Auftraggeber;Verwendungszweck;IBAN / Kontonummer;Betrag;Währung\n"
+    "05.01.2031;;Test employer;Opening adjustment;;100,00;EUR\n"
+    "Kontostand 31.01.2031;1.125,00;;;;;EUR\n")
+_, fallback_stats = formats.parse(fallback_csv, anchor_cfg, with_stats=True)
+check("balance trailer falls back to one German amount cell",
+      fallback_stats["anchors"] == [{"date": "2031-01-31", "balance": 1125.0}]
+      and fallback_stats["skipped"] == 0)
+unmatched_anchor_csv = tmp / "balance-fail-soft.csv"
+unmatched_anchor_csv.write_text(
+    "Buchungstag;Wert;Begünstigter / Auftraggeber;Verwendungszweck;IBAN / Kontonummer;Betrag;Währung\n"
+    "05.01.2031;;Test employer;Opening adjustment;;100,00;EUR\n"
+    "Kontostand without usable details;;;;;;EUR\n")
+_, unmatched_anchor_stats = formats.parse(unmatched_anchor_csv, anchor_cfg, with_stats=True)
+check("matched but unusable balance trailer fails soft",
+      unmatched_anchor_stats["anchors"] == [] and unmatched_anchor_stats["skipped"] == 0)
+
+server.anchor_add(server.AnchorAdd(account="bank1-person1", date="2030-12-31", balance=1000.0))
+added, anchor_years, skipped, recorded = ingest._ingest_file(
+    anchor_fixture, "bank1-person1", load_accounts()[0])
+check("DB giro ingest records trailer anchor",
+      added == 2 and anchor_years == [2031] and skipped == 0 and recorded["added"] == 1)
+first_span = anchors.verify("bank1-person1", year=2031)
+check("manual anchor participates in matching cross-year span",
+      len(first_span) == 1 and first_span[0]["ok"] is True
+      and first_span[0]["expected_cents"] == 12500 and first_span[0]["actual_cents"] == 12500)
+
+_, _, _, rerecorded = ingest._ingest_file(anchor_fixture, "bank1-person1", load_accounts()[0])
+check("re-ingest does not duplicate balance anchor",
+      rerecorded["duplicates"] == 1 and len(anchors.load(2031)) == 1)
+upload_anchor_stats = ingest.ingest_upload(
+    anchor_fixture, "bank1-person1", "uploaded-anchor-retry", original_name="db-giro-upload.csv")
+check("staged upload path records balance anchor idempotently",
+      upload_anchor_stats["added"] == 0 and upload_anchor_stats["anchors"]["duplicates"] == 1
+      and upload_anchor_stats["anchor_message"] == "balance anchor already recorded")
+
+conflict = anchors.record("bank1-person1", [{"date": "2031-01-31", "balance": 1200.0}],
+                          "contradicting-export.csv")
+check("conflicting balance is recorded but does not overwrite anchor",
+      conflict["conflicts"] == 1 and anchors.load(2031)[0]["balance"] == 1125.0
+      and anchors.load_conflicts(2031)[0]["incoming_balance"] == 1200.0)
+
+anchor_files = store.load_year_by_file(2031)
+anchor_files["db-giro__2031-01.jsonl"] = anchor_files["db-giro__2031-01.jsonl"][:1]
+store.rewrite_year(2031, anchor_files)
+holed_span = anchors.verify("bank1-person1", year=2031)[0]
+check("missing raw transaction causes exact balance mismatch",
+      holed_span["ok"] is False and holed_span["actual_cents"] - holed_span["expected_cents"] == -2500)
+check("coverage includes balance mismatch summary",
+      coverage.coverage(2031)["anchors"]["bank1-person1"]["status"] == "mismatch"
+      and "-2500 cents" in coverage.coverage(2031)["anchors"]["bank1-person1"]["detail"])
+
+# Seed representative legacy corruption and prove doctor reports rather than mutates it.
+doctor_raw = next(txn for txn in store.load_year_raw(2026)
+                  if txn.get("kind") == "normal" and txn["date"].startswith("2026-06"))
+doctor_decisions = store.decisions(2026)
+doctor_decisions[doctor_raw["id"]] = {
+    "category": "missing/category",
+    "account": "missing-account",
+    "sharing": "personal:ghost",
+    "income_owner": "ghost",
+    "tax_owner": "ghost",
+    "splits": [{"amount": 0, "category": "missing/category", "sharing": "shared"}],
+}
+doctor_decisions["orphan-doctor-decision"] = {"category": "core-living/groceries"}
+store.save_decisions(2026, doctor_decisions)
+doctor_months = store.months_state(2026)
+doctor_months["2026-06"] = "closed"
+store.save_months_state(2026, doctor_months)
+write_json(tmp / "rules" / "budgets.json", {"budgets": {"missing/category": 99}})
+write_json(tmp / "data" / "uploads.json", {"uploads": [
+    {"id": "stale-upload", "source_stem": "missing-source"}]})
+duplicate_txn = dict(doctor_raw)
+store.append_transactions(2026, "doctor-duplicate", [duplicate_txn])
+doctor_marker = transfer_txn("doctor-unpaired-marker", "bank2-person2", "2026-06-29", -333.0)
+doctor_marker.update({"kind": "internal-transfer", "transfer_reason": "marker"})
+store.append_transactions(2026, "doctor-marker", [doctor_marker])
+with open(tmp / "inbox" / "cash.csv", "a", newline="", encoding="utf-8") as cash_file:
+    csv.writer(cash_file).writerow(["2026-10-01", "cash-person1", "-3.21", "EUR",
+                                    "Doctor desync", "sports/equipment"])
+
+broken_before = tree_snapshot(tmp / "data")
+broken_doctor = doctor.run()
+broken_after = tree_snapshot(tmp / "data")
+broken_checks = {finding["check"] for finding in broken_doctor["findings"]}
+check("doctor detects seeded legacy corruption",
+      {"orphan-decision", "unknown-category", "split-sum", "unknown-account",
+       "duplicate-id", "unknown-sharing", "unknown-owner", "anchor-conflict",
+       "anchor-mismatch", "cash-desync", "review-in-closed-month", "unpaired-marker",
+       "orphan-budget", "stale-upload-ref"}.issubset(broken_checks), str(broken_checks))
+check("doctor broken scan writes nothing", broken_before == broken_after)
+broken_cli = subprocess.run([sys.executable, "-m", "pipeline.cli", "doctor"],
+                            cwd=str(PROJECT), env=os.environ.copy(), capture_output=True, text=True)
+check("doctor CLI exits one when errors exist", broken_cli.returncode == 1,
+      broken_cli.stdout + broken_cli.stderr)
+
+# Revert the seeded legacy corruption so the invariants run on a clean store.
+store.save_decisions(2026, decs)
+(tmp / "data" / "2026" / "transactions" / "doctor-duplicate.jsonl").unlink()
+(tmp / "data" / "2026" / "transactions" / "doctor-marker.jsonl").unlink()
+(tmp / "rules" / "budgets.json").unlink()
+(tmp / "data" / "uploads.json").unlink()
+
+# --- invariants: domain properties over the ENTIRE store, not single examples ---
+years_present = {int(p.name) for p in (tmp / "data").iterdir() if p.is_dir() and p.name.isdigit()}
+valid_categories = {"%s/%s" % (c["slug"], s["slug"])
+                    for c in json.loads((tmp / "rules" / "categories.json").read_text())["categories"]
+                    for s in c.get("subs", [])}
+valid_categories.add("auto:items")
+valid_categories.add("health/doctors")  # tax test maps this without adding it to categories.json
+
+for y in sorted(years_present):
+    # 1. The three dashboard scopes partition 'all' exactly (per cents).
+    sum_all = settle.year_summary(y, "all")
+    sum_parts = [settle.year_summary(y, s) for s in ["shared"] + server._people()]
+    check("invariant: scope partition %d income" % y,
+          cents(sum_all["income"]) == sum(cents(p["income"]) for p in sum_parts))
+    check("invariant: scope partition %d expenses" % y,
+          cents(sum_all["expenses"]) == sum(cents(p["expenses"]) for p in sum_parts))
+    for cat in sum_all["by_category"]:
+        check("invariant: scope partition %d %s" % (y, cat),
+              cents(sum_all["by_category"][cat]) == sum(cents(p["by_category"].get(cat, 0)) for p in sum_parts))
+
+    # 2. Settlement balances sum to zero (and settlement never crashes).
+    try:
+        bal_sum = sum(cents(v) for v in settle.settlement(y)["balances"].values())
+        check("invariant: settlement zero-sum %d" % y, abs(bal_sum) <= 1, "sum=%d" % bal_sum)
+    except Exception as exc:  # noqa: BLE001
+        check("invariant: settlement computes %d" % y, False, str(exc))
+
+    # 3. Every stored split sums; 4. every effective category exists.
+    for t in store.effective_year(y):
+        if t.get("splits") and not t.get("error"):
+            split_sum = sum(cents(sp["amount"]) for sp in t["splits"])
+            if split_sum != cents(t["amount_eur"]):
+                check("invariant: split integrity %s" % t["id"], False, "sum=%d" % split_sum)
+        for cat in [t.get("category")] + [sp.get("category") for sp in (t.get("splits") or [])]:
+            if cat and cat not in valid_categories:
+                check("invariant: category exists %s" % t["id"], False, cat)
+check("invariant: splits + categories scanned", True)
+
+# 5. Idempotency, globally: ingest over an empty inbox must change nothing.
+for item in (tmp / "inbox").iterdir():
+    if item.is_file() and item.suffix == ".csv":
+        item.unlink()
+before_idempotency = tree_snapshot(tmp / "data")
+ingest.run(verbose=False)
+check("invariant: global idempotency over empty inbox",
+      before_idempotency == tree_snapshot(tmp / "data"))
+
+# Anti-shrink guard: exact count at implementation time. May only ever be RAISED
+# when checks are added — never lowered (see AGENTS.md: never weaken a test).
+MIN_CHECKS = 122
+check("suite did not shrink", total_checks >= MIN_CHECKS,
+      "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
+
+shutil.rmtree(tmp)
+print()
+if failures:
+    print("FAILED: %s" % ", ".join(failures))
+    sys.exit(1)
+print("All checks passed.")

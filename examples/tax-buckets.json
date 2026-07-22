@@ -1,0 +1,75 @@
+{
+  "_help": "German tax buckets for the year-end evidence pack. 'category_map' auto-tags transactions of those categories (still overridable per transaction in the review UI). Amounts are summed per bucket per person at year end.",
+  "buckets": [
+    {
+      "slug": "werbungskosten",
+      "name": "Werbungskosten",
+      "note": "Costs incurred to earn, secure, or maintain employment income",
+      "rule": "Use for necessary work-related costs that you paid yourself and that were not reimbursed by your employer.",
+      "examples": ["Work laptop, monitor, tools, or typical work clothing", "Professional training, courses, books, or membership fees", "Business travel or commuting costs not reimbursed by the employer"],
+      "evidence": "Keep invoices and payment proof, plus enough context to show the work connection and any employer reimbursement.",
+      "legal_reference": "§ 9 EStG",
+      "category_map": []
+    },
+    {
+      "slug": "sonderausgaben-donations",
+      "name": "Sonderausgaben — Donations",
+      "note": "Donations or eligible membership fees for tax-privileged purposes",
+      "rule": "Use for donations and eligible membership fees paid to qualifying tax-privileged organisations. A normal purchase or payment for a service is not a donation.",
+      "examples": ["Donation to a recognised charity or NGO", "Donation to a church or other qualifying public-benefit organisation", "Eligible membership contribution without a direct personal benefit"],
+      "evidence": "Keep the donation receipt or the permitted simplified payment evidence from the recipient and your bank record.",
+      "legal_reference": "§ 10b EStG",
+      "category_map": []
+    },
+    {
+      "slug": "sonderausgaben-vorsorge",
+      "name": "Sonderausgaben — Insurance/Vorsorge",
+      "note": "Eligible pension, health, care, and other provident contributions",
+      "rule": "Use for eligible personal provident contributions. Many statutory or insurer-reported contributions already reach the tax office electronically, so avoid recording the same amount twice in the final return.",
+      "examples": ["Statutory or qualifying private pension contributions", "Health and long-term care insurance contributions", "Eligible unemployment, disability, or liability insurance contributions"],
+      "evidence": "Keep the annual contribution certificate and note any refunds or tax-free employer contributions.",
+      "legal_reference": "§ 10 EStG",
+      "category_map": []
+    },
+    {
+      "slug": "aussergewoehnliche-belastungen",
+      "name": "Außergewöhnliche Belastungen",
+      "note": "Necessary exceptional personal costs, especially unreimbursed medical costs",
+      "rule": "Use for necessary and reasonable costs you could not avoid that are unusually high for someone in comparable circumstances. Only the amount above the personal reasonable-burden threshold may ultimately reduce tax.",
+      "examples": ["Doctor, dentist, psychotherapy, or prescribed treatment", "Prescription medicine, medical aids, glasses, or medically necessary travel", "Eligible care costs not covered by insurance or another payer"],
+      "evidence": "Keep invoices, prescriptions or medical proof where required, payment records, and subtract reimbursements or expected insurance benefits.",
+      "legal_reference": "§ 33 EStG",
+      "category_map": []
+    },
+    {
+      "slug": "35a-dienstleistungen",
+      "name": "§35a Haushaltsnahe Dienstleistungen",
+      "note": "Household services performed in or around your home",
+      "rule": "Use for household work that residents would normally perform themselves. The service must be connected to an EU/EEA household; an invoice and cashless payment are required.",
+      "examples": ["Home cleaning, window cleaning, or household help", "Garden maintenance, snow removal, or caretaker services", "Qualifying care or support services performed in the household"],
+      "evidence": "Keep the itemised invoice and bank-transfer proof. For rented homes, keep the landlord's service-charge statement or §35a certificate.",
+      "legal_reference": "§ 35a(2), (4), (5) EStG",
+      "category_map": []
+    },
+    {
+      "slug": "35a-handwerker",
+      "name": "§35a Handwerkerleistungen",
+      "note": "Labour for renovation, maintenance, or modernisation in your home",
+      "rule": "Use for qualifying tradesperson work in an EU/EEA household. Only labour, machine, and travel costs qualify—not materials—and payment must be cashless against an invoice.",
+      "examples": ["Plumber, electrician, painter, or heating-system maintenance", "Repairing windows, appliances, flooring, or the roof", "Chimney sweeping or other qualifying maintenance work"],
+      "evidence": "Keep an itemised invoice separating labour from materials and the bank-transfer proof.",
+      "legal_reference": "§ 35a(3)–(5) EStG",
+      "category_map": []
+    },
+    {
+      "slug": "misc-tax",
+      "name": "Sonstiges (Tax Relevant)",
+      "note": "Review bucket for a potentially relevant item that fits nowhere else",
+      "rule": "Use temporarily when an item may matter for tax but none of the defined buckets fits. This bucket has no deduction rule of its own and should be reviewed before filing.",
+      "examples": ["An unusual tax-related payment awaiting clarification", "A candidate item to discuss with a Steuerberater", "A payment whose correct tax treatment is still unknown"],
+      "evidence": "Keep the invoice, payment proof, and a note explaining why the item may be tax relevant.",
+      "legal_reference": "No automatic EStG classification",
+      "category_map": []
+    }
+  ]
+}

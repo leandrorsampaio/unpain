@@ -1,0 +1,17 @@
+{
+  "name": "generic-extracted",
+  "signature": ["date", "amount", "currency", "counterparty", "purpose"],
+  "delimiter": ",",
+  "decimal": "dot",
+  "date_format": "%Y-%m-%d",
+  "_note": "Normalized CSV produced by the LLM extract-statement skill (PDF sources). Reconciliation happens in the skill before this file is written.",
+  "columns": {
+    "date": "date",
+    "amount": "amount",
+    "currency": "currency",
+    "counterparty": "counterparty",
+    "purpose": "purpose",
+    "iban": "counterparty_iban",
+    "force_review": "force_review"
+  }
+}

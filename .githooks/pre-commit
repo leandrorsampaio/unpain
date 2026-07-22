@@ -1,0 +1,7 @@
+#!/bin/bash
+# Runs the test suite before every commit. Bypass only with --no-verify and a reason.
+if git diff --cached --name-only | grep -qE '^(app/static/|app/vendor-build/)'; then
+  ./run-tests.sh
+else
+  ./run-tests.sh --fast
+fi

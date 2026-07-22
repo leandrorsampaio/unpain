@@ -1,0 +1,15 @@
+{
+  "name": "n26",
+  "signature": ["Booking Date", "Partner Name", "Amount (EUR)"],
+  "delimiter": ",",
+  "decimal": "dot",
+  "date_format": "%Y-%m-%d",
+  "columns": {
+    "date": "Booking Date",
+    "amount": "Amount (EUR)",
+    "counterparty": "Partner Name",
+    "purpose": "Payment Reference",
+    "iban": "Partner Iban"
+  },
+  "currency": "EUR"
+}

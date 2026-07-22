@@ -1,0 +1,17 @@
+{
+  "name": "cash",
+  "signature": ["date", "account", "amount", "description"],
+  "delimiter": ",",
+  "decimal": "dot",
+  "date_format": "%Y-%m-%d",
+  "account_column": true,
+  "columns": {
+    "date": "date",
+    "account": "account",
+    "amount": "amount",
+    "currency": "currency",
+    "counterparty": "description",
+    "purpose": "description"
+  },
+  "currency": "EUR"
+}

@@ -1,0 +1,32 @@
+version: 2
+# Keep the pinned versions current without giving up pinning: Dependabot opens
+# grouped PRs (which CI must pass) instead of letting anything float. Reviewing a
+# weekly PR beats an un-audited transitive bump landing silently.
+updates:
+  # GitHub Actions — bumps the commit SHA and the trailing version comment together.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Python — driven by requirements.in; Dependabot re-runs pip-compile so the
+  # regenerated requirements.txt stays fully pinned and hashed.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      python:
+        patterns: ["*"]
+
+  # npm dev dependency (Playwright) — locked via package-lock.json.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm:
+        patterns: ["*"]
