@@ -172,3 +172,29 @@ build step, and it is fully offline. Agents and contributors start at [PROJECT.m
 
 We built UnPAIN for our own household and share it as-is. Issues and PRs are welcome. There is no
 support promise, and no roadmap beyond what we need ourselves. License: MIT (see LICENSE).
+
+## Hi, I'm Leandro 👋
+
+I'm a software engineer living in Germany.
+
+For years, my wife and I ran our household finances on increasingly elaborate Excel spreadsheets.
+Every finance app solved part of the problem. None solved all of it. Eventually the spreadsheet got
+more complicated than the software I write for a living — so I built UnPAIN.
+
+It's open source because I suspect I'm not the only person who enjoys knowing exactly where every
+cent went. If that's you, hello. This was built by someone exactly like you.
+
+## 🍺 Buy me a beer
+
+UnPAIN is a passion project. There is no company here — just me, a spreadsheet problem, and a
+weekend that got a little out of hand.
+
+It's completely free. No subscriptions. No premium tier. No ads. No tracking.
+
+If UnPAIN saved you time, saved you money, or simply made managing your finances a little more
+enjoyable, buying me a beer is a lovely way to say thanks — and it helps fuel another weekend of
+unnecessary precision.
+
+[![Buy me a beer](https://img.shields.io/badge/Buy_me_a_beer-%F0%9F%8D%BA-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/lsampaio)
+
+No pressure, though. The app is yours either way.
