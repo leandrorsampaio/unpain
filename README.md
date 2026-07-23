@@ -177,9 +177,9 @@ support promise, and no roadmap beyond what we need ourselves. License: MIT (see
 
 I'm a software engineer living in Germany.
 
-For years, my wife and I ran our household finances on increasingly elaborate Excel spreadsheets.
-Every finance app solved part of the problem. None solved all of it. Eventually the spreadsheet got
-more complicated than the software I write for a living — so I built UnPAIN.
+For years, I ran my household finances on increasingly elaborate Excel spreadsheets. Every finance
+app solved part of the problem. None solved all of it. Eventually one of them got more complicated
+than the software I write for a living — so I built UnPAIN.
 
 It's open source because I suspect I'm not the only person who enjoys knowing exactly where every
 cent went. If that's you, hello. This was built by someone exactly like you.
