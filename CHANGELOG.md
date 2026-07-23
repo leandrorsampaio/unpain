@@ -1,8 +1,8 @@
 # Changelog
 
-This file documents all notable changes to UnPain.
+This file documents all notable changes to UnPAIN.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). UnPain aims to
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). UnPAIN aims to
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
@@ -11,12 +11,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Initial public release. UnPain is a self-hosted, offline-first expense tracker for two-person
+- Initial public release. UnPAIN is a self-hosted, offline-first expense tracker for two-person
   households:
   - Bank CSV ingestion with format auto-detection (`pipeline/formats/*.json`), content-hash dedupe,
     and ECB foreign-currency conversion. Deterministic PDF extraction for PDF-only sources, gated by
     balance reconciliation.
-  - Learned merchant-categorization rules (family- and per-person-scoped), applied on read. UnPain
+  - Learned merchant-categorization rules (family- and per-person-scoped), applied on read. UnPAIN
     recomputes everything derived (dashboards, settlement, tax) and never stores it.
   - Income-proportional settlement between partners, with a monthly estimate and a binding annual
     true-up. Recurring-payment detection. A year-end German tax evidence pack.

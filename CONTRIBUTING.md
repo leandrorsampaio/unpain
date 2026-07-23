@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest. We built UnPain for one household and share it as-is. Contributions are
+Thanks for your interest. We built UnPAIN for one household and share it as-is. Contributions are
 welcome, especially **new bank format files**. They are the single most useful thing you can add.
 Please be respectful and follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 
@@ -15,7 +15,7 @@ Read these files before you open a PR:
 You need **Python 3.12** and **Node 22+**. Node is only for the browser smoke test.
 
 ```bash
-git clone <repo-url> && cd UnPain
+git clone <repo-url> && cd unpain
 ./start.sh                                   # creates the .venv and starts the app on :8765
 
 # To run the full test suite (dev only):
@@ -36,7 +36,7 @@ CSV parsing is **configuration, not code**. Each bank is one JSON file in `pipel
 maps the export's columns to canonical fields (delimiter, decimal style, date format,
 header-to-field mapping). To add yours:
 
-1. Drop your CSV in `inbox/` and click **Ingest**. If UnPain does not recognize the format, the
+1. Drop your CSV in `inbox/` and click **Ingest**. If UnPAIN does not recognize the format, the
    error prints the exact headers it saw.
 2. Copy the closest existing file in `pipeline/formats/` (e.g. `dkb.json`, `n26.json`). Adjust the
    header mapping, `delimiter`, `decimal` (`comma` or `dot`), and `date_format`.
@@ -69,4 +69,3 @@ header-to-field mapping). To add yours:
   it on every push and PR.
 - When you contribute, you agree to license your contributions under the project's [MIT](LICENSE)
   license.
-</content>

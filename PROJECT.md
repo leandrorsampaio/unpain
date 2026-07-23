@@ -1,6 +1,6 @@
-# UnPain — Project Context (START HERE)
+# UnPAIN — Project Context (START HERE)
 
-> UnPain stands for **Un**necessarily **P**recise **A**ccounting & **I**ncome **N**avigator.
+> UnPAIN stands for **Un**necessarily **P**recise **A**ccounting & **I**ncome **N**avigator.
 >
 > **For any LLM or agent on this project:** read this file first, top to bottom. Then read
 > [CLAUDE.md](CLAUDE.md) (technical guide), [AGENTS.md](AGENTS.md) (UI rules), and
@@ -8,10 +8,10 @@
 
 ## 1. Who this is for
 
-UnPain is a self-hosted expense tracker for a **two-person household**. The two people are
+UnPAIN is a self-hosted expense tracker for a **two-person household**. The two people are
 `person1` and `person2`, or the display names that the users configure. One partner usually drives
 setup from the terminal. The other uses only the **web UI** in a browser. Everything user-facing is
-in **English**. The base currency is **EUR**. UnPain supports foreign-currency accounts through ECB
+in **English**. The base currency is **EUR**. UnPAIN supports foreign-currency accounts through ECB
 reference rates.
 
 ## 2. The problem this solves
@@ -20,7 +20,7 @@ Couples who try expense apps or manual spreadsheets fail the same way. There are
 and too much manual typing each month. They fall behind. Months pile up. They lose sight of where
 the money goes and how much they save. Tax season becomes painful.
 
-UnPain makes monthly accountability near-automatic. You drop bank exports in a folder. You review a
+UnPAIN makes monthly accountability near-automatic. You drop bank exports in a folder. You review a
 small queue in the browser. You are done. Nobody types the same merchant-to-category mapping twice.
 
 ## 3. Goals (in priority order)
@@ -40,7 +40,7 @@ small queue in the browser. You are done. Nobody types the same merchant-to-cate
   output is JSON. Deterministic code validates the schema and admits it.
 - **CSV first.** Deterministic parsers read bank CSV exports. LLM PDF extraction applies only to
   PDF-only sources. A **balance reconciliation** gates it (`opening + sum(txns) == closing` to the
-  cent, or UnPain rejects the data).
+  cent, or UnPAIN rejects the data).
 - **Rules before LLM.** `rules/merchant-rules.json` categorizes for free. The LLM only *proposes
   rules* for unseen merchants. A human confirms once in the UI. The cost goes to zero over time.
 - **Recompute everything derived; never store it** (settlement, dashboards, tax report). A changed
@@ -92,4 +92,3 @@ small queue in the browser. You are done. Nobody types the same merchant-to-cate
 | `examples/` | Sanitized config/data templates (generic person1/person2). |
 | `tests/` | Regression tests + generic fixtures. |
 | `start.sh` | Cross-platform launcher (creates the venv on first run). |
-</content>

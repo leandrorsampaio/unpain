@@ -1,6 +1,6 @@
 # Security policy
 
-UnPain is a **self-hosted, offline-first** application. It has no cloud backend, no accounts, and no
+UnPAIN is a **self-hosted, offline-first** application. It has no cloud backend, no accounts, and no
 telemetry. Your financial data never leaves the machine that you run it on. That design also shapes
 its threat model. Understand the threat model before you expose the app beyond `localhost`.
 
@@ -23,9 +23,9 @@ oversight.
 ## What the app does protect
 
 - **Deterministic data boundary.** LLM and agent output never writes to the canonical store
-  directly. It goes through `inbox/` CSVs and a reconciliation gate. UnPain recomputes everything
+  directly. It goes through `inbox/` CSVs and a reconciliation gate. UnPAIN recomputes everything
   derived and never trusts it from an external source.
-- **Path-traversal hardening.** UnPain rejects zip-slip entries on archive import and hardens the
+- **Path-traversal hardening.** UnPAIN rejects zip-slip entries on archive import and hardens the
   file-serving endpoints.
 - **Pinned, hashed dependencies.** `requirements.txt` is fully pinned. GitHub Actions are pinned to
   commit SHAs. Dependabot proposes reviewed bumps rather than letting anything float.
@@ -46,4 +46,3 @@ Report security issues **privately**, not in a public issue:
 This is a personal project shared as-is, so there is no formal SLA. Reports are genuinely
 appreciated, and the maintainer will look at them. Give enough detail to reproduce the issue. Allow
 reasonable time for a fix before any public disclosure.
-</content>

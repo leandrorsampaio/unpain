@@ -1,7 +1,7 @@
 # Trade Republic statement extractor
 
 This extractor deterministically converts a Trade Republic account-statement PDF into the
-`generic-extracted` CSV that the UnPain pipeline consumes.
+`generic-extracted` CSV that the UnPAIN pipeline consumes.
 
 Requirements: Python 3.9+ and Poppler's `pdftotext` command (`brew install poppler`).
 
