@@ -1,4 +1,4 @@
-# Family Accountability — agent guide
+# UnPain — agent guide
 
 **Read [PROJECT.md](PROJECT.md) first** — it is the project entry point (users, goals,
 domain decisions, current state, working agreements). This file covers the technical layer.

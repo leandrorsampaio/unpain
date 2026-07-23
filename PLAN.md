@@ -1,4 +1,4 @@
-# FamilyAccountability — Design Plan
+# UnPain — Design Plan
 
 Family expense accountability for a two-person household. Germany-based, multi-currency (EUR/BRL/USD), tax-aware, income-proportional fairness settlement.
 
@@ -46,7 +46,7 @@ Trade Republic stays minimal: transfers in/out + interest; individual trades tra
 ## Folder layout
 
 ```
-FamilyAccountability/
+UnPain/
 ├── PLAN.md
 ├── inbox/                    # drop exports here; consumed by ingest
 │   └── cash.csv

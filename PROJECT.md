@@ -1,50 +1,52 @@
-# Family Accountability — Project Context (START HERE)
+# UnPain — Project Context (START HERE)
 
-> **For any LLM/agent working on this project:** read this file first, top to bottom, then
+> UnPain stands for **Un**necessarily **P**recise **A**ccounting & **I**ncome **N**avigator.
+>
+> **For any LLM or agent on this project:** read this file first, top to bottom. Then read
 > [CLAUDE.md](CLAUDE.md) (technical guide), [AGENTS.md](AGENTS.md) (UI rules), and
-> [README.md](README.md) (usage). This is the neutral, public version of the project's
-> context document.
+> [README.md](README.md) (usage). This is the neutral, public version of the context document.
 
 ## 1. Who this is for
 
-A self-hosted expense tracker for a **two-person household** (referred to as `person1` and
-`person2`, or by whatever display names the users configure). One partner typically drives
-setup from the terminal; the other uses only the **web UI** in a browser. Everything
-user-facing is in **English**. The base currency is **EUR**; foreign-currency accounts are
-supported via ECB reference rates.
+UnPain is a self-hosted expense tracker for a **two-person household**. The two people are
+`person1` and `person2`, or the display names that the users configure. One partner usually drives
+setup from the terminal. The other uses only the **web UI** in a browser. Everything user-facing is
+in **English**. The base currency is **EUR**. UnPain supports foreign-currency accounts through ECB
+reference rates.
 
-## 2. The problem being solved
+## 2. The problem this solves
 
-Couples who try expense apps or manual spreadsheets tend to fail the same way: too many
-accounts, too much manual typing per month, they fall behind, months pile up, and they lose
-sight of where the money goes and how much they save — and tax season becomes painful. The
-goal is to make monthly accountability near-automatic: drop bank exports in a folder, review
-a small queue in the browser, done. Nobody ever types the same merchant→category mapping twice.
+Couples who try expense apps or manual spreadsheets fail the same way. There are too many accounts
+and too much manual typing each month. They fall behind. Months pile up. They lose sight of where
+the money goes and how much they save. Tax season becomes painful.
+
+UnPain makes monthly accountability near-automatic. You drop bank exports in a folder. You review a
+small queue in the browser. You are done. Nobody types the same merchant-to-category mapping twice.
 
 ## 3. Goals (in priority order)
 
-1. Make monthly accountability near-automatic — drop bank exports in `inbox/`, review a small
-   queue, done. Rules learn categorization so it approaches zero manual work over time.
-2. Clear monthly and yearly picture: expenses by category, income, savings rate.
-3. **Fairness**: split shared costs proportionally to income, equalize with a transfer.
-4. Year-end **German tax evidence pack** (refund-relevant amounts per bucket, with evidence) —
-   a bonus for German users; everyone else can ignore or reseed the tax layer.
-5. Scales across years, keeps history, and helps identify where to cut costs without reducing
-   quality of life (categories + budgets exist for this).
+1. Make monthly accountability near-automatic. You drop bank exports in `inbox/` and review a small
+   queue. Rules learn the categorization, so manual work approaches zero over time.
+2. Show a clear monthly and yearly picture: expenses by category, income, and savings rate.
+3. **Fairness.** Split shared costs in proportion to income. Equalize with a transfer.
+4. Build a year-end **German tax evidence pack** (refund-relevant amounts per bucket, with
+   evidence). This is a bonus for German users. Other users ignore or reseed the tax layer.
+5. Scale across years, keep history, and help find where to cut costs without a lower quality of
+   life. Categories and budgets exist for this.
 
-## 4. Core design philosophy (don't re-litigate)
+## 4. Core design philosophy (do not re-litigate)
 
-- **Deterministic core, LLM only at the edges.** LLMs never write to the canonical data store.
-  LLM output is JSON, schema-validated, admitted by deterministic code.
-- **CSV first**: deterministic parsers for bank CSV exports; LLM PDF extraction only for
-  PDF-only sources, gated by **balance reconciliation** (`opening + sum(txns) == closing` to
-  the cent, or the data is rejected).
-- **Rules before LLM**: `rules/merchant-rules.json` categorizes for free; the LLM only
-  *proposes rules* for unseen merchants; humans confirm once in the UI; cost → zero over time.
-- **Everything derived is recomputed, never stored** (settlement, dashboards, tax report).
-  Changing a rule or decision recalculates all history automatically.
-- **LLM-agnostic**: skills = markdown instructions + JSON Schema in `skills/`, runnable by any
-  CLI agent. No API keys, no vendor lock-in. The app is fully usable without any LLM.
+- **Deterministic core, LLM only at the edges.** LLMs never write to the canonical data store. LLM
+  output is JSON. Deterministic code validates the schema and admits it.
+- **CSV first.** Deterministic parsers read bank CSV exports. LLM PDF extraction applies only to
+  PDF-only sources. A **balance reconciliation** gates it (`opening + sum(txns) == closing` to the
+  cent, or UnPain rejects the data).
+- **Rules before LLM.** `rules/merchant-rules.json` categorizes for free. The LLM only *proposes
+  rules* for unseen merchants. A human confirms once in the UI. The cost goes to zero over time.
+- **Recompute everything derived; never store it** (settlement, dashboards, tax report). A changed
+  rule or decision recalculates all history automatically.
+- **LLM-agnostic.** A skill is a markdown instruction plus a JSON Schema in `skills/`. Any CLI agent
+  runs it. There are no API keys and no vendor lock-in. The app is fully usable without any LLM.
 
 ## 5. Domain decisions and their reasons
 
@@ -64,15 +66,14 @@ a small queue in the browser, done. Nobody ever types the same merchant→catego
 
 ## 6. Working agreements
 
-- **Be critical** — push back on weak ideas, don't just agree.
-- **Write short** ("TLDR without losing precision"). No walls of text.
-- **Commit + push after every finished feature** (Conventional-ish messages).
-- **Personal data never goes to git**: `data/`, `rules/`, `config.json`, `inbox/`,
-  `receipts/`, `backups/` are gitignored. Sanitized templates live in `examples/`; test
-  fixtures are generic.
-- Verify UI changes in a real browser (Playwright, screenshots) — users notice when things
-  aren't there.
-- Token frugality is a stated nice-to-have: prefer deterministic solutions.
+- **Be critical.** Push back on weak ideas. Do not just agree.
+- **Write short** ("TLDR without losing precision"). Do not write walls of text.
+- **Commit and push after every finished feature** (Conventional-ish messages).
+- **Personal data never goes to git.** `data/`, `rules/`, `config.json`, `inbox/`, `receipts/`, and
+  `backups/` are gitignored. Sanitized templates live in `examples/`. Test fixtures are generic.
+- Verify UI changes in a real browser (Playwright, screenshots). Users notice when things are not
+  there.
+- Token frugality is a stated nice-to-have. Prefer deterministic solutions.
 
 ## 7. File map
 
@@ -91,3 +92,4 @@ a small queue in the browser, done. Nobody ever types the same merchant→catego
 | `examples/` | Sanitized config/data templates (generic person1/person2). |
 | `tests/` | Regression tests + generic fixtures. |
 | `start.sh` | Cross-platform launcher (creates the venv on first run). |
+</content>
