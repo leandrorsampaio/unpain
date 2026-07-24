@@ -157,9 +157,9 @@ h3 { font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
 
 .expand { font-size: clamp(1.05rem, .8rem + 1.1vw, 1.5rem); font-weight: 500; color: var(--ink-muted); margin: 1rem 0 0; letter-spacing: .01em; }
 .expand b { color: var(--amber); font-weight: 700; }
-.slogan { font-size: clamp(1.35rem, 1rem + 1.6vw, 2rem); font-weight: 500; margin: 1.5rem 0 0; letter-spacing: -.01em; }
-.slogan .ln { display: block; }
-.slogan em { color: var(--primary); font-style: normal; }
+.badges { display: flex; flex-wrap: wrap; gap: .55rem .6rem; margin: 1.7rem 0 0; }
+.badge { display: inline-flex; align-items: center; gap: .5rem; padding: .48rem .85rem; border: 1px solid var(--outline-faint); border-radius: 999px; background: var(--surface); font-size: .9rem; font-weight: 500; color: var(--ink); }
+.badge svg { width: 17px; height: 17px; fill: none; stroke: var(--primary); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
 .cta-row { display: flex; flex-wrap: wrap; gap: .8rem; margin-top: 1.8rem; align-items: center; }
 .btn {
@@ -174,8 +174,6 @@ h3 { font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
 .btn-ghost:hover { border-color: var(--primary); color: var(--primary); }
 .btn-amber { background: var(--amber); color: #241300; }
 .btn-amber:hover { transform: translateY(-1px); box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--amber) 60%, transparent); }
-.freenote { color: var(--amber); font-size: .98rem; font-weight: 500; }
-.freenote b { color: var(--amber); font-weight: 700; }
 
 /* ---- browser frame ---- */
 .frame { border: 1px solid var(--outline); border-radius: 14px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
@@ -204,14 +202,6 @@ button.zoom:focus-visible { outline: 3px solid var(--primary); outline-offset: -
 section { padding: clamp(3rem, 7vw, 5.5rem) 0; }
 .lead { color: var(--ink-muted); font-size: 1.05rem; margin-top: .9rem; max-width: 54ch; }
 .rule { border: none; border-top: 1px solid var(--outline-faint); margin: 0; }
-
-/* is this you */
-.checks { list-style: none; padding: 0; margin: 1.8rem 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .5rem 1.6rem; }
-.checks li { display: flex; gap: .7rem; align-items: baseline; padding: .5rem 0; border-bottom: 1px solid var(--outline-faint); }
-.checks li::before { content: "✓"; color: var(--amber); font-weight: 700; flex: none; }
-.aside { margin-top: 1.6rem; color: var(--ink-muted); }
-.aside b { color: var(--ink); font-weight: 500; }
-.wink { margin-top: 1.2rem; color: var(--ink-faint); font-style: italic; }
 
 /* why story */
 .story { margin-top: 1.6rem; }
@@ -280,13 +270,6 @@ section { padding: clamp(3rem, 7vw, 5.5rem) 0; }
 .viz .cap { font-size: .8rem; color: var(--ink-faint); margin: 1.1rem 0 0; }
 .viz .tabular { font-variant-numeric: tabular-nums; }
 
-/* manifesto */
-.creed { list-style: none; padding: 0; margin: 1.6rem 0 0; display: grid; gap: .35rem; }
-.creed li { font-size: clamp(1.15rem, .95rem + 1.1vw, 1.7rem); font-weight: 500; color: var(--ink); letter-spacing: -.015em; line-height: 1.3; text-wrap: balance; }
-.creed li span { color: var(--ink-faint); font-weight: 400; }
-.creed li:last-child { color: var(--amber); }
-.creed li:last-child span { color: color-mix(in srgb, var(--amber) 60%, var(--ink-faint)); }
-
 /* about + beer */
 .beer-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 1.6rem; margin-top: 1rem; align-items: stretch; }
 @media (max-width: 760px) { .beer-wrap { grid-template-columns: 1fr; } }
@@ -335,38 +318,22 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
       <span class="eyebrow mono">For people who think €0.12 deserves an explanation</span>
       <h1 class="wordmark" style="margin-top:1rem">Un<span class="pain">PAIN</span></h1>
       <p class="expand mono"><b>Un</b>necessarily <b>P</b>recise <b>A</b>ccounting &amp; <b>I</b>ncome <b>N</b>avigator</p>
-      <p class="slogan"><span class="ln">We don't simplify your finances.</span><span class="ln">We simplify <em>managing your complicated finances.</em></span></p>
+      <div class="badges">
+        <span class="badge"><svg viewBox="0 0 24 24"><path d="M7.5 18h9.5a3.5 3.5 0 0 0 0-7 5 5 0 0 0-9.6-1.3A3.5 3.5 0 0 0 7.5 18z"></path><line x1="4" y1="4" x2="20" y2="20"></line></svg>No cloud</span>
+        <span class="badge"><svg viewBox="0 0 24 24"><path d="M5 11a9 9 0 0 1 14 0"></path><path d="M8.5 14a5 5 0 0 1 7 0"></path><path d="M12 17.5h.01"></path><line x1="4" y1="4" x2="20" y2="20"></line></svg>No telemetry</span>
+        <span class="badge"><svg viewBox="0 0 24 24"><rect x="3.5" y="6.5" width="17" height="11" rx="2"></rect><path d="M3.5 10h17"></path><line x1="4" y1="4" x2="20" y2="20"></line></svg>No subscription</span>
+        <span class="badge"><svg viewBox="0 0 24 24"><circle cx="12" cy="9" r="3.2"></circle><path d="M6 19a6 6 0 0 1 12 0"></path><line x1="4" y1="4" x2="20" y2="20"></line></svg>No login</span>
+        <span class="badge"><svg viewBox="0 0 24 24"><polyline points="15 6 21 12 15 18"></polyline><polyline points="9 6 3 12 9 18"></polyline></svg>Open source</span>
+        <span class="badge"><svg viewBox="0 0 24 24"><path d="M20.5 13.3 13.3 20.5a2 2 0 0 1-2.8 0l-7-7A2 2 0 0 1 3 12V4.5A1.5 1.5 0 0 1 4.5 3H12a2 2 0 0 1 1.4.6l7.1 7.1a2 2 0 0 1 0 2.6z"></path><circle cx="7.5" cy="7.5" r="1.1"></circle></svg>Free</span>
+      </div>
       <div class="cta-row">
         <a class="btn btn-primary" href="https://github.com/leandrorsampaio/unpain">Get it on GitHub</a>
         <a class="btn btn-ghost" href="#how">See how it works</a>
-        <span class="freenote"><b>Free.</b> No cloud. No login.</span>
       </div>
       <div class="frame hero-shot">
         <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="addr mono">localhost:8765 · Dashboard</span></div>
         <button type="button" class="shot-crop shotbg zoom" aria-label="Expand screenshot: UnPAIN dashboard with income, expenses, savings rate, and where the money goes" style="background-image: var(--shot-dash); background-position: 50% 0;"></button>
       </div>
-    </div>
-  </section>
-
-  <hr class="rule">
-
-  <section id="you">
-    <div class="wrap">
-      <span class="eyebrow mono">Is this you?</span>
-      <h2 style="margin-top:.8rem">You care where every cent went.</h2>
-      <p class="lead">UnPAIN is not trying to be for everyone. It's built for one very specific kind of person.</p>
-      <ul class="checks">
-        <li>You care where every cent went</li>
-        <li>You actually open the "Statistics" page</li>
-        <li>You compare spending month over month</li>
-        <li>…and year over year</li>
-        <li>You keep many categories and defend each one</li>
-        <li>You have a folder of receipts "just in case"</li>
-        <li>You like dashboards a suspicious amount</li>
-        <li>You promised yourself "next month I'll stop using Excel"</li>
-      </ul>
-      <p class="aside">Especially good for <b>couples</b> who want a genuinely fair way to split expenses, proportional to income, not a lazy 50/50. And if you live in <b>Germany</b>, it quietly sorts your tax-relevant spending all year long.</p>
-      <p class="wink">If none of that sounds like you, that's fine. This probably isn't your tool, and we're at peace with that.</p>
     </div>
   </section>
 
@@ -534,20 +501,7 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
     </div>
   </section>
 
-  <section id="manifesto" style="background:var(--bg-2)">
-    <div class="narrow">
-      <span class="eyebrow mono">The manifesto</span>
-      <ul class="creed">
-        <li><span>We believe</span> details matter.</li>
-        <li><span>We believe</span> your data belongs to you.</li>
-        <li><span>We believe</span> automation should remove work, not control.</li>
-        <li><span>We believe</span> fairness isn't always 50/50.</li>
-        <li><span>We believe</span> spreadsheets deserve a peaceful retirement.</li>
-      </ul>
-    </div>
-  </section>
-
-  <section id="beer">
+  <section id="beer" style="background:var(--bg-2)">
     <div class="wrap">
       <span class="eyebrow mono">The final page of this conversation</span>
       <div class="beer-wrap">
