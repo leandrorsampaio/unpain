@@ -220,9 +220,14 @@ section { padding: clamp(3rem, 7vw, 5.5rem) 0; }
 .rule { border: none; border-top: 1px solid var(--outline-faint); margin: 0; }
 
 /* why story */
-.story { margin-top: 1.6rem; }
-.story p { margin: .28rem 0; font-size: clamp(1.05rem, .95rem + .5vw, 1.35rem); color: var(--ink-muted); letter-spacing: -.01em; line-height: 1.35; }
-.story .punch { color: var(--amber); font-weight: 700; font-size: clamp(1.35rem, 1rem + 1.6vw, 2.1rem); margin-top: .35rem; letter-spacing: -.02em; }
+.qa { margin-top: 2rem; }
+.qa .pair { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(1rem, 4vw, 2.8rem); padding: 1.05rem 0; border-top: 1px solid var(--outline-faint); align-items: baseline; }
+.qa .pair:last-of-type { border-bottom: 1px solid var(--outline-faint); }
+.qa .claim { color: var(--ink-muted); font-style: italic; font-size: 1.02rem; }
+.qa .reply { color: var(--ink); font-weight: 500; font-size: 1.05rem; letter-spacing: -.01em; }
+.qa .reply .arw { color: var(--amber); font-weight: 700; margin-right: .45rem; }
+@media (max-width: 620px) { .qa .pair { grid-template-columns: 1fr; gap: .3rem; } }
+.punch { color: var(--amber); font-weight: 700; font-size: clamp(1.35rem, 1rem + 1.6vw, 2.1rem); margin: 1.6rem 0 0; letter-spacing: -.02em; }
 
 /* features */
 .feat { display: grid; gap: 1.1rem; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-top: 2.2rem; }
@@ -357,18 +362,35 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 
   <section id="why" style="background:var(--bg-2)">
     <div class="narrow">
-      <span class="eyebrow mono">Why another finance app?</span>
-      <h2 style="margin-top:.8rem">Because I tried almost all of them.</h2>
-      <div class="story">
-        <p>Some had beautiful mobile apps.</p>
-        <p>Some automatically synchronized my bank.</p>
-        <p>Some had great reports.</p>
-        <p>Every single one eventually sent me back to Excel.</p>
-        <p>Not because they were bad.</p>
-        <p>Because they weren't built for someone like me.</p>
-        <p>So I stopped looking.</p>
-        <p class="punch">and built UnPAIN.</p>
+      <span class="eyebrow mono">"why not just make our own, honey?"</span>
+      <h2 style="margin-top:.8rem">Why not use one of the thousand finance apps that already exist?</h2>
+      <div class="qa">
+        <div class="pair">
+          <div class="claim">"The design is beautiful."</div>
+          <div class="reply"><span class="arw">→</span>The highest form of visual art is a well-made spreadsheet.</div>
+        </div>
+        <div class="pair">
+          <div class="claim">"It syncs with your bank automatically."</div>
+          <div class="reply"><span class="arw">→</span>I'm not handing another company my bank login.</div>
+        </div>
+        <div class="pair">
+          <div class="claim">"The reports are great."</div>
+          <div class="reply"><span class="arw">→</span>Great, if you like reports built for people who'd rather not look.</div>
+        </div>
+        <div class="pair">
+          <div class="claim">"There's a free version."</div>
+          <div class="reply"><span class="arw">→</span>Until the one feature I actually need turns out to be premium.</div>
+        </div>
+        <div class="pair">
+          <div class="claim">"It makes your finances easier."</div>
+          <div class="reply"><span class="arw">→</span>I don't want easier. I want precise.</div>
+        </div>
+        <div class="pair">
+          <div class="claim">"You can access it from anywhere."</div>
+          <div class="reply"><span class="arw">→</span>I don't want it in someone's cloud. I want to own my data.</div>
+        </div>
       </div>
+      <p class="punch">So I stopped looking, and built UnPAIN.</p>
     </div>
   </section>
 
