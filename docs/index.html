@@ -180,7 +180,10 @@ h3 { font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
 /* ---- browser frame ---- */
 .frame { border: 1px solid var(--outline); border-radius: 14px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
 .frame .bar { display: flex; align-items: center; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--outline-faint); background: var(--bg-2); }
-.frame .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--outline); }
+.frame .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--outline); }
+.frame .dot:nth-child(1) { background: #ff5f57; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.12); }
+.frame .dot:nth-child(2) { background: #febc2e; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.12); }
+.frame .dot:nth-child(3) { background: #28c840; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.12); }
 .frame .addr { margin-left: 10px; font-size: .74rem; color: var(--ink-faint); }
 .shot-crop { height: clamp(260px, 42vw, 460px); }
 .shotbg { background-size: cover; background-repeat: no-repeat; background-color: var(--bg-2); }
@@ -229,8 +232,8 @@ section { padding: clamp(3rem, 7vw, 5.5rem) 0; }
 .showcase { display: grid; gap: clamp(3rem, 6vw, 5rem); margin-top: clamp(2.4rem, 5vw, 3.6rem); }
 .row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: clamp(1.6rem, 4vw, 3.4rem); align-items: center; }
 .row:nth-child(even) .copy { order: 2; }
-.row .kicker { font-size: .74rem; letter-spacing: .16em; text-transform: uppercase; color: var(--amber); }
-.row .copy h3 { margin: .7rem 0 .7rem; font-size: clamp(1.35rem, 1.1rem + .9vw, 1.85rem); letter-spacing: -.02em; }
+.row .kicker { font-size: .95rem; font-style: italic; color: var(--amber); }
+.row .copy h3 { margin: .5rem 0 .7rem; font-size: clamp(1.35rem, 1.1rem + .9vw, 1.85rem); letter-spacing: -.02em; }
 .row .copy p { margin: 0; color: var(--ink-muted); }
 .row .copy p + p { margin-top: .7rem; }
 .row .copy b { color: var(--ink); font-weight: 500; }
@@ -386,17 +389,17 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 
   <section id="different">
     <div class="wrap">
-      <span class="eyebrow mono">What makes it different</span>
-      <h2 style="margin-top:.8rem">Precision + Automation</h2>
-      <p class="lead">Every screen below is the real app. Click any screenshot to see it full size.</p>
+      <span class="eyebrow mono">A tour of my own mess</span>
+      <h2 style="margin-top:.8rem">How I actually use it.</h2>
+      <p class="lead">No feature grid. Just the screens I open every month, and the specific annoyance each one fixed for me. Click any screenshot to see it full size.</p>
 
       <div class="showcase">
         <div class="row">
           <div class="copy">
-            <span class="kicker mono">Dashboard</span>
-            <h3>The whole year on one screen</h3>
-            <p>Money in, costs, surplus, savings rate. Stay on the year to see the shape of it, or open a single month when you want the detail.</p>
-            <p>Big one-off purchases live in <b>Year costs</b>, so a new bike never distorts what a normal month looks like.</p>
+            <span class="kicker">the first thing I open</span>
+            <h3>I don't think in months. I think in years.</h3>
+            <p>Every app I tried dropped me into the current month. But my life doesn't reset on the 1st. So this opens on the whole year: what came in, what went out, what's actually left.</p>
+            <p>And when a €3,000 bike wrecked my "average month," I built <b>Year costs</b> so one big purchase stops lying to me about the other eleven.</p>
           </div>
           <div class="media">
             <div class="frame">
@@ -408,10 +411,10 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 
         <div class="row">
           <div class="copy">
-            <span class="kicker mono">Review + rules</span>
-            <h3>Teach it once, never again</h3>
-            <p>New transactions land in a short queue. Categorize one, apply it as a rule, and every future transaction from that merchant sorts itself.</p>
-            <p><b>We don't remove the detail. We remove the repetition.</b> After a few months the queue is nearly empty and the rules keep working while you do nothing.</p>
+            <span class="kicker">the part I was dreading</span>
+            <h3>I got tired of filing REWE for the 300th time.</h3>
+            <p>I don't mind reviewing a transaction once. I mind doing the <i>same</i> one forever. So new stuff lands in a little queue, I categorize REWE once, hit <b>"apply + rule,"</b> and every REWE from here to retirement files itself.</p>
+            <p>I didn't want to lose the detail. I just wanted to stop repeating it. A few months in, the queue is basically empty and I've stopped thinking about it, which was the whole point.</p>
           </div>
           <div class="media">
             <div class="frame">
@@ -427,10 +430,10 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 
         <div class="row">
           <div class="copy">
-            <span class="kicker mono">Settlement</span>
-            <h3>Fair, not equal</h3>
-            <p>Shared costs split in proportion to what each person earns, computed from salary only. The monthly number is an estimate. The annual one is binding.</p>
-            <p>Print it and you have a statement you can both read line by line, instead of a number one of you has to trust.</p>
+            <span class="kicker">the reason it exists, honestly</span>
+            <h3>Splitting everything 50/50 quietly made someone lose.</h3>
+            <p>We earn different amounts, so an even split meant the lower earner was handing over a bigger slice of their income every month. This splits shared costs by what each of us actually earns instead. The monthly figure is a guess; the year-end number is the one we settle on.</p>
+            <p>And I can print it, so it's a statement we both read line by line, not a number one of us has to take on faith.</p>
           </div>
           <div class="media">
             <div class="frame">
@@ -442,10 +445,10 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 
         <div class="row">
           <div class="copy">
-            <span class="kicker mono">Transactions + categories</span>
-            <h3>Every cent, where you put it</h3>
-            <p>Search, filter, split one purchase across several categories, or mark it out of scope. Amazon and PayPal always go to the queue, because one order is rarely one thing.</p>
-            <p>The category tree is yours. Rename it, nest it, archive what you stopped using. Nothing is hard coded to someone else's idea of a budget.</p>
+            <span class="kicker">where I go when something looks off</span>
+            <h3>One Amazon order is never just one thing.</h3>
+            <p>So Amazon and PayPal always land in the queue, where I can split a single order across a few categories or mark part of it out of scope. Then I search, filter, and poke at the list until every cent sits where I actually put it.</p>
+            <p>And the category tree is mine. I renamed it, nested it, archived the parts I stopped using. Nothing here is hard-coded to someone else's idea of a budget.</p>
           </div>
           <div class="media">
             <div class="frame">
@@ -461,10 +464,10 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 
         <div class="row">
           <div class="copy">
-            <span class="kicker mono">Tax</span>
-            <h3>A German tax bonus</h3>
-            <p>Not the main product, but a gift for people in Germany. Refund-relevant spending is sorted into the right buckets all year long.</p>
-            <p>When the deadline arrives, the numbers are already there, ready for ELSTER or for a Steuerberater.</p>
+            <span class="kicker">the part I stopped dreading in April</span>
+            <h3>I was rebuilding my tax numbers from scratch every year.</h3>
+            <p>Living in Germany, I'd spend a weekend each spring digging refund-relevant spending back out of a year of transactions. So I made it tag itself into the right buckets all year long instead.</p>
+            <p>Now when the deadline shows up, the numbers are already sitting there, ready for ELSTER or for a Steuerberater. It's not really the main product, more of a gift to myself, and anyone else in Germany.</p>
           </div>
           <div class="media">
             <div class="frame">
