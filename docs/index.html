@@ -184,7 +184,7 @@ h3 { font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
 .frame .addr { margin-left: 10px; font-size: .74rem; color: var(--ink-faint); }
 .shot-crop { height: clamp(260px, 42vw, 460px); }
 .shotbg { background-size: cover; background-repeat: no-repeat; background-color: var(--bg-2); }
-button.zoom { display: block; width: 100%; padding: 0; border: none; font: inherit; cursor: zoom-in; }
+button.zoom { display: block; width: 100%; padding: 0; border: none; background: transparent; font: inherit; cursor: zoom-in; }
 button.zoom:focus-visible { outline: 3px solid var(--primary); outline-offset: -3px; }
 
 /* ---- lightbox ---- */
@@ -224,6 +224,31 @@ section { padding: clamp(3rem, 7vw, 5.5rem) 0; }
 .ico { display: inline-grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: var(--primary-container); margin-bottom: .9rem; }
 .ico svg { width: 24px; height: 24px; fill: none; stroke: var(--primary); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 :root[data-theme="light"] .ico svg, :root:not([data-theme="dark"]) .ico svg { stroke: var(--on-primary-container); }
+
+/* feature showcase */
+.showcase { display: grid; gap: clamp(3rem, 6vw, 5rem); margin-top: clamp(2.4rem, 5vw, 3.6rem); }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: clamp(1.6rem, 4vw, 3.4rem); align-items: center; }
+.row:nth-child(even) .copy { order: 2; }
+.row .kicker { font-size: .74rem; letter-spacing: .16em; text-transform: uppercase; color: var(--amber); }
+.row .copy h3 { margin: .7rem 0 .7rem; font-size: clamp(1.35rem, 1.1rem + .9vw, 1.85rem); letter-spacing: -.02em; }
+.row .copy p { margin: 0; color: var(--ink-muted); }
+.row .copy p + p { margin-top: .7rem; }
+.row .copy b { color: var(--ink); font-weight: 500; }
+.media { position: relative; }
+.media .frame img { display: block; width: 100%; height: auto; }
+.media .frame.sub { width: 68%; margin: -2.4rem 0 0 auto; position: relative; z-index: 1; }
+@media (max-width: 880px) {
+  .row { grid-template-columns: 1fr; gap: 1.4rem; }
+  .row:nth-child(even) .copy { order: 0; }
+  .media .frame.sub { width: 78%; }
+}
+
+/* small claims strip */
+.claims { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1.1rem; margin-top: clamp(3rem, 6vw, 4.5rem); padding-top: clamp(2rem, 4vw, 3rem); border-top: 1px solid var(--outline-faint); }
+.claim h3 { margin: 0 0 .35rem; font-size: 1.02rem; }
+.claim p { margin: 0; color: var(--ink-muted); font-size: .94rem; }
+.claim .ico { width: 36px; height: 36px; border-radius: 10px; margin-bottom: .7rem; }
+.claim .ico svg { width: 20px; height: 20px; }
 
 /* how it works */
 .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.4rem; margin-top: 2.2rem; counter-reset: s; }
@@ -362,37 +387,109 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
   <section id="different">
     <div class="wrap">
       <span class="eyebrow mono">What makes it different</span>
-      <h2 style="margin-top:.8rem">Precision without the chaos.</h2>
-      <div class="feat">
-        <div class="card">
-          <span class="ico"><svg viewBox="0 0 24 24"><polygon points="13 2 5 13 11 13 10 22 19 10 13 10 13 2"></polygon></svg></span>
-          <h3>Automation that respects your obsession</h3>
-          <p><b>We don't remove the detail. We remove the repetition.</b> You'll never categorize the same supermarket 300 times. Teach a merchant once, and it remembers forever.</p>
+      <h2 style="margin-top:.8rem">Precision + Automation</h2>
+      <p class="lead">Every screen below is the real app. Click any screenshot to see it full size.</p>
+
+      <div class="showcase">
+        <div class="row">
+          <div class="copy">
+            <span class="kicker mono">Dashboard</span>
+            <h3>The whole year on one screen</h3>
+            <p>Money in, costs, surplus, savings rate. Stay on the year to see the shape of it, or open a single month when you want the detail.</p>
+            <p>Big one-off purchases live in <b>Year costs</b>, so a new bike never distorts what a normal month looks like.</p>
+          </div>
+          <div class="media">
+            <div class="frame">
+              <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="addr mono">Dashboard</span></div>
+              <button type="button" class="zoom"><img loading="lazy" src="screenshots/dashboard-year.jpg" alt="Yearly dashboard with income, expenses, savings rate and category breakdown"></button>
+            </div>
+          </div>
         </div>
-        <div class="card">
+
+        <div class="row">
+          <div class="copy">
+            <span class="kicker mono">Review + rules</span>
+            <h3>Teach it once, never again</h3>
+            <p>New transactions land in a short queue. Categorize one, apply it as a rule, and every future transaction from that merchant sorts itself.</p>
+            <p><b>We don't remove the detail. We remove the repetition.</b> After a few months the queue is nearly empty and the rules keep working while you do nothing.</p>
+          </div>
+          <div class="media">
+            <div class="frame">
+              <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="addr mono">Review</span></div>
+              <button type="button" class="zoom"><img loading="lazy" src="screenshots/review-queue.jpg" alt="Review queue with uncategorized transactions waiting for a decision"></button>
+            </div>
+            <div class="frame sub">
+              <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="addr mono">Rules</span></div>
+              <button type="button" class="zoom"><img loading="lazy" src="screenshots/rules.jpg" alt="Merchant rules that categorize future transactions automatically"></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="copy">
+            <span class="kicker mono">Settlement</span>
+            <h3>Fair, not equal</h3>
+            <p>Shared costs split in proportion to what each person earns, computed from salary only. The monthly number is an estimate. The annual one is binding.</p>
+            <p>Print it and you have a statement you can both read line by line, instead of a number one of you has to trust.</p>
+          </div>
+          <div class="media">
+            <div class="frame">
+              <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="addr mono">Settlement</span></div>
+              <button type="button" class="zoom"><img loading="lazy" src="screenshots/settlement.jpg" alt="Annual settlement showing each partner's share, the equalizing transfer, and a printable statement"></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="copy">
+            <span class="kicker mono">Transactions + categories</span>
+            <h3>Every cent, where you put it</h3>
+            <p>Search, filter, split one purchase across several categories, or mark it out of scope. Amazon and PayPal always go to the queue, because one order is rarely one thing.</p>
+            <p>The category tree is yours. Rename it, nest it, archive what you stopped using. Nothing is hard coded to someone else's idea of a budget.</p>
+          </div>
+          <div class="media">
+            <div class="frame">
+              <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="addr mono">Transactions</span></div>
+              <button type="button" class="zoom"><img loading="lazy" src="screenshots/transactions.jpg" alt="Transaction list with filters, categories and amounts"></button>
+            </div>
+            <div class="frame sub">
+              <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="addr mono">Categories</span></div>
+              <button type="button" class="zoom"><img loading="lazy" src="screenshots/categories.jpg" alt="Category tree with groups and subcategories"></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="copy">
+            <span class="kicker mono">Tax</span>
+            <h3>A German tax bonus</h3>
+            <p>Not the main product, but a gift for people in Germany. Refund-relevant spending is sorted into the right buckets all year long.</p>
+            <p>When the deadline arrives, the numbers are already there, ready for ELSTER or for a Steuerberater.</p>
+          </div>
+          <div class="media">
+            <div class="frame">
+              <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="addr mono">Tax</span></div>
+              <button type="button" class="zoom"><img loading="lazy" src="screenshots/tax.jpg" alt="Tax view with refund-relevant spending grouped by bucket"></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="claims">
+        <div class="claim">
           <span class="ico"><svg viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2"></rect><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"></path></svg></span>
           <h3>Your data never leaves your machine</h3>
-          <p>No cloud. No telemetry. No subscription. No login. You own your financial history, today and in ten years.</p>
+          <p>No cloud. No telemetry. No subscription. No login.</p>
         </div>
-        <div class="card">
-          <span class="ico"><svg viewBox="0 0 24 24"><path d="M12 4v16"></path><path d="M8 20h8"></path><path d="M4 7h16"></path><path d="M4 7l-2.4 5.5h4.8z"></path><path d="M20 7l-2.4 5.5h4.8z"></path><circle cx="12" cy="4" r="1.1"></circle></svg></span>
-          <h3>Fair, not equal</h3>
-          <p>Shared costs split in proportion to income. When two people earn differently, 50/50 isn't fair. It just looks tidy.</p>
-        </div>
-        <div class="card">
-          <span class="ico"><svg viewBox="0 0 24 24"><path d="M6 3.5h12v17l-2-1.3-2 1.3-2-1.3-2 1.3-2-1.3-2 1.3z"></path><path d="M9 8h6"></path><path d="M9 11.5h6"></path></svg></span>
-          <h3>A German tax bonus</h3>
-          <p>Not the main product, but a gift for people in Germany. Refund-relevant spending, sorted into the right buckets all year, ready for ELSTER or a Steuerberater.</p>
-        </div>
-        <div class="card">
+        <div class="claim">
           <span class="ico"><svg viewBox="0 0 24 24"><polyline points="15 6 21 12 15 18"></polyline><polyline points="9 6 3 12 9 18"></polyline></svg></span>
           <h3>Open source, on purpose</h3>
-          <p>Not a licence footnote. Owning your financial data forever is the whole philosophy. The code is yours to read, run, and keep.</p>
+          <p>Not a licence footnote. The code is yours to read, run, and keep.</p>
         </div>
-        <div class="card">
+        <div class="claim">
           <span class="ico"><svg viewBox="0 0 24 24"><rect x="4.5" y="3" width="15" height="18" rx="2"></rect><rect x="7.5" y="6" width="9" height="3.5" rx="0.6"></rect><path d="M8 13h.01M12 13h.01M16 13h.01M8 16.5h.01M12 16.5h.01M16 16.5h.01"></path></svg></span>
           <h3>Deterministic core</h3>
-          <p>Parsing, rules, currency, settlement and tax are plain, auditable math, recomputed from your data, never guessed, never stored derived.</p>
+          <p>Plain, auditable math, recomputed from your data. Never guessed, never stored derived.</p>
         </div>
       </div>
     </div>
@@ -512,7 +609,8 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
   function closeBox() { if (box.open) box.close(); }
   document.querySelectorAll('button.zoom').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      boxImg.style.backgroundImage = getComputedStyle(btn).backgroundImage;
+      var img = btn.querySelector('img');
+      boxImg.style.backgroundImage = img ? 'url("' + (img.currentSrc || img.src) + '")' : getComputedStyle(btn).backgroundImage;
       if (box.showModal) box.showModal(); else box.setAttribute('open', '');
     });
   });
