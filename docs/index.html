@@ -140,6 +140,10 @@ h3 { font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
   display: grid; place-items: center;
 }
 .tgl:hover { border-color: var(--primary); }
+.lang { display: inline-flex; gap: 2px; border: 1px solid var(--outline); border-radius: 999px; padding: 2px; }
+.lang button { border: none; background: transparent; cursor: pointer; font-size: 15px; line-height: 1; padding: 4px 7px; border-radius: 999px; filter: grayscale(1); opacity: .55; transition: opacity .15s, filter .15s; }
+.lang button:hover { opacity: .85; }
+.lang button.on { filter: none; opacity: 1; background: var(--surface-variant); }
 @media (max-width: 620px) { .topbar nav a:not(.gh) { display: none; } }
 
 /* ---- hero ---- */
@@ -328,10 +332,14 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
   <div class="wrap">
     <span class="brand">Un<span class="strike">PAIN</span></span>
     <nav>
-      <a href="#why">Why</a>
-      <a href="#different">Feature tour</a>
-      <a href="#beer">Buy me a beer</a>
+      <a href="#why" data-de="Warum">Why</a>
+      <a href="#different" data-de="Feature-Tour">Feature tour</a>
+      <a href="#beer" data-de="Spendier mir ein Bier">Buy me a beer</a>
       <a class="gh" href="https://github.com/leandrorsampaio/unpain">GitHub</a>
+      <div class="lang" role="group" aria-label="Language">
+        <button type="button" data-lang="en" class="on" aria-label="English" title="English">🇬🇧</button>
+        <button type="button" data-lang="de" aria-label="Deutsch" title="Deutsch">🇩🇪</button>
+      </div>
       <button class="tgl" id="tgl" aria-label="Toggle light or dark theme" title="Toggle theme">◐</button>
     </nav>
   </div>
@@ -342,27 +350,27 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
     <div class="wrap">
       <div class="hero-row">
         <div class="hero-left">
-          <span class="eyebrow mono">For people who think €0.12 deserves an explanation</span>
+          <span class="eyebrow mono" data-de="Für Menschen, die finden, dass 0,12 € eine Erklärung verdienen">For people who think €0.12 deserves an explanation</span>
           <h1 class="wordmark" style="margin-top:1rem">Un<span class="pain">PAIN</span></h1>
           <p class="expand mono"><b>Un</b>necessarily <b>P</b>recise <b>A</b>ccounting<br>&amp; <b>I</b>ncome <b>N</b>avigator</p>
         </div>
         <div class="sheet" aria-hidden="true">
-          <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="addr">the-fine-print.xlsx</span></div>
+          <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="addr">acountability-final-final-v2.xlsx</span></div>
           <div class="fx"><span class="name">AZ23</span><span class="glyph">fx</span><span class="val">=NPV(4%, AZ2:AZ22) - PMT(3.4%/12, 360, 420000)</span></div>
           <table>
             <tr><th class="rownum"></th><th>A</th><th>B</th><th>C</th></tr>
-            <tr><th class="rownum">1</th><td>no cloud</td><td class="yes">✓</td><td class="tru">TRUE</td></tr>
-            <tr><th class="rownum">2</th><td>no telemetry</td><td class="yes">✓</td><td class="tru">TRUE</td></tr>
-            <tr><th class="rownum">3</th><td>no subscription</td><td class="yes">✓</td><td class="tru">TRUE</td></tr>
-            <tr><th class="rownum">4</th><td>no login</td><td class="yes">✓</td><td class="tru">TRUE</td></tr>
-            <tr><th class="rownum">5</th><td>open source</td><td class="yes">✓</td><td class="tru">TRUE</td></tr>
-            <tr><th class="rownum">6</th><td>free</td><td class="yes">✓</td><td class="tru">TRUE</td></tr>
+            <tr><th class="rownum">1</th><td data-de="keine Cloud">no cloud</td><td class="yes">✓</td><td class="tru" data-de="WAHR">TRUE</td></tr>
+            <tr><th class="rownum">2</th><td data-de="keine Telemetrie">no telemetry</td><td class="yes">✓</td><td class="tru" data-de="WAHR">TRUE</td></tr>
+            <tr><th class="rownum">3</th><td data-de="kein Abo">no subscription</td><td class="yes">✓</td><td class="tru" data-de="WAHR">TRUE</td></tr>
+            <tr><th class="rownum">4</th><td data-de="kein Login">no login</td><td class="yes">✓</td><td class="tru" data-de="WAHR">TRUE</td></tr>
+            <tr><th class="rownum">5</th><td data-de="Open Source">open source</td><td class="yes">✓</td><td class="tru" data-de="WAHR">TRUE</td></tr>
+            <tr><th class="rownum">6</th><td data-de="kostenlos">free</td><td class="yes">✓</td><td class="tru" data-de="WAHR">TRUE</td></tr>
           </table>
         </div>
       </div>
       <div class="cta-row hero-cta">
-        <a class="btn btn-primary" href="https://github.com/leandrorsampaio/unpain">Get it on GitHub</a>
-        <a class="btn btn-ghost" href="#how">See how it works</a>
+        <a class="btn btn-primary" href="https://github.com/leandrorsampaio/unpain" data-de="Auf GitHub holen">Get it on GitHub</a>
+        <a class="btn btn-ghost" href="#different" data-de="So funktioniert es">See how it works</a>
       </div>
       <div class="frame hero-shot">
         <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="addr mono">localhost:8765 · Dashboard</span></div>
@@ -373,51 +381,51 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 
   <section id="why" style="background:var(--bg-2)">
     <div class="narrow">
-      <span class="eyebrow mono">"why not just make our own, honey?"</span>
-      <h2 style="margin-top:.8rem">Why not use one of the thousand finance apps that already exist?</h2>
+      <span class="eyebrow mono" data-de="„warum bauen wir nicht einfach unsere eigene, Schatz?“">"why not just make our own, honey?"</span>
+      <h2 style="margin-top:.8rem" data-de="Warum nicht eine der tausend Finanz-Apps nehmen, die es schon gibt?">Why not use one of the thousand finance apps that already exist?</h2>
       <div class="qa">
         <div class="pair">
-          <div class="claim">"The design is beautiful."</div>
-          <div class="reply"><span class="arw">→</span>The highest form of visual art is a well-made spreadsheet.</div>
+          <div class="claim" data-de="„Das Design ist wunderschön.“">"The design is beautiful."</div>
+          <div class="reply" data-de='<span class="arw">→</span>Die höchste Form visueller Kunst ist eine gut gemachte Tabelle.'><span class="arw">→</span>The highest form of visual art is a well-made spreadsheet.</div>
         </div>
         <div class="pair">
-          <div class="claim">"It syncs with your bank automatically."</div>
-          <div class="reply"><span class="arw">→</span>I'm not handing another company my bank login.</div>
+          <div class="claim" data-de="„Sie synchronisiert automatisch mit deiner Bank.“">"It syncs with your bank automatically."</div>
+          <div class="reply" data-de='<span class="arw">→</span>Ich gebe keiner weiteren Firma meine Bank-Zugangsdaten.'><span class="arw">→</span>I'm not handing another company my bank login.</div>
         </div>
         <div class="pair">
-          <div class="claim">"The reports are great."</div>
-          <div class="reply"><span class="arw">→</span>Great, if you like reports built for people who'd rather not look.</div>
+          <div class="claim" data-de="„Die Berichte sind super.“">"The reports are great."</div>
+          <div class="reply" data-de='<span class="arw">→</span>Super, wenn du Berichte magst, die für Leute gemacht sind, die lieber nicht hinsehen.'><span class="arw">→</span>Great, if you like reports built for people who'd rather not look.</div>
         </div>
         <div class="pair">
-          <div class="claim">"There's a free version."</div>
-          <div class="reply"><span class="arw">→</span>Until the one feature I actually need turns out to be premium.</div>
+          <div class="claim" data-de="„Es gibt eine kostenlose Version.“">"There's a free version."</div>
+          <div class="reply" data-de='<span class="arw">→</span>Bis genau die Funktion, die ich wirklich brauche, plötzlich Premium ist.'><span class="arw">→</span>Until the one feature I actually need turns out to be premium.</div>
         </div>
         <div class="pair">
-          <div class="claim">"It makes your finances easier."</div>
-          <div class="reply"><span class="arw">→</span>I don't want easier. I want precise.</div>
+          <div class="claim" data-de="„Sie macht deine Finanzen einfacher.“">"It makes your finances easier."</div>
+          <div class="reply" data-de='<span class="arw">→</span>Ich will es nicht einfacher. Ich will es genau.'><span class="arw">→</span>I don't want easier. I want precise.</div>
         </div>
         <div class="pair">
-          <div class="claim">"You can access it from anywhere."</div>
-          <div class="reply"><span class="arw">→</span>I don't want it in someone's cloud. I want to own my data.</div>
+          <div class="claim" data-de="„Du kannst von überall darauf zugreifen.“">"You can access it from anywhere."</div>
+          <div class="reply" data-de='<span class="arw">→</span>Ich will es nicht in irgendeiner Cloud. Ich will meine Daten besitzen.'><span class="arw">→</span>I don't want it in someone's cloud. I want to own my data.</div>
         </div>
       </div>
-      <p class="punch">So I stopped looking, and built Un<span class="strike">PAIN</span>.</p>
+      <p class="punch" data-de='Also hörte ich auf zu suchen und baute Un<span class="strike">PAIN</span>.'>So I stopped looking, and built Un<span class="strike">PAIN</span>.</p>
     </div>
   </section>
 
   <section id="different">
     <div class="wrap">
-      <span class="eyebrow mono">A tour of my own mess</span>
-      <h2 style="margin-top:.8rem">How I actually use it.</h2>
-      <p class="lead">No feature grid. Just the screens I open every month, and the specific annoyance each one fixed for me. Click any screenshot to see it full size.</p>
+      <span class="eyebrow mono" data-de="Eine Tour durch mein eigenes Chaos">A tour of my own mess</span>
+      <h2 style="margin-top:.8rem" data-de="So nutze ich es wirklich.">How I actually use it.</h2>
+      <p class="lead" data-de="Keine Feature-Liste. Nur die Screens, die ich jeden Monat öffne, und der konkrete Ärger, den jeder für mich gelöst hat. Klick auf einen Screenshot für die volle Größe.">No feature grid. Just the screens I open every month, and the specific annoyance each one fixed for me. Click any screenshot to see it full size.</p>
 
       <div class="showcase">
         <div class="row">
           <div class="copy">
-            <span class="kicker">the first thing I open</span>
-            <h3>I don't think in months. I think in years.</h3>
-            <p>Every app I tried dropped me into the current month. But my life doesn't reset on the 1st. So this opens on the whole year: what came in, what went out, what's actually left.</p>
-            <p>And when a €3,000 bike wrecked my "average month," I built <b>Year costs</b> so one big purchase stops lying to me about the other eleven.</p>
+            <span class="kicker" data-de="das Erste, was ich öffne">the first thing I open</span>
+            <h3 data-de="Ich denke nicht in Monaten. Ich denke in Jahren.">I don't think in months. I think in years.</h3>
+            <p data-de="Jede App, die ich probiert habe, warf mich in den aktuellen Monat. Aber mein Leben beginnt am 1. nicht neu. Also startet das hier im ganzen Jahr: was reinkam, was rausging, was wirklich übrig bleibt.">Every app I tried dropped me into the current month. But my life doesn't reset on the 1st. So this opens on the whole year: what came in, what went out, what's actually left.</p>
+            <p data-de='Und als ein Fahrrad für 3.000 € meinen „Durchschnittsmonat“ ruinierte, baute ich <b>Jahreskosten</b>, damit eine große Ausgabe nicht mehr über die anderen elf lügt.'>And when a €3,000 bike wrecked my "average month," I built <b>Year costs</b> so one big purchase stops lying to me about the other eleven.</p>
           </div>
           <div class="media">
             <div class="frame">
@@ -429,10 +437,10 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 
         <div class="row">
           <div class="copy">
-            <span class="kicker">the part I was dreading</span>
-            <h3>I got tired of filing <i>"Supermarket"</i> for the 300th time.</h3>
-            <p>I don't mind reviewing a transaction once. I mind doing the <i>same</i> one forever. So new stuff lands in a little queue, I categorize <i>"Supermarket"</i> once, hit <b>"apply + rule,"</b> and every <i>"Supermarket"</i> from here to retirement files itself.</p>
-            <p>I didn't want to lose the detail. I just wanted to stop repeating it. A few months in, the queue is basically empty and I've stopped thinking about it, which was the whole point.</p>
+            <span class="kicker" data-de="der Teil, vor dem ich mich gefürchtet habe">the part I was dreading</span>
+            <h3 data-de='Ich hatte es satt, zum 300. Mal <i>„Supermarkt“</i> zu verbuchen.'>I got tired of filing <i>"Supermarket"</i> for the 300th time.</h3>
+            <p data-de='Ich habe nichts dagegen, eine Buchung einmal zu prüfen. Ich habe etwas dagegen, <i>dieselbe</i> für immer zu machen. Also landet Neues in einer kleinen Warteschlange, ich kategorisiere <i>„Supermarkt“</i> einmal, klicke <b>„Regel anwenden“</b>, und jeder <i>„Supermarkt“</i> von hier bis zur Rente verbucht sich selbst.'>I don't mind reviewing a transaction once. I mind doing the <i>same</i> one forever. So new stuff lands in a little queue, I categorize <i>"Supermarket"</i> once, hit <b>"apply + rule,"</b> and every <i>"Supermarket"</i> from here to retirement files itself.</p>
+            <p data-de="Ich wollte die Details nicht verlieren. Ich wollte nur aufhören, sie zu wiederholen. Nach ein paar Monaten ist die Warteschlange quasi leer und ich denke nicht mehr daran – genau darum ging es.">I didn't want to lose the detail. I just wanted to stop repeating it. A few months in, the queue is basically empty and I've stopped thinking about it, which was the whole point.</p>
           </div>
           <div class="media">
             <div class="frame">
@@ -448,10 +456,10 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 
         <div class="row">
           <div class="copy">
-            <span class="kicker">the reason it exists, honestly</span>
-            <h3>Splitting everything 50/50 quietly made someone lose.</h3>
-            <p>We earn different amounts, so an even split meant the lower earner was handing over a bigger slice of their income every month. This splits shared costs by what each of us actually earns instead. The monthly figure is a guess; the year-end number is the one we settle on.</p>
-            <p>And I can print it, so it's a statement we both read line by line, not a number one of us has to take on faith.</p>
+            <span class="kicker" data-de="ehrlich gesagt der Grund, warum es existiert">the reason it exists, honestly</span>
+            <h3 data-de="Alles 50/50 zu teilen ließ heimlich jemanden verlieren.">Splitting everything 50/50 quietly made someone lose.</h3>
+            <p data-de="Wir verdienen unterschiedlich viel, also bedeutete eine gleiche Teilung, dass der geringere Verdienst jeden Monat einen größeren Anteil seines Einkommens abgab. Das hier teilt gemeinsame Kosten stattdessen danach, was jeder von uns tatsächlich verdient. Die monatliche Zahl ist eine Schätzung; die Zahl am Jahresende ist die verbindliche.">We earn different amounts, so an even split meant the lower earner was handing over a bigger slice of their income every month. This splits shared costs by what each of us actually earns instead. The monthly figure is a guess; the year-end number is the one we settle on.</p>
+            <p data-de="Und ich kann es ausdrucken, also ist es eine Abrechnung, die wir beide Zeile für Zeile lesen – keine Zahl, die einer von uns einfach glauben muss.">And I can print it, so it's a statement we both read line by line, not a number one of us has to take on faith.</p>
           </div>
           <div class="media">
             <div class="frame">
@@ -463,9 +471,9 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 
         <div class="row">
           <div class="copy">
-            <span class="kicker">where I go when something looks off</span>
-            <h3>One Amazon order is never just one thing.</h3>
-            <p>So Amazon and PayPal always land in the queue, where I can split a single order across a few categories or mark part of it out of scope. Then I search, filter, and poke at the list until every cent sits where I actually put it.</p>
+            <span class="kicker" data-de="wohin ich gehe, wenn etwas komisch aussieht">where I go when something looks off</span>
+            <h3 data-de="Eine Amazon-Bestellung ist nie nur eine Sache.">One Amazon order is never just one thing.</h3>
+            <p data-de="Also landen Amazon und PayPal immer in der Warteschlange, wo ich eine einzelne Bestellung auf mehrere Kategorien aufteilen oder Teile davon als irrelevant markieren kann. Dann suche, filtere und stochere ich in der Liste, bis jeder Cent da sitzt, wo ich ihn wirklich hinhaben will.">So Amazon and PayPal always land in the queue, where I can split a single order across a few categories or mark part of it out of scope. Then I search, filter, and poke at the list until every cent sits where I actually put it.</p>
           </div>
           <div class="media">
             <div class="frame">
@@ -477,10 +485,10 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 
         <div class="row">
           <div class="copy">
-            <span class="kicker">I know I'm overdoing it</span>
-            <h3>I wanted categories, subcategories, and room for whims.</h3>
-            <p>Not a tidy budget with five buckets. I wanted real categories and subcategories, plus space to spin up a temporary one for a trip, or some project that'll be over in three months, and archive it later without losing the history.</p>
-            <p>I know I'm overdoing it. That's kind of the whole point of the app.</p>
+            <span class="kicker" data-de="ich weiß, ich übertreibe es">I know I'm overdoing it</span>
+            <h3 data-de="Ich wollte Kategorien, Unterkategorien und Platz für Launen.">I wanted categories, subcategories, and room for whims.</h3>
+            <p data-de="Kein ordentliches Budget mit fünf Töpfen. Ich wollte echte Kategorien und Unterkategorien, plus Platz, um kurzerhand eine für eine Reise anzulegen, oder ein Projekt, das in drei Monaten vorbei ist, und sie später zu archivieren, ohne die Historie zu verlieren.">Not a tidy budget with five buckets. I wanted real categories and subcategories, plus space to spin up a temporary one for a trip, or some project that'll be over in three months, and archive it later without losing the history.</p>
+            <p data-de="Ich weiß, ich übertreibe es. Das ist irgendwie der ganze Sinn der App.">I know I'm overdoing it. That's kind of the whole point of the app.</p>
           </div>
           <div class="media">
             <div class="frame">
@@ -492,10 +500,10 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 
         <div class="row">
           <div class="copy">
-            <span class="kicker">the part I stopped dreading in April</span>
-            <h3>I was rebuilding my tax numbers from scratch every year.</h3>
-            <p>Living in Germany, I'd spend a weekend each spring digging refund-relevant spending back out of a year of transactions. So I made it tag itself into the right buckets all year long instead.</p>
-            <p>Now when the deadline shows up, the numbers are already sitting there, ready for ELSTER or for a Steuerberater. It's not really the main product, more of a gift to myself, and anyone else in Germany.</p>
+            <span class="kicker" data-de="der Teil, vor dem ich im April keine Angst mehr habe">the part I stopped dreading in April</span>
+            <h3 data-de="Ich habe meine Steuerzahlen jedes Jahr von Grund auf neu zusammengesucht.">I was rebuilding my tax numbers from scratch every year.</h3>
+            <p data-de="Als jemand, der in Deutschland lebt, verbrachte ich jedes Frühjahr ein Wochenende damit, erstattungsrelevante Ausgaben aus einem Jahr voller Buchungen herauszukramen. Also sorgte ich dafür, dass sie sich das ganze Jahr über von selbst in die richtigen Töpfe einsortieren.">Living in Germany, I'd spend a weekend each spring digging refund-relevant spending back out of a year of transactions. So I made it tag itself into the right buckets all year long instead.</p>
+            <p data-de="Wenn dann die Frist kommt, sind die Zahlen schon da, bereit für ELSTER oder den Steuerberater. Es ist nicht wirklich das Hauptprodukt, eher ein Geschenk an mich selbst – und an alle anderen in Deutschland.">Now when the deadline shows up, the numbers are already sitting there, ready for ELSTER or for a Steuerberater. It's not really the main product, more of a gift to myself, and anyone else in Germany.</p>
           </div>
           <div class="media">
             <div class="frame">
@@ -511,35 +519,35 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 
   <section id="how" style="background:var(--bg-2)">
     <div class="wrap">
-      <span class="eyebrow mono">How it works</span>
-      <h2 style="margin-top:.8rem">Drop. Review. Done.</h2>
-      <p class="lead">Three steps a month. After a few months, step two nearly disappears.</p>
+      <span class="eyebrow mono" data-de="So funktioniert es">How it works</span>
+      <h2 style="margin-top:.8rem" data-de="Ablegen. Prüfen. Fertig.">Drop. Review. Done.</h2>
+      <p class="lead" data-de="Drei Schritte im Monat. Nach ein paar Monaten verschwindet Schritt zwei fast.">Three steps a month. After a few months, step two nearly disappears.</p>
       <div class="steps">
-        <div class="step"><span class="line"></span><h3>Drop your exports</h3><p>Download the CSV from each bank and drop the files in one folder. PDF-only statements go through deterministic extractors.</p></div>
-        <div class="step"><span class="line"></span><h3>Review the queue</h3><p>Work through a short queue in the browser. "Apply + rule" teaches the system permanently, so it categorizes itself next time.</p></div>
-        <div class="step"><span class="line"></span><h3>Close the month</h3><p>Check the dashboard, then close the month. Every year carries your rules and categories forward automatically.</p></div>
+        <div class="step"><span class="line"></span><h3 data-de="Exporte ablegen">Drop your exports</h3><p data-de="Lade die CSV von jeder Bank herunter und leg die Dateien in einen Ordner. Reine PDF-Auszüge laufen durch deterministische Extraktoren.">Download the CSV from each bank and drop the files in one folder. PDF-only statements go through deterministic extractors.</p></div>
+        <div class="step"><span class="line"></span><h3 data-de="Warteschlange prüfen">Review the queue</h3><p data-de="Arbeite eine kurze Warteschlange im Browser ab. „Regel anwenden“ bringt es dem System dauerhaft bei, sodass es sich beim nächsten Mal selbst kategorisiert.">Work through a short queue in the browser. "Apply + rule" teaches the system permanently, so it categorizes itself next time.</p></div>
+        <div class="step"><span class="line"></span><h3 data-de="Monat abschließen">Close the month</h3><p data-de="Prüf das Dashboard und schließ dann den Monat ab. Jedes Jahr übernimmt deine Regeln und Kategorien automatisch.">Check the dashboard, then close the month. Every year carries your rules and categories forward automatically.</p></div>
       </div>
     </div>
   </section>
 
   <section id="fair">
     <div class="wrap">
-      <span class="eyebrow mono">Fair, not equal</span>
+      <span class="eyebrow mono" data-de="Fair, nicht gleich">Fair, not equal</span>
       <div class="fair">
         <div>
-          <h2>Equal is not always fair.</h2>
-          <p class="lead">When two people earn differently, splitting shared costs 50/50 quietly makes the lower earner pay a bigger share of their income. UnPAIN splits in proportion to income instead: a monthly estimate, and a binding true-up after the year closes.</p>
+          <h2 data-de="Gleich ist nicht immer fair.">Equal is not always fair.</h2>
+          <p class="lead" data-de="Wenn zwei Menschen unterschiedlich verdienen, sorgt eine 50/50-Teilung gemeinsamer Kosten heimlich dafür, dass der geringere Verdienst einen größeren Anteil seines Einkommens zahlt. UnPAIN teilt stattdessen im Verhältnis zum Einkommen: eine monatliche Schätzung und ein verbindlicher Ausgleich nach Jahresende.">When two people earn differently, splitting shared costs 50/50 quietly makes the lower earner pay a bigger share of their income. UnPAIN splits in proportion to income instead: a monthly estimate, and a binding true-up after the year closes.</p>
         </div>
         <div class="viz" aria-hidden="true">
           <div class="row">
-            <div class="k"><span>Alex earns 60%</span><b class="tabular">pays 60%</b></div>
+            <div class="k"><span data-de="Alex verdient 60 %">Alex earns 60%</span><b class="tabular" data-de="zahlt 60 %">pays 60%</b></div>
             <div class="track"><div class="fill a" style="width:60%"></div></div>
           </div>
           <div class="row">
-            <div class="k"><span>Sam earns 40%</span><b class="tabular">pays 40%</b></div>
+            <div class="k"><span data-de="Sam verdient 40 %">Sam earns 40%</span><b class="tabular" data-de="zahlt 40 %">pays 40%</b></div>
             <div class="track"><div class="fill b" style="width:40%"></div></div>
           </div>
-          <p class="cap mono">Only salary counts toward the ratio. One transfer settles the difference.</p>
+          <p class="cap mono" data-de="Nur das Gehalt zählt fürs Verhältnis. Eine Überweisung gleicht die Differenz aus.">Only salary counts toward the ratio. One transfer settles the difference.</p>
         </div>
       </div>
     </div>
@@ -549,21 +557,21 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
     <div class="wrap">
       <div class="beer-wrap">
         <div class="about">
-          <p class="hi">Hi, I'm Leandro 👋</p>
-          <p>I'm a software engineer living in Germany.</p>
-          <p class="pull">I didn't build UnPAIN because I wanted to build a finance app. I built it because I was tired of maintaining a spreadsheet every single month.</p>
-          <p>For years, I ran my household finances on increasingly elaborate Excel sheets. Eventually one of them got more complicated than the software I write for a living, so I gave it a proper home.</p>
-          <p>It's open source because I suspect I'm not the only person who enjoys knowing exactly where every cent went. If that sounds familiar… welcome home.</p>
+          <p class="hi" data-de="Hi, ich bin Leandro 👋">Hi, I'm Leandro 👋</p>
+          <p data-de="Ich bin Softwareentwickler und lebe in Deutschland.">I'm a software engineer living in Germany.</p>
+          <p class="pull" data-de="Ich habe UnPAIN nicht gebaut, weil ich eine Finanz-App bauen wollte. Ich habe es gebaut, weil ich es leid war, jeden einzelnen Monat eine Tabelle zu pflegen.">I didn't build UnPAIN because I wanted to build a finance app. I built it because I was tired of maintaining a spreadsheet every single month.</p>
+          <p data-de="Jahrelang führte ich meine Haushaltsfinanzen in immer aufwendigeren Excel-Tabellen. Irgendwann wurde eine davon komplizierter als die Software, die ich beruflich schreibe – also gab ich ihr ein richtiges Zuhause.">For years, I ran my household finances on increasingly elaborate Excel sheets. Eventually one of them got more complicated than the software I write for a living, so I gave it a proper home.</p>
+          <p data-de="Es ist Open Source, weil ich vermute, dass ich nicht der Einzige bin, der gern genau weiß, wohin jeder Cent geflossen ist. Falls dir das bekannt vorkommt … willkommen zu Hause.">It's open source because I suspect I'm not the only person who enjoys knowing exactly where every cent went. If that sounds familiar… welcome home.</p>
         </div>
         <div class="beer">
-          <p class="hi">🍺 Buy me a beer</p>
-          <p>UnPAIN is a passion project. There's no company here, just me, a spreadsheet problem, and a weekend that got a little out of hand.</p>
-          <div class="nos"><span>no subscriptions</span><span>no premium tier</span><span>no ads</span><span>no tracking</span></div>
-          <p>If it saved you time, saved you money, or just made managing your finances a little more enjoyable, a beer is a lovely way to say thanks, and it fuels another weekend of unnecessary precision.</p>
+          <p class="hi" data-de="🍺 Spendier mir ein Bier">🍺 Buy me a beer</p>
+          <p data-de="UnPAIN ist ein Herzensprojekt. Hier gibt es keine Firma, nur mich, ein Tabellen-Problem und ein Wochenende, das ein bisschen ausartete.">UnPAIN is a passion project. There's no company here, just me, a spreadsheet problem, and a weekend that got a little out of hand.</p>
+          <div class="nos"><span data-de="keine Abos">no subscriptions</span><span data-de="keine Premium-Stufe">no premium tier</span><span data-de="keine Werbung">no ads</span><span data-de="kein Tracking">no tracking</span></div>
+          <p data-de="Wenn es dir Zeit gespart hat, Geld gespart hat oder das Verwalten deiner Finanzen einfach ein bisschen angenehmer gemacht hat, ist ein Bier eine schöne Art, Danke zu sagen – und es befeuert ein weiteres Wochenende unnötiger Präzision.">If it saved you time, saved you money, or just made managing your finances a little more enjoyable, a beer is a lovely way to say thanks, and it fuels another weekend of unnecessary precision.</p>
           <div class="cta-row" style="margin-top:1.2rem">
-            <a class="btn btn-amber" href="https://buymeacoffee.com/lsampaio">🍺 Buy me a beer</a>
+            <a class="btn btn-amber" href="https://buymeacoffee.com/lsampaio" data-de="🍺 Spendier mir ein Bier">🍺 Buy me a beer</a>
           </div>
-          <p class="pressure">No pressure, though. The app is yours either way.</p>
+          <p class="pressure" data-de="Aber kein Druck. Die App gehört dir so oder so.">No pressure, though. The app is yours either way.</p>
         </div>
       </div>
     </div>
@@ -580,8 +588,8 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
     <span class="brand" style="font-size:1rem">Un<span class="strike">PAIN</span></span>
     <a href="https://github.com/leandrorsampaio/unpain">GitHub</a>
     <a href="https://github.com/leandrorsampaio/unpain#readme">README</a>
-    <a href="https://github.com/leandrorsampaio/unpain/blob/main/LICENSE">MIT License</a>
-    <span class="proud mono">// Proudly unnecessary.</span>
+    <a href="https://github.com/leandrorsampaio/unpain/blob/main/LICENSE" data-de="MIT-Lizenz">MIT License</a>
+    <span class="proud mono" data-de="// Stolz unnötig.">// Proudly unnecessary.</span>
   </div>
 </footer>
 
@@ -600,6 +608,25 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
     root.setAttribute('data-theme', next);
     try { localStorage.setItem('unpain-theme', next); } catch (e) {}
   });
+
+  // language: English default, German via data-de attributes (English captured on first switch)
+  var langEls = document.querySelectorAll('[data-de]');
+  var langBtns = document.querySelectorAll('.lang button');
+  function setLang(lang) {
+    langEls.forEach(function (el) {
+      if (el.dataset.en === undefined) el.dataset.en = el.innerHTML;
+      el.innerHTML = lang === 'de' ? el.getAttribute('data-de') : el.dataset.en;
+    });
+    langBtns.forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-lang') === lang); });
+    root.setAttribute('lang', lang);
+    try { localStorage.setItem('unpain-lang', lang); } catch (e) {}
+  }
+  var savedLang = 'en';
+  try { savedLang = localStorage.getItem('unpain-lang') || 'en'; } catch (e) {}
+  langBtns.forEach(function (b) {
+    b.addEventListener('click', function () { setLang(b.getAttribute('data-lang')); });
+  });
+  setLang(savedLang);
 
   requestAnimationFrame(function () { document.body.classList.add('play'); });
 
