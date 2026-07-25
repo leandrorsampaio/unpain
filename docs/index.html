@@ -7,10 +7,23 @@
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#fefbff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#16161a" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://leandrorsampaio.github.io/unpain/">
+<meta name="author" content="Leandro Rossi Sampaio">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="keywords" content="expense tracker, personal finance, self-hosted, offline, open source, income-proportional splitting, household budget, couples finances, shared expenses, Germany tax, ELSTER, Steuerberater, privacy-first, no cloud">
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="UnPAIN">
+<meta property="og:url" content="https://leandrorsampaio.github.io/unpain/">
 <meta property="og:title" content="UnPAIN: Unnecessarily Precise Accounting &amp; Income Navigator">
-<meta property="og:description" content="UnPAIN: a self-hosted, offline expense tracker for people who track every cent. Fair income-proportional splitting between partners, private by design, open source.">
-<meta name="twitter:card" content="summary">
+<meta property="og:description" content="A self-hosted, offline expense tracker for people who track every cent. Fair income-proportional splitting between partners, private by design, open source.">
+<meta property="og:image" content="https://leandrorsampaio.github.io/unpain/screenshots/dashboard-year.jpg">
+<meta property="og:image:alt" content="The UnPAIN dashboard showing income, expenses, savings rate, and where the money goes">
+<meta property="og:locale" content="en_US">
+<meta property="og:locale:alternate" content="de_DE">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="UnPAIN: Unnecessarily Precise Accounting &amp; Income Navigator">
+<meta name="twitter:description" content="A self-hosted, offline expense tracker for people who track every cent. Fair income-proportional splitting, private by design, open source.">
+<meta name="twitter:image" content="https://leandrorsampaio.github.io/unpain/screenshots/dashboard-year.jpg">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2032%2032%22%3E%3Crect%20width=%2232%22%20height=%2232%22%20rx=%227%22%20fill=%22%23005bc0%22/%3E%3Cg%20fill=%22%23ffffff%22%3E%3Cellipse%20cx=%2215%22%20cy=%2218%22%20rx=%228%22%20ry=%226%22/%3E%3Cpath%20d=%22M8.6%2011.5%2011%2015l-3.4.5z%22/%3E%3Crect%20x=%229%22%20y=%2222.6%22%20width=%222.3%22%20height=%223.2%22%20rx=%221.1%22/%3E%3Crect%20x=%2217%22%20y=%2222.6%22%20width=%222.3%22%20height=%223.2%22%20rx=%221.1%22/%3E%3Cellipse%20cx=%2223.6%22%20cy=%2217.6%22%20rx=%223%22%20ry=%222.4%22/%3E%3C/g%3E%3Ccircle%20cx=%2222.7%22%20cy=%2217.6%22%20r=%22.62%22%20fill=%22%23005bc0%22/%3E%3Ccircle%20cx=%2224.5%22%20cy=%2217.6%22%20r=%22.62%22%20fill=%22%23005bc0%22/%3E%3Ccircle%20cx=%2216.6%22%20cy=%2215%22%20r=%22.85%22%20fill=%22%23005bc0%22/%3E%3Crect%20x=%2211.6%22%20y=%2212.2%22%20width=%225.2%22%20height=%221.5%22%20rx=%22.75%22%20fill=%22%23005bc0%22%20transform=%22rotate%28-9%2014.2%2012.9%29%22/%3E%3C/svg%3E">
 <script>try{var t=localStorage.getItem('unpain-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
 <title>UnPAIN: Unnecessarily Precise Accounting &amp; Income Navigator</title>
@@ -140,10 +153,8 @@ h3 { font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
   display: grid; place-items: center;
 }
 .tgl:hover { border-color: var(--primary); }
-.lang { display: inline-flex; gap: 2px; border: 1px solid var(--outline); border-radius: 999px; padding: 2px; }
-.lang button { border: none; background: transparent; cursor: pointer; font-size: 15px; line-height: 1; padding: 4px 7px; border-radius: 999px; filter: grayscale(1); opacity: .55; transition: opacity .15s, filter .15s; }
-.lang button:hover { opacity: .85; }
-.lang button.on { filter: none; opacity: 1; background: var(--surface-variant); }
+.lang { border: 1px solid var(--outline); background: var(--surface); border-radius: 999px; height: 34px; padding: 0 12px; cursor: pointer; font-size: 15px; line-height: 1; display: inline-flex; align-items: center; }
+.lang:hover { border-color: var(--primary); }
 @media (max-width: 620px) { .topbar nav a:not(.gh) { display: none; } }
 
 /* ---- hero ---- */
@@ -326,6 +337,24 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 .reveal.in { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
 </style>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "UnPAIN",
+  "alternateName": "Unnecessarily Precise Accounting & Income Navigator",
+  "applicationCategory": "FinanceApplication",
+  "operatingSystem": "Self-hosted web app",
+  "description": "A self-hosted, offline expense tracker for people who track every cent. Fair income-proportional splitting between partners, private by design, open source.",
+  "url": "https://leandrorsampaio.github.io/unpain/",
+  "author": { "@type": "Person", "name": "Leandro Rossi Sampaio" },
+  "license": "https://github.com/leandrorsampaio/unpain/blob/main/LICENSE",
+  "codeRepository": "https://github.com/leandrorsampaio/unpain",
+  "isAccessibleForFree": true,
+  "inLanguage": ["en", "de"],
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" }
+}
+</script>
 </head>
 <body>
 <header class="topbar">
@@ -336,10 +365,7 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
       <a href="#different" data-de="Feature-Tour">Feature tour</a>
       <a href="#beer" data-de="Spendier mir ein Bier">Buy me a beer</a>
       <a class="gh" href="https://github.com/leandrorsampaio/unpain">GitHub</a>
-      <div class="lang" role="group" aria-label="Language">
-        <button type="button" data-lang="en" class="on" aria-label="English" title="English">🇬🇧</button>
-        <button type="button" data-lang="de" aria-label="Deutsch" title="Deutsch">🇩🇪</button>
-      </div>
+      <button type="button" class="lang" id="lang">🇩🇪</button>
       <button class="tgl" id="tgl" aria-label="Toggle light or dark theme" title="Toggle theme">◐</button>
     </nav>
   </div>
@@ -611,22 +637,28 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
 
   // language: English default, German via data-de attributes (English captured on first switch)
   var langEls = document.querySelectorAll('[data-de]');
-  var langBtns = document.querySelectorAll('.lang button');
-  function setLang(lang) {
+  var langBtn = document.getElementById('lang');
+  function setLang(lang, persist) {
     langEls.forEach(function (el) {
       if (el.dataset.en === undefined) el.dataset.en = el.innerHTML;
       el.innerHTML = lang === 'de' ? el.getAttribute('data-de') : el.dataset.en;
     });
-    langBtns.forEach(function (b) { b.classList.toggle('on', b.getAttribute('data-lang') === lang); });
     root.setAttribute('lang', lang);
-    try { localStorage.setItem('unpain-lang', lang); } catch (e) {}
+    // show the flag of the OTHER language (the one a click switches to)
+    langBtn.textContent = lang === 'de' ? '🇬🇧' : '🇩🇪';
+    var to = lang === 'de' ? 'English' : 'Deutsch';
+    langBtn.setAttribute('aria-label', 'Switch to ' + to);
+    langBtn.title = to;
+    if (persist) { try { localStorage.setItem('unpain-lang', lang); } catch (e) {} }
   }
-  var savedLang = 'en';
-  try { savedLang = localStorage.getItem('unpain-lang') || 'en'; } catch (e) {}
-  langBtns.forEach(function (b) {
-    b.addEventListener('click', function () { setLang(b.getAttribute('data-lang')); });
+  // saved choice wins; otherwise follow the browser (German browsers get German)
+  var lang0 = null;
+  try { lang0 = localStorage.getItem('unpain-lang'); } catch (e) {}
+  if (!lang0) lang0 = /^de\b/i.test(navigator.language || '') ? 'de' : 'en';
+  langBtn.addEventListener('click', function () {
+    setLang(root.getAttribute('lang') === 'de' ? 'en' : 'de', true);
   });
-  setLang(savedLang);
+  setLang(lang0, false);
 
   requestAnimationFrame(function () { document.body.classList.add('play'); });
 
