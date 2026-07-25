@@ -37,6 +37,10 @@
   --outline-faint: #e1e2ec;
   --grid-line: rgba(0,91,192,.07);
   --shadow: 0 1px 2px rgba(16,24,40,.06), 0 12px 32px -12px rgba(16,24,40,.20);
+  --sheet-border: #c9ccd1; --sheet-cell: #ffffff; --sheet-line: #d4d4d4;
+  --sheet-chrome: #e9eaed; --sheet-head-bg: #f1f3f4; --sheet-head-fg: #5f6368;
+  --sheet-fg: #1f1f1f; --sheet-addr: #5f6368; --sheet-name-bg: #f8f9fa;
+  --sheet-glyph: #9aa0a6; --sheet-formula: #0b8043; --sheet-check: #217346; --sheet-true: #1a73e8;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
@@ -57,6 +61,10 @@
   --outline-faint: #33343b;
   --grid-line: rgba(173,199,255,.06);
   --shadow: 0 1px 2px rgba(0,0,0,.4), 0 18px 40px -14px rgba(0,0,0,.6);
+  --sheet-border: #3a3d42; --sheet-cell: #1e1e1e; --sheet-line: #3a3d42;
+  --sheet-chrome: #2a2c30; --sheet-head-bg: #2a2c30; --sheet-head-fg: #9aa0a6;
+  --sheet-fg: #e4e6ea; --sheet-addr: #9aa0a6; --sheet-name-bg: #2a2c30;
+  --sheet-glyph: #7a7f87; --sheet-formula: #4ec37a; --sheet-check: #4ec37a; --sheet-true: #6ea8ff;
   color-scheme: dark;
 } }
 :root[data-theme="dark"] {
@@ -77,6 +85,10 @@
   --outline-faint: #33343b;
   --grid-line: rgba(173,199,255,.06);
   --shadow: 0 1px 2px rgba(0,0,0,.4), 0 18px 40px -14px rgba(0,0,0,.6);
+  --sheet-border: #3a3d42; --sheet-cell: #1e1e1e; --sheet-line: #3a3d42;
+  --sheet-chrome: #2a2c30; --sheet-head-bg: #2a2c30; --sheet-head-fg: #9aa0a6;
+  --sheet-fg: #e4e6ea; --sheet-addr: #9aa0a6; --sheet-name-bg: #2a2c30;
+  --sheet-glyph: #7a7f87; --sheet-formula: #4ec37a; --sheet-check: #4ec37a; --sheet-true: #6ea8ff;
   color-scheme: dark;
 }
 
@@ -118,7 +130,7 @@ h3 { font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
 }
 .topbar .wrap { display: flex; align-items: center; gap: 1rem; height: 60px; }
 .brand { font-weight: 700; font-size: 1.15rem; letter-spacing: -.02em; display: inline-flex; align-items: baseline; }
-.brand .strike { color: var(--ink-faint); text-decoration: line-through; text-decoration-color: var(--amber); text-decoration-thickness: 2px; }
+.strike { color: var(--ink-faint); text-decoration: line-through; text-decoration-color: var(--amber); text-decoration-thickness: 2px; }
 .topbar nav { margin-left: auto; display: flex; gap: 1.4rem; align-items: center; }
 .topbar nav a { color: var(--ink-muted); text-decoration: none; font-size: .92rem; }
 .topbar nav a:hover { color: var(--ink); }
@@ -160,24 +172,24 @@ h3 { font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
 @media (min-width: 980px) { .hero-row { grid-template-columns: minmax(0, 1fr) minmax(20rem, 23rem); } }
 .hero-cta { justify-content: center; margin-top: clamp(2.4rem, 5vw, 3.8rem); }
 
-/* spreadsheet (dark, matching the app windows) */
-.sheet { border-radius: 12px; overflow: hidden; border: 1px solid #3a3d42; background: #1e1e1e; box-shadow: var(--shadow); color: #e4e6ea; }
-.sheet .bar { display: flex; align-items: center; gap: 6px; padding: 9px 12px; background: #2a2c30; border-bottom: 1px solid #3a3d42; }
-.sheet .bar .dot { width: 11px; height: 11px; border-radius: 50%; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.25); }
+/* spreadsheet (theme-aware, follows the site) */
+.sheet { border-radius: 12px; overflow: hidden; border: 1px solid var(--sheet-border); background: var(--sheet-cell); box-shadow: var(--shadow); color: var(--sheet-fg); }
+.sheet .bar { display: flex; align-items: center; gap: 6px; padding: 9px 12px; background: var(--sheet-chrome); border-bottom: 1px solid var(--sheet-line); }
+.sheet .bar .dot { width: 11px; height: 11px; border-radius: 50%; box-shadow: inset 0 0 0 .5px rgba(0,0,0,.2); }
 .sheet .bar .dot:nth-child(1) { background: #ff5f57; }
 .sheet .bar .dot:nth-child(2) { background: #febc2e; }
 .sheet .bar .dot:nth-child(3) { background: #28c840; }
-.sheet .bar .addr { margin-left: 8px; font-size: .72rem; color: #9aa0a6; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.sheet .fx { display: flex; align-items: center; gap: .5rem; padding: 5px 8px; background: #1e1e1e; border-bottom: 1px solid #3a3d42; font-size: .76rem; color: #c8ccd2; white-space: nowrap; overflow: hidden; }
-.sheet .fx .name { flex: none; border: 1px solid #3a3d42; border-radius: 3px; padding: 2px 10px; min-width: 40px; text-align: center; color: #c8ccd2; background: #2a2c30; }
-.sheet .fx .glyph { flex: none; color: #7a7f87; font-style: italic; }
-.sheet .fx .val { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #4ec37a; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sheet .bar .addr { margin-left: 8px; font-size: .72rem; color: var(--sheet-addr); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sheet .fx { display: flex; align-items: center; gap: .5rem; padding: 5px 8px; background: var(--sheet-cell); border-bottom: 1px solid var(--sheet-line); font-size: .76rem; color: var(--sheet-fg); white-space: nowrap; overflow: hidden; }
+.sheet .fx .name { flex: none; border: 1px solid var(--sheet-line); border-radius: 3px; padding: 2px 10px; min-width: 40px; text-align: center; color: var(--sheet-fg); background: var(--sheet-name-bg); }
+.sheet .fx .glyph { flex: none; color: var(--sheet-glyph); font-style: italic; }
+.sheet .fx .val { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--sheet-formula); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .sheet table { border-collapse: collapse; width: 100%; font-size: .9rem; }
-.sheet th { background: #2a2c30; color: #9aa0a6; font-weight: 500; font-size: .72rem; border: 1px solid #3a3d42; text-align: center; padding: 3px 4px; }
+.sheet th { background: var(--sheet-head-bg); color: var(--sheet-head-fg); font-weight: 500; font-size: .72rem; border: 1px solid var(--sheet-line); text-align: center; padding: 3px 4px; }
 .sheet th.rownum { width: 26px; }
-.sheet td { border: 1px solid #3a3d42; padding: .44rem .7rem; background: #1e1e1e; white-space: nowrap; }
-.sheet td.yes { text-align: center; color: #4ec37a; font-weight: 700; width: 34px; }
-.sheet td.tru { text-align: center; color: #6ea8ff; font-weight: 600; width: 52px; letter-spacing: .02em; }
+.sheet td { border: 1px solid var(--sheet-line); padding: .44rem .7rem; background: var(--sheet-cell); white-space: nowrap; }
+.sheet td.yes { text-align: center; color: var(--sheet-check); font-weight: 700; width: 34px; }
+.sheet td.tru { text-align: center; color: var(--sheet-true); font-weight: 600; width: 52px; letter-spacing: .02em; }
 
 .cta-row { display: flex; flex-wrap: wrap; gap: .8rem; margin-top: 1.8rem; align-items: center; }
 .btn {
@@ -188,7 +200,7 @@ h3 { font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
 .btn-primary { background: var(--primary); color: var(--bg); }
 :root[data-theme="dark"] .btn-primary, :root:not([data-theme="light"]) .btn-primary { color: #002e68; }
 .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--primary) 60%, transparent); }
-.btn-ghost { background: transparent; color: var(--ink); border-color: var(--outline); }
+.btn-ghost { background: var(--surface); color: var(--ink); border-color: var(--outline); }
 .btn-ghost:hover { border-color: var(--primary); color: var(--primary); }
 .btn-amber { background: var(--amber); color: #241300; }
 .btn-amber:hover { transform: translateY(-1px); box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--amber) 60%, transparent); }
@@ -317,7 +329,7 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
     <span class="brand">Un<span class="strike">PAIN</span></span>
     <nav>
       <a href="#why">Why</a>
-      <a href="#how">How it works</a>
+      <a href="#different">Feature tour</a>
       <a href="#beer">Buy me a beer</a>
       <a class="gh" href="https://github.com/leandrorsampaio/unpain">GitHub</a>
       <button class="tgl" id="tgl" aria-label="Toggle light or dark theme" title="Toggle theme">◐</button>
@@ -332,7 +344,7 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
         <div class="hero-left">
           <span class="eyebrow mono">For people who think €0.12 deserves an explanation</span>
           <h1 class="wordmark" style="margin-top:1rem">Un<span class="pain">PAIN</span></h1>
-          <p class="expand mono"><b>Un</b>necessarily <b>P</b>recise <b>A</b>ccounting &amp; <b>I</b>ncome <b>N</b>avigator</p>
+          <p class="expand mono"><b>Un</b>necessarily <b>P</b>recise <b>A</b>ccounting<br>&amp; <b>I</b>ncome <b>N</b>avigator</p>
         </div>
         <div class="sheet" aria-hidden="true">
           <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="addr">the-fine-print.xlsx</span></div>
@@ -389,7 +401,7 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
           <div class="reply"><span class="arw">→</span>I don't want it in someone's cloud. I want to own my data.</div>
         </div>
       </div>
-      <p class="punch">So I stopped looking, and built UnPAIN.</p>
+      <p class="punch">So I stopped looking, and built Un<span class="strike">PAIN</span>.</p>
     </div>
   </section>
 
