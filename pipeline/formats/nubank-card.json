@@ -2,10 +2,10 @@
   "name": "nubank-card",
   "signature": ["date", "title", "amount"],
   "delimiter": ",",
-  "decimal": "dot",
+  "decimal": "comma",
   "date_format": "%Y-%m-%d",
   "sign": -1,
-  "_note": "Nubank card CSV lists expenses as positive; sign -1 normalizes to negative=expense",
+  "_note": "Nubank card CSV, verified against real statements 2025-01..2025-12. Expenses are listed positive; sign -1 normalizes to negative=expense, which also turns a 'Pagamento recebido' line (written '- 839,46') into a credit. Amounts are Brazilian, i.e. 1.234,56, and are quoted because the delimiter is also a comma: parsing them as dot-decimal multiplied every plain amount by 100 (26,00 -> 2600.00) while dividing every amount with a thousands separator by about 1000 (1.234,56 -> 1.23).",
   "columns": {
     "date": "date",
     "amount": "amount",

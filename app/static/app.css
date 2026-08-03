@@ -387,7 +387,9 @@ table { border-collapse: collapse; }
   box-sizing: border-box;
   width: var(--app-dialog-width, 440px);
   max-width: 100%;
-  max-height: var(--app-dialog-maxh, calc(100vh - 180px));
+  /* Leaves room for the headline and the action row inside the 90vh dialog cap,
+     so the body is what scrolls when content is long. */
+  max-height: var(--app-dialog-maxh, min(calc(90vh - 132px), calc(100vh - 172px)));
   min-width: 0;
   overflow-y: auto;
 }
@@ -564,6 +566,14 @@ md-outlined-text-field, md-outlined-select { min-width: 160px; }
 }
 .coverage-cell.present { background: var(--good-container); color: var(--on-good-container); }
 .coverage-cell.missing { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
+/* A saved note shown inline in an editor. Wraps and keeps the author's line
+   breaks instead of collapsing a multi-line note onto one row. */
+.note-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+
 .coverage-cell.muted { background: var(--md-sys-color-surface-container-high); }
 /* Statement imported, no activity in it: answered, not missing. Outlined rather
    than filled so it reads as neutral between .present (green) and .missing (red). */

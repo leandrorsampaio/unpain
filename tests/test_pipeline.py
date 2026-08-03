@@ -481,6 +481,65 @@ check("credit card books the EUR column, never the foreign amount",
       and {row["currency"] for row in card_rows} == {"EUR"})
 check("credit card Saldo trailer is consumed, not counted as an invalid row",
       card_stats["skipped"] == 0)
+# Deleting an import must take everything it created and nothing else, and must
+# not touch a closed month. A surviving anchor asserts a balance for data that is
+# no longer in the store, which fails the next chain verification.
+anchor_stmt = tmp / "anchor-stmt.csv"
+anchor_stmt.write_text(
+    "Buchungstag;Wertstellung;Verwendungszweck;Begünstigter / Auftraggeber;IBAN / Kontonummer;Betrag;Währung\n"
+    "01.06.2026;01.06.2026;Deletable purchase;SHOP;DE00;-10,00;EUR\n"
+    "Kontostand vom 30.06.2026;;;;;1.234,56;EUR\n", encoding="utf-8")
+del_stem = "bank1-person1__delete-me"
+del_stats = ingest.ingest_upload(anchor_stmt, "bank1-person1", del_stem, original_name="anchor-stmt.csv")
+other_anchor_count = len([a for a in anchors.load(2026) if a.get("upload") != del_stem])
+check("upload records an anchor tagged with its upload",
+      del_stats["anchors"]["added"] == 1
+      and any(a.get("upload") == del_stem for a in anchors.load(2026)))
+del_view = ingest.upload_contents(del_stem)
+check("upload contents are reported before deleting",
+      del_view["transactions"] == 1 and del_view["closed_months"] == [])
+
+# a closed month blocks the delete entirely
+closed_state = store.months_state(2026)
+closed_state["2026-06"] = "closed"
+store.save_months_state(2026, closed_state)
+check("upload contents flag the closed month", ingest.upload_contents(del_stem)["closed_months"] == ["2026-06"])
+try:
+    ingest.delete_upload(del_stem)
+    check("delete refuses a closed month", False)
+except ValueError as exc:
+    check("delete refuses a closed month", "closed" in str(exc))
+check("refused delete left the transactions in place",
+      (tmp / "data" / "2026" / "transactions" / (del_stem + ".jsonl")).exists())
+closed_state["2026-06"] = "open"
+store.save_months_state(2026, closed_state)
+
+ingest.delete_upload(del_stem)
+check("delete removes the upload's transactions",
+      not (tmp / "data" / "2026" / "transactions" / (del_stem + ".jsonl")).exists())
+check("delete takes the upload's anchor with it",
+      not any(a.get("upload") == del_stem for a in anchors.load(2026)))
+check("delete leaves anchors it did not create",
+      len([a for a in anchors.load(2026) if a.get("upload") != del_stem]) == other_anchor_count)
+
+# Nubank cards export Brazilian amounts (1.234,56) with a comma delimiter, so the
+# amounts are quoted. Reading them as dot-decimal multiplies a plain amount by 100
+# and divides one carrying a thousands separator by about 1000 — both silent.
+nubank_export = tmp / "nubank-card.csv"
+nubank_export.write_text(
+    "date,title,amount\n"
+    "2026-03-01,Padaria,\"26,00\"\n"
+    "2026-03-02,Mercado,\"1.234,56\"\n"
+    "2026-03-03,Pagamento recebido,\"- 839,46\"\n", encoding="utf-8")
+nubank_cfg = formats.detect(nubank_export)
+nubank_rows = formats.parse(nubank_export, nubank_cfg)
+check("nubank card format is detected", nubank_cfg["name"] == "nubank-card")
+check("nubank amounts use Brazilian decimals",
+      [row["amount"] for row in nubank_rows] == [-26.0, -1234.56, 839.46],
+      str([row["amount"] for row in nubank_rows]))
+check("nubank rows are booked in BRL",
+      {row["currency"] for row in nubank_rows} == {"BRL"})
+
 # A month with no card spending is a real statement, not a broken parse.
 empty_card = tmp / "db-card-empty.csv"
 empty_card.write_text(
@@ -748,7 +807,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 132
+MIN_CHECKS = 143
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

@@ -30,7 +30,8 @@ for t in tests/test_pipeline.py tests/test_oracle.py tests/test_feedback.py \
          tests/test_networth.py tests/test_security.py \
          tests/test_ingest_pdf_flow.py tests/test_review_count.py \
          tests/test_rules_engine.py tests/test_recurring.py tests/test_fx.py \
-         tests/test_rule_reapply.py tests/test_trade_republic_extractor.py; do
+         tests/test_rule_reapply.py tests/test_trade_republic_extractor.py \
+         tests/test_banco_rendimento_extractor.py tests/test_n26_extractor.py; do
   echo "== $t"; "$PY" "$t"
 done
 for t in tests/test_i18n.js tests/test_material_ui.js tests/test_typography_ui.js \

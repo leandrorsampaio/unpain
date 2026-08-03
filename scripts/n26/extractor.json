@@ -1,0 +1,8 @@
+{
+  "id": "n26",
+  "label": "N26",
+  "description": "N26 account statements (Kontoauszug) reconciled against their own Zusammenfassung page",
+  "module": "scripts.n26.extract",
+  "callable": "extract_pdf",
+  "account_bank_contains": "n26"
+}

@@ -35,8 +35,13 @@ def _valid_date(value):
     return parsed
 
 
-def record(account, anchor_rows, source):
-    """Record parsed anchors without overwriting contradictory balances."""
+def record(account, anchor_rows, source, upload=None):
+    """Record parsed anchors without overwriting contradictory balances.
+
+    `upload` is the source_stem of the upload that produced them, so deleting that
+    upload can take its anchors with it. Anchors recorded without one (inbox runs,
+    manual entries) are never touched by that cleanup.
+    """
     accounts, _ = load_accounts()
     if account not in accounts:
         raise ValueError("unknown account '%s'" % account)
@@ -80,7 +85,7 @@ def record(account, anchor_rows, source):
             result["conflicts"] += 1
             continue
 
-        existing_rows.append({
+        row = {
             "account": account,
             "date": parsed_date.isoformat(),
             "balance": balance,
@@ -88,7 +93,10 @@ def record(account, anchor_rows, source):
             "source": source,
             "kind": incoming.get("kind") or "statement",
             "captured_at": _now(),
-        })
+        }
+        if upload:
+            row["upload"] = upload
+        existing_rows.append(row)
         existing_rows.sort(key=lambda item: (item.get("date", ""), item.get("account", "")))
         write_json(_path(year), existing_rows)
         result["added"] += 1
@@ -126,6 +134,28 @@ def remove(account, date):
         write_json(_path(year), kept)
         conflicts = load_conflicts(year)
         kept_conflicts = [c for c in conflicts if not (c.get("account") == account and c.get("date") == parsed.isoformat())]
+        if len(kept_conflicts) != len(conflicts):
+            write_json(_path(year, CONFLICTS_FILE), kept_conflicts)
+    return {"removed": removed}
+
+
+def remove_for_upload(upload):
+    """Drop every anchor an upload recorded, plus any conflict logged at the same
+    account+date. Without this, deleting a statement leaves a balance anchor
+    behind that asserts a balance for data no longer in the store, and the next
+    chain verification fails against a statement nobody can find."""
+    removed = 0
+    for year in store.years():
+        rows = load(year)
+        kept = [item for item in rows if item.get("upload") != upload]
+        if len(kept) == len(rows):
+            continue
+        dropped = [item for item in rows if item.get("upload") == upload]
+        write_json(_path(year), kept)
+        removed += len(dropped)
+        conflicts = load_conflicts(year)
+        stale = {(item["account"], item["date"]) for item in dropped}
+        kept_conflicts = [c for c in conflicts if (c.get("account"), c.get("date")) not in stale]
         if len(kept_conflicts) != len(conflicts):
             write_json(_path(year, CONFLICTS_FILE), kept_conflicts)
     return {"removed": removed}

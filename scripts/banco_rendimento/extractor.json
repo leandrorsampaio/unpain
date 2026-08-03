@@ -1,0 +1,8 @@
+{
+  "id": "banco-rendimento",
+  "label": "Banco Rendimento",
+  "description": "Banco Rendimento account statements (extrato) with running-balance reconciliation",
+  "module": "scripts.banco_rendimento.extract",
+  "callable": "extract_pdf",
+  "account_bank_contains": "rendimento"
+}

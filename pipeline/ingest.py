@@ -117,11 +117,11 @@ def _ingest_file(path, account_id, accounts):
     return added, sorted(by_year), stats["skipped"], anchor_stats
 
 
-def _record_parsed_anchors(cfg, account_id, parse_stats, source):
+def _record_parsed_anchors(cfg, account_id, parse_stats, source, upload=None):
     if not cfg.get("balance_row"):
         return None
     parsed = parse_stats.get("anchors") or []
-    result = anchors.record(account_id, parsed, source) if parsed else {
+    result = anchors.record(account_id, parsed, source, upload=upload) if parsed else {
         "added": 0, "duplicates": 0, "conflicts": 0,
     }
     result["found"] = len(parsed)
@@ -243,7 +243,8 @@ def ingest_upload(path, account_id, source_stem, original_name=None):
         store.append_transactions(year, source_stem, fresh)
         added += len(fresh)
         dates += [t["date"] for t in fresh]
-    anchor_stats = _record_parsed_anchors(cfg, account_id, stats, original_name or path.name)
+    anchor_stats = _record_parsed_anchors(cfg, account_id, stats, original_name or path.name,
+                                          upload=source_stem)
     years = sorted(by_year.keys())
     for y in years:
         transfers.mark_internal(y)
@@ -254,9 +255,41 @@ def ingest_upload(path, account_id, source_stem, original_name=None):
             "format": cfg["name"]}
 
 
+def upload_contents(source_stem):
+    """What one upload put in the store: rows and decisions per year, and which of
+    its months are closed. Read-only, so a confirmation can state the damage before
+    anything is removed."""
+    detail = {"years": {}, "transactions": 0, "decisions": 0, "closed_months": []}
+    for y in store.years():
+        path = DATA / str(y) / "transactions" / (source_stem + ".jsonl")
+        if not path.exists():
+            continue
+        rows = [json.loads(line) for line in open(path, encoding="utf-8") if line.strip()]
+        ids = {row["id"] for row in rows}
+        decs = store.decisions(y)
+        months = store.months_state(y)
+        closed = sorted({row["date"][:7] for row in rows if months.get(row["date"][:7]) == "closed"})
+        detail["years"][y] = {"transactions": len(rows),
+                              "decisions": sum(1 for i in ids if i in decs)}
+        detail["transactions"] += len(rows)
+        detail["decisions"] += detail["years"][y]["decisions"]
+        detail["closed_months"] += closed
+    detail["closed_months"] = sorted(set(detail["closed_months"]))
+    return detail
+
+
 def delete_upload(source_stem):
-    """Delete every transaction produced by one upload (across years) and prune
-    their decisions. Merchant rules are kept. Returns the years touched."""
+    """Delete every transaction produced by one upload (across years), prune their
+    decisions and drop the balance anchors it recorded. Merchant rules are kept.
+    Returns the years touched.
+
+    Refuses when any of those transactions sit in a closed month: everything else
+    in the app rejects edits there, and deleting the data wholesale would be a far
+    bigger change than the edit that is forbidden.
+    """
+    closed = upload_contents(source_stem)["closed_months"]
+    if closed:
+        raise ValueError("Month %s is closed. Reopen it first." % ", ".join(closed))
     touched = []
     for y in store.years():
         path = DATA / str(y) / "transactions" / (source_stem + ".jsonl")
@@ -269,6 +302,7 @@ def delete_upload(source_stem):
         if len(remaining) != len(decs):
             store.save_decisions(y, remaining)
         touched.append(y)
+    anchors.remove_for_upload(source_stem)
     for y in touched:
         transfers.mark_internal(y)
     return touched

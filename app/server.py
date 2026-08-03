@@ -2126,6 +2126,17 @@ class UploadDelete(BaseModel):
     id: str
 
 
+@app.get("/api/ingest/upload-contents")
+def ingest_upload_contents(id: str):
+    """Read-only: what deleting this upload would remove, for the confirmation."""
+    u = next((x for x in _uploads() if x["id"] == id), None)
+    if not u:
+        raise HTTPException(404, "unknown upload")
+    if not u.get("source_stem"):
+        return {"transactions": 0, "decisions": 0, "years": {}, "closed_months": []}
+    return ingest.upload_contents(u["source_stem"])
+
+
 @app.post("/api/ingest/upload-delete")
 def ingest_upload_delete(d: UploadDelete):
     uploads = _uploads()
@@ -2133,7 +2144,10 @@ def ingest_upload_delete(d: UploadDelete):
     if not u:
         raise HTTPException(404, "unknown upload")
     if u.get("source_stem"):
-        ingest.delete_upload(u["source_stem"])
+        try:
+            ingest.delete_upload(u["source_stem"])
+        except ValueError as exc:   # closed month; same 409 the decision endpoints use
+            raise HTTPException(409, str(exc))
     if u.get("kind") == "pdf" and u.get("processed_pdf"):
         (INBOX / "processed" / u["processed_pdf"]).unlink(missing_ok=True)
         if u.get("extraction_log"):

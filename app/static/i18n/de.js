@@ -421,6 +421,18 @@ I18N.register('de', {
   'empty statement — no activity this period': 'Leerer Auszug — keine Bewegungen in diesem Zeitraum',
   'statement imported — no activity': 'Auszug importiert — keine Bewegungen',
   /* ---- Bulk actions (Transactions) ---- */
+  /* ---- Ingest: processed-file filters ---- */
+  'All accounts': 'Alle Konten',
+  'All owners': 'Alle Inhaber',
+  'All years': 'Alle Jahre',
+  'Owner': 'Inhaber',
+  'Showing {year}. A statement spanning two years appears in both.':
+    'Zeigt {year}. Ein Auszug über zwei Jahre erscheint in beiden.',
+  'Processed files ({shown} of {total})': 'Verarbeitete Dateien ({shown} von {total})',
+  'No processed files match these filters.': 'Keine verarbeiteten Dateien passen zu diesen Filtern.',
+  'Checking what this would remove…': 'Prüfe, was dabei entfernt würde…',
+  'Cannot delete: {months} is closed. Reopen it first.': 'Löschen nicht möglich: {months} ist abgeschlossen. Bitte zuerst wieder öffnen.',
+  '{n} manual decisions will be dropped': '{n} manuelle Entscheidungen werden verworfen',
   'Select transaction': 'Transaktion auswählen',
   'Select every transaction matching the current filters': 'Alle Transaktionen auswählen, die den aktuellen Filtern entsprechen',
   'Select all ({n})': 'Alle auswählen ({n})',

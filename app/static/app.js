@@ -370,7 +370,6 @@ function openDoctor() {
   openModal({
     title: T('Data health check'),
     width: '720px',
-    height: '760px',
     body: `<div class="doctor-body">
       <p class="type-body-small mb-4" style="color:var(--ink2)">${T('Scans all years for data problems. Read-only until you act on a finding.')}</p>
       <md-filled-button class="doctor-run"><md-icon slot="icon">monitor_heart</md-icon>${T('Run check')}</md-filled-button>
@@ -726,7 +725,7 @@ function openCatPicker(btn, opts = null) {
     ? `<md-text-button class="cat-cancel">${T('Cancel')}</md-text-button><md-filled-button onclick="catPickerDone()">${T('Done')}</md-filled-button>`
     : `${current ? `<md-text-button onclick="pickCat('')">${T('Clear')}</md-text-button>` : ''}<md-text-button class="cat-cancel">${T('Close')}</md-text-button>`;
   const dialog = openModal({
-    title: multi ? T('Choose categories') : T('Choose a category'), width: '1300px', height: '900px',
+    title: multi ? T('Choose categories') : T('Choose a category'), width: '1300px',
     body: `${textField({ label: T('Filter categories'), className: 'cat-search', attrs: 'oninput="filterCatPicker(this.value)"' })}<div class="cat-grid mt-3">${boxes}${special}</div>`,
     actions,
     onMount: root => { root.querySelector('.cat-cancel').onclick = () => root._close(); },
@@ -956,7 +955,13 @@ function wireNotePopovers() {
 
 /* ---- modal shell ---- : the ONE Material dialog. Returns the dialog element.
    `body` and `actions` are HTML strings; `onMount(root)` wires listeners. */
-function openModal({ title, body, actions = '', width = '', height = '', onMount, onClose }) {
+/* Dialogs size to their content and are capped at 90vh — a short modal should not
+   be padded out to a fixed height, and a long one should scroll its body rather
+   than run off the screen. There is deliberately no height option: one rule for
+   every dialog on the site. */
+const DIALOG_MAX_HEIGHT = '90vh';
+
+function openModal({ title, body, actions = '', width = '', onMount, onClose }) {
   const dialog = document.createElement('md-dialog');
   dialog.className = 'app-dialog';
   // A modal opening while another is already up needs its own shadow, or the two
@@ -964,7 +969,6 @@ function openModal({ title, body, actions = '', width = '', height = '', onMount
   const stacked = !!document.querySelector('.app-dialog');
   if (stacked) dialog.classList.add('app-dialog-stacked');
   if (width) dialog.style.setProperty('--app-dialog-width', width);
-  if (height) dialog.style.setProperty('--app-dialog-maxh', `min(calc(${height} - 132px), calc(100vh - 172px))`);
   dialog.innerHTML = `<div slot="headline">${esc(title)}</div>
     <div slot="content" class="generic-modal-body">${body}</div>
     ${actions ? `<div slot="actions" class="generic-modal-footer">${actions}</div>` : ''}`;
@@ -979,7 +983,8 @@ function openModal({ title, body, actions = '', width = '', height = '', onMount
     const inner = dialog.shadowRoot && dialog.shadowRoot.querySelector('dialog');
     if (!inner) return;
     if (width) inner.style.inlineSize = inner.style.maxInlineSize = `min(${width}, calc(100vw - 48px))`;
-    if (height) inner.style.maxBlockSize = `min(${height}, calc(100vh - 40px))`;
+    // Cap only: block-size stays auto so the dialog is as tall as its content.
+    inner.style.maxBlockSize = `min(${DIALOG_MAX_HEIGHT}, calc(100vh - 40px))`;
     inner.style.margin = 'auto';
     if (stacked) {
       const container = dialog.shadowRoot.querySelector('.container') || inner;
@@ -1267,12 +1272,24 @@ function noteModal(current, onSave) {
 async function openNote(id, current) {
   noteModal(current, async text => { await api('/api/decision', { year: state.year, id, fields: { note: text || null } }); render(); });
 }
+/* Edit a note held in the DOM (saved later with the surrounding form) rather than
+   posted immediately. The trigger is either a bare md-icon (rules form) or a
+   button carrying an icon plus a label (transaction editor), and the host may
+   show the note text, so refresh whichever of those is present. */
 function openLocalNote(btn) {
   const host = btn.closest('[data-note]');
   if (!host) return;
   noteModal(host.dataset.note || '', text => {
     host.dataset.note = text;
-    btn.innerHTML = text ? 'edit_note' : 'note_add';
+    const icon = btn.tagName === 'MD-ICON' ? btn : btn.querySelector('md-icon');
+    if (icon) icon.textContent = text ? 'edit_note' : 'note_add';
+    const label = btn.querySelector('[data-note-label]');
+    if (label) label.textContent = text ? T('Edit note') : T('Add note');
+    const display = host.querySelector('[data-note-text]');
+    if (display) {
+      display.textContent = text;
+      display.hidden = !text;
+    }
   });
 }
 
@@ -2178,6 +2195,7 @@ async function renderIngest() {
   const extractors = stage.extractors || [];
   state.ingestFiles = files;
   state.ingestExtractors = extractors;
+  state.ingestUploads = uploads;
   // A PDF is ready once it has an account + extractor. A bank-name mismatch is only an advisory
   // warning (see stagingRow) — the user chose the account, so let them process into it.
   const canProcess = files.some(f => f.account && (f.kind !== 'pdf' || f.extractor));
@@ -2204,8 +2222,19 @@ async function renderIngest() {
     <div id="process-result">${processResultHtml(state.ingestResult)}</div>
 
     <div class="card p-6">
-      <h2 class="font-medium mb-3">${T('Processed files ({n})', { n: uploads.length })}</h2>
-      <div>${uploads.length ? uploads.map(uploadRow).join('') : `<div class="type-body-small" style="color:var(--ink2)">${T('Nothing processed yet.')}</div>`}</div>
+      <h2 class="font-medium mb-3" id="uploads-count"></h2>
+      <div class="flex items-center gap-2 flex-wrap mb-3">
+        ${selectField({ id: 'up-account', label: T('Account'), value: ingestFilters().account,
+          options: [['', T('All accounts')], ...uploadAccountOptions(uploads)],
+          attrs: 'onchange="setIngestFilter(\'account\', this.value)"' })}
+        ${selectField({ id: 'up-owner', label: T('Owner'), value: ingestFilters().owner,
+          options: [['', T('All owners')], ...state.meta.people.map(p => [p, personLabelRaw(p)]), ['couple', T('Both (couple)')]],
+          attrs: 'onchange="setIngestFilter(\'owner\', this.value)"' })}
+        ${checkboxField({ id: 'up-all-years', label: T('All years'), checked: ingestFilters().allYears,
+          className: 'type-label', attrs: 'onchange="setIngestFilter(\'allYears\', this.checked)"' })}
+        <span class="type-caption" style="color:var(--ink2)">${T('Showing {year}. A statement spanning two years appears in both.', { year: state.year })}</span>
+      </div>
+      <div id="uploads-list"></div>
     </div>`;
 
   const input = $('#file-input');
@@ -2215,7 +2244,15 @@ async function renderIngest() {
   dz.ondragleave = () => dz.classList.remove('drag');
   dz.ondrop = e => { e.preventDefault(); dz.classList.remove('drag'); if (e.dataTransfer.files.length) ingestUploadFiles(e.dataTransfer.files); };
   const pb = $('#process-btn'); if (pb) pb.onclick = processFiles;
+  refreshUploadsList();
   attachTooltips();
+}
+
+/* Only accounts that actually have processed files — a filter listing accounts with
+   nothing behind them is just more noise on a page we are trying to de-clutter. */
+function uploadAccountOptions(uploads) {
+  const ids = [...new Set(uploads.map(u => u.account).filter(Boolean))];
+  return ids.map(id => [id, accountLabel(id)]).sort((a, b) => a[1].localeCompare(b[1]));
 }
 
 function pickerTrigger(icon, label, onclick, filled = false) {
@@ -2312,6 +2349,60 @@ function stagingRow(f, extractors) {
       ${textField({ label: T('Comment'), className: 'stage-comment flex-1', placeholder: T('Optional'), value: f.comment || '', attrs: `onchange="stageSetComment('${f.id}', this.value)"` })}
     </div>
   </div>`;
+}
+
+/* Which calendar years an upload's contents fall in. `years` is authoritative and
+   already lists both when a statement straddles a year boundary. A statement for a
+   period with no activity produced no transactions and so has no years — fall back
+   to the period it declared, because a file the filter cannot place would become
+   invisible, and an invisible upload cannot be deleted. */
+function uploadYears(u) {
+  if (u.years && u.years.length) return u.years.map(Number);
+  const month = String(u.period || '').match(/^(\d{4})-\d{2}$/);
+  if (month) return [Number(month[1])];
+  const spanned = String((u.extraction && u.extraction.period) || '').match(/\d{4}/g);
+  if (spanned) return [...new Set(spanned.map(Number))];
+  return [];
+}
+
+function ingestFilters() {
+  if (!state.ingestFilters) state.ingestFilters = { account: '', owner: '', allYears: false };
+  return state.ingestFilters;
+}
+function setIngestFilter(key, value) {
+  ingestFilters()[key] = value;
+  refreshUploadsList();
+}
+function filteredUploads() {
+  const f = ingestFilters();
+  return (state.ingestUploads || []).filter(u => {
+    if (f.account && u.account !== f.account) return false;
+    if (f.owner && u.owner !== f.owner) return false;
+    if (!f.allYears) {
+      const years = uploadYears(u);
+      // An upload we cannot date is never hidden.
+      if (years.length && !years.includes(state.year)) return false;
+    }
+    return true;
+  });
+}
+function refreshUploadsList() {
+  const host = $('#uploads-list');
+  if (!host) return;
+  const all = state.ingestUploads || [];
+  const shown = filteredUploads();
+  host.innerHTML = shown.length
+    ? shown.map(uploadRow).join('')
+    : `<div class="type-body-small" style="color:var(--ink2)">${all.length
+      ? T('No processed files match these filters.')
+      : T('Nothing processed yet.')}</div>`;
+  const count = $('#uploads-count');
+  if (count) {
+    count.textContent = shown.length === all.length
+      ? T('Processed files ({n})', { n: all.length })
+      : T('Processed files ({shown} of {total})', { shown: shown.length, total: all.length });
+  }
+  attachTooltips();
 }
 
 function uploadRow(u) {
@@ -2519,14 +2610,34 @@ function processFiles() {
   });
 }
 
+/* Deleting an import is irreversible, so the confirmation states exactly what it
+   will take — counted from the store, not from the upload record — and refuses
+   outright when any of it sits in a closed month. */
 function deleteUpload(id, name) {
   openModal({
     title: T('Delete this file and its entries?'),
-    body: `<div class="type-body-small" style="color:var(--ink2)">${T('All transactions imported from {name} will be permanently removed from every month/year, and their manual decisions dropped. Merchant rules are kept. This cannot be undone.', { name: `<b>${esc(name)}</b>` })}</div>`,
-    actions: `<md-text-button class="d-cancel">${T('Cancel')}</md-text-button><md-filled-button class="d-go" style="--md-filled-button-container-color:var(--bad)">${T('Delete')}</md-filled-button>`,
-    onMount: root => {
+    body: `<div class="type-body-small" style="color:var(--ink2)">${T('All transactions imported from {name} will be permanently removed from every month/year, and their manual decisions dropped. Merchant rules are kept. This cannot be undone.', { name: `<b>${esc(name)}</b>` })}</div>
+      <div class="d-detail type-body-small mt-3">${T('Checking what this would remove…')}</div>`,
+    actions: `<md-text-button class="d-cancel">${T('Cancel')}</md-text-button><md-filled-button class="d-go" disabled style="--md-filled-button-container-color:var(--bad)">${T('Delete')}</md-filled-button>`,
+    onMount: async root => {
+      const go = root.querySelector('.d-go');
+      const detail = root.querySelector('.d-detail');
       root.querySelector('.d-cancel').onclick = () => root._close();
-      root.querySelector('.d-go').onclick = async () => { root._close(); await api('/api/ingest/upload-delete', { id }); renderIngest(); };
+      let info;
+      try {
+        info = await api(`/api/ingest/upload-contents?id=${encodeURIComponent(id)}`);
+      } catch (_) { root._close(); return; }
+      const years = Object.keys(info.years || {}).sort();
+      if (info.closed_months.length) {
+        detail.innerHTML = `<span style="color:var(--bad)">${T('Cannot delete: {months} is closed. Reopen it first.', { months: esc(info.closed_months.join(', ')) })}</span>`;
+        return;   // leave Delete disabled
+      }
+      detail.innerHTML = `${T('{n} transactions', { n: info.transactions })}${years.length ? ` · ${years.length > 1 ? T('years') : T('year')} ${esc(years.join(', '))}` : ''}${info.decisions ? ` · ${T('{n} manual decisions will be dropped', { n: info.decisions })}` : ''}`;
+      go.disabled = false;
+      go.onclick = async () => {
+        try { await api('/api/ingest/upload-delete', { id }); } catch (_) { return; }
+        root._close(); renderIngest();
+      };
     },
   });
 }
@@ -2599,11 +2710,15 @@ function openEditTransaction(t) {
   const isIncome = t.amount_eur > 0;
   openModal({
     title: T('Edit transaction'),
-    width: '780px', height: '80vh',
+    width: '780px',
     body: `
-      <div class="type-body mb-4 flex items-center gap-2 flex-wrap" style="color:var(--ink2)">
+      <div class="type-body mb-2 flex items-center gap-2 flex-wrap" style="color:var(--ink2)">
         <span>${fmtDate(t.date, true)} · ${esc(t.counterparty || '')}${t.purpose ? ' · ' + esc(t.purpose) : ''} · <b class="${t.amount_eur > 0 ? 'text-positive' : 'text-negative'}">${fmt(t.amount_eur)}</b> · ${esc(accountLabel(t.account))}</span>
         <md-text-button class="e-edit-entry" ${tooltip(T('Correct the raw date, name, amount or bank account of this entry'))}><md-icon slot="icon">edit</md-icon>${T('Edit entry')}</md-text-button>
+      </div>
+      <div class="e-note-host mb-4" data-note="${esc(t.note || '')}">
+        <md-text-button class="e-note" onclick="openLocalNote(this)"><md-icon slot="icon">${t.note ? 'edit_note' : 'note_add'}</md-icon><span data-note-label>${t.note ? T('Edit note') : T('Add note')}</span></md-text-button>
+        <div data-note-text class="type-body-small mt-1 note-text" ${t.note ? '' : 'hidden'}>${esc(t.note || '')}</div>
       </div>
       <div class="flex flex-col gap-4">
         <div><div class="type-label mb-1" style="color:var(--ink2)">${T('Category')}</div>${catField('id="e-cat"', t.category)}</div>
@@ -2637,6 +2752,9 @@ function openEditTransaction(t) {
         if (!category && sharing !== 'out-of-scope') { showError(T('Pick a category first.')); return; }
         const fields = { category, sharing, year_cost: readYearCost(root), force_review: false, ...readTaxReview(root) };
         const owner = readOwner(root); if (owner) fields.income_owner = owner;
+        // The note is edited in the DOM and saved with the rest, so writing it
+        // cannot re-render the page out from under this open dialog.
+        fields.note = root.querySelector('.e-note-host').dataset.note || null;
         await api('/api/decision', { year: state.year, id: t.id, fields });
         root._close(); render();
       };
