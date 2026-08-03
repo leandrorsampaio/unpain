@@ -458,6 +458,66 @@ dc_cfg = {"signature": ["Date", "Debit", "Credit"], "delimiter": ",", "decimal":
 dc_rows = formats.parse(debit_credit, dc_cfg)
 check("debit and credit signs are deterministic", [row["amount"] for row in dc_rows] == [-10.0, 5.0])
 
+# Deutsche Bank credit cards ship two columns both named 'Betrag': the foreign
+# amount, then the EUR amount the bank already converted. Resolving them by name
+# leaves it to duplicate-key resolution which one wins, and picking the foreign
+# one books e.g. 27.97 BRL as 27.97 EUR. The config addresses both by position.
+card_export = tmp / "db-card.csv"
+card_export.write_text(
+    "Kreditkartentransaktionen\n"
+    "Kreditkarte;Kundennummer;Kartennummer;Karteninhaber\n"
+    "Test Card;000 0000000;0000********0000;TEST HOLDER\n"
+    "\n"
+    "Abrechnungsdatum: 25.3.2026\n"
+    "Belegdatum;Eingangstag;Verwendungszweck;Fremdwährung;Betrag;Kurs;Betrag;Währung\n"
+    "1.3.2026;3.3.2026;LOCAL SHOP, 12345 CITY, DEU;EUR;-10,00;1,00000;-10,00;EUR\n"
+    "2.3.2026;4.3.2026;FOREIGN SHOP, 00000000 CITY, BRA;BRL;-27,97;6,18805;-4,52;EUR\n"
+    "Saldo:;;;;;;-14,52;EUR\n", encoding="utf-8")
+card_cfg = formats.detect(card_export)
+card_rows, card_stats = formats.parse(card_export, card_cfg, with_stats=True)
+check("deutsche bank credit card format is detected", card_cfg["name"] == "deutsche-bank-kreditkarte")
+check("credit card books the EUR column, never the foreign amount",
+      [row["amount"] for row in card_rows] == [-10.0, -4.52]
+      and {row["currency"] for row in card_rows} == {"EUR"})
+check("credit card Saldo trailer is consumed, not counted as an invalid row",
+      card_stats["skipped"] == 0)
+# A month with no card spending is a real statement, not a broken parse.
+empty_card = tmp / "db-card-empty.csv"
+empty_card.write_text(
+    "Kreditkartentransaktionen\n"
+    "Abrechnungsdatum: 25.4.2026\n"
+    "Belegdatum;Eingangstag;Verwendungszweck;Fremdwährung;Betrag;Kurs;Betrag;Währung\n"
+    "Saldo:;;;;;;0;EUR\n", encoding="utf-8")
+check("a card month with no spending parses as zero transactions",
+      formats.parse(empty_card, formats.detect(empty_card)) == [])
+# The upload gate must accept that empty statement instead of calling it unsupported.
+empty_preview = ingest.preview_file(empty_card)
+check("upload preview accepts an empty statement",
+      empty_preview["transactions"] == 0 and empty_preview["date_min"] is None
+      and empty_preview["format"] == "deutsche-bank-kreditkarte")
+try:
+    ingest.preview_file(bad_dates)
+    check("upload preview still rejects an unreadable file", False)
+except ValueError:
+    check("upload preview still rejects an unreadable file", True)
+# The period line is the only thing dating a statement with no activity, and the
+# two shapes below both occur in real files ('25.3.2026' and '2026-04').
+check("statement period read from a day-first billing date",
+      formats.parse(card_export, card_cfg, with_stats=True)[1]["period"] == "2026-03")
+check("statement period read from a year-month billing date",
+      formats.parse(empty_card, formats.detect(empty_card), with_stats=True)[1]["period"] == "2026-04")
+# Coverage must stop calling a reported-but-empty month a missing statement.
+empty_upload_stem = "card1-person1__empty-statement"
+ingest.ingest_upload(empty_card, "card1-person1", empty_upload_stem, original_name="empty.csv")
+write_json(tmp / "data" / "uploads.json", {"uploads": [
+    {"account": "card1-person1", "source_stem": empty_upload_stem, "period": "2026-04", "total": 0}]})
+april = next(a for a in coverage.coverage(2026, today=date(2026, 6, 30))["accounts"]
+             if a["id"] == "card1-person1")
+check("coverage marks a reported empty month",
+      april["months"][3] == 0 and april["reported"][3] is True)
+check("coverage leaves unreported empty months alone", april["reported"][4] is False)
+write_json(tmp / "data" / "uploads.json", {"uploads": []})
+
 # Administrative guards: unique safe rule ids, valid close states, non-zero ratios.
 pattern = "Same / quoted ' pattern " + ("x" * 60)
 rule_one = server.add_rule(server.RulePayload(pattern=pattern, category="sports/equipment"))["rule"]
@@ -688,7 +748,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 122
+MIN_CHECKS = 132
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

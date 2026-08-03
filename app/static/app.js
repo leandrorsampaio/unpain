@@ -1222,11 +1222,18 @@ function anchorStatusChip(summary) {
 function coverageCard(data) {
   const rows = (data.accounts || []).map(account => {
     const label = accountLabel(account.id);
+    const reported = account.reported || [];
     const cells = account.months.map((count, index) => {
       const month = index + 1;
+      // A statement was imported for this month and it carried no activity — that
+      // is answered, not missing, so it must not read as an alert.
+      const emptyReported = count === 0 && reported[index];
       const stateClass = count > 0 ? 'present'
-        : (!account.low_activity && coverageActiveMonth(data, month) ? 'missing' : 'muted');
-      const detail = count > 0 ? T('{n} transactions', { n: count }) : T('no transactions');
+        : emptyReported ? 'reported'
+          : (!account.low_activity && coverageActiveMonth(data, month) ? 'missing' : 'muted');
+      const detail = count > 0 ? T('{n} transactions', { n: count })
+        : emptyReported ? T('statement imported — no activity')
+          : T('no transactions');
       return `<span class="coverage-cell ${stateClass}" data-account="${esc(account.id)}" data-month="${month}" ${tooltip(esc(`${label} · ${T(MONTH_NAMES[index])}: ${detail}`))}>${count}</span>`;
     }).join('');
     return `<div class="coverage-account type-body-small truncate">${esc(label)}</div>${cells}${anchorStatusChip((data.anchors || {})[account.id])}`;
@@ -2225,8 +2232,12 @@ function pdfAccountCompatible(f, extractors) {
 }
 
 function stagingRow(f, extractors) {
+  // A valid statement can be empty (a month with no activity), so it has no date
+  // range or currency to show — say so rather than rendering blank separators.
   const preview = f.preview
-    ? `${f.preview.format} · ${T('{n} transactions', { n: f.preview.transactions })} · ${fmtDate(f.preview.date_min, true)}–${fmtDate(f.preview.date_max, true)} · ${f.preview.currencies.join(', ')}`
+    ? (f.preview.transactions
+      ? `${f.preview.format} · ${T('{n} transactions', { n: f.preview.transactions })} · ${fmtDate(f.preview.date_min, true)}–${fmtDate(f.preview.date_max, true)} · ${f.preview.currencies.join(', ')}`
+      : `${f.preview.format} · ${T('empty statement — no activity this period')}`)
     : f.kind === 'pdf' ? T('PDF · extractor required') : T('Awaiting validation');
   const extraction = f.extraction
     ? `<div class="type-caption" style="color:var(--ink2)">${T('{n} rows found', { n: f.extraction.transactions_extracted || 0 })} · ${T('discrepancy {amount}', { amount: fmt(f.extraction.discrepancy || 0) })}</div>` : '';
@@ -2259,7 +2270,11 @@ function stagingRow(f, extractors) {
 function uploadRow(u) {
   const badge = `<span class="chip chip-good">${T('processed')}</span>`;
   const years = u.years || [];
-  const stats = `${T('{n} entries', { n: u.added ?? u.total ?? '?' })}${u.duplicates ? ` ${T('(+{n} duplicates skipped)', { n: u.duplicates })}` : ''} · ${u.date_min ? fmtDate(u.date_min, true) : '?'} → ${u.date_max ? fmtDate(u.date_max, true) : '?'}${years.length ? ` · ${years.length > 1 ? T('years') : T('year')} ${years.join(', ')}` : ''}`;
+  // An empty statement has no entries, date range or year to report — one clear
+  // line beats "0 entries · ? → ?".
+  const stats = (u.kind === 'table' && !u.total)
+    ? T('empty statement — no activity this period')
+    : `${T('{n} entries', { n: u.added ?? u.total ?? '?' })}${u.duplicates ? ` ${T('(+{n} duplicates skipped)', { n: u.duplicates })}` : ''} · ${u.date_min ? fmtDate(u.date_min, true) : '?'} → ${u.date_max ? fmtDate(u.date_max, true) : '?'}${years.length ? ` · ${years.length > 1 ? T('years') : T('year')} ${years.join(', ')}` : ''}`;
   const extracted = u.extraction
     ? `<div class="type-caption" style="color:var(--ink2)">${esc(u.extraction.period)} · ${T('{n} extracted', { n: u.extraction.transactions_extracted })} · ${T('reconciled exactly')}${u.extraction.transactions_for_review ? ` · ${T('{n} sent to Review', { n: u.extraction.transactions_for_review })}` : ''}</div>` : '';
   return `<div class="flex items-start gap-3 py-2 border-t" style="border-color:var(--line)">
@@ -2411,7 +2426,9 @@ async function ingestUploadFiles(fileList) {
     } else {
       const staged = await res.json();
       const detail = staged.preview
-        ? T('Validated {n} transactions as {format}. Choose the account, then process.', { n: staged.preview.transactions, format: staged.preview.format })
+        ? (staged.preview.transactions
+          ? T('Validated {n} transactions as {format}. Choose the account, then process.', { n: staged.preview.transactions, format: staged.preview.format })
+          : T('Validated as {format}: an empty statement with no activity. Choose the account, then process.', { format: staged.preview.format }))
         : T('PDF staged. Choose the account and extractor, then process.');
       results.push({ file: f.name, status: 'processed', detail });
     }

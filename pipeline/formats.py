@@ -90,6 +90,13 @@ def parse(path, cfg, with_stats=False):
 
         def get(key):
             name = cmap.get(key)
+            # An integer names a column by position. Needed when a header repeats a
+            # name (Deutsche Bank credit cards ship two 'Betrag' columns: foreign
+            # amount, then the EUR amount) — resolving those by name would depend on
+            # which duplicate wins, and picking the wrong one books a foreign amount
+            # as euros.
+            if isinstance(name, int):
+                return str(row[name]).strip() if 0 <= name < len(row) else ""
             if not name or name not in col or col[name] >= len(row):
                 return ""
             return str(row[col[name]]).strip()
@@ -129,8 +136,32 @@ def parse(path, cfg, with_stats=False):
         raise ValueError("Too many rows have invalid dates (%d skipped, %d parsed). Samples: %s" %
                          (len(skipped_dates), len(out), " | ".join(skipped_dates[:3])))
     stats = {"skipped": len(skipped_dates), "skipped_samples": skipped_dates[:3],
-             "anchors": captured_anchors}
+             "anchors": captured_anchors, "period": _statement_period(rows[:header_idx], cfg)}
     return (out, stats) if with_stats else out
+
+
+def _statement_period(preamble_rows, cfg):
+    """The year-month a statement covers, read from a configured preamble line.
+
+    A statement for a period with no activity has no transactions to date it, so
+    this line is the only evidence that the period was reported at all. Returns
+    'YYYY-MM' or None; never raises, since it is supplementary information.
+    """
+    period_cfg = cfg.get("statement_period") or {}
+    match_text = str(period_cfg.get("match") or "")
+    if not match_text:
+        return None
+    for row in preamble_rows:
+        joined = ";".join(str(cell).strip() for cell in row)
+        if match_text.lower() not in joined.lower():
+            continue
+        month_first = re.search(r"(\d{4})-(\d{1,2})\b", joined)
+        if month_first:
+            return "%s-%02d" % (month_first.group(1), int(month_first.group(2)))
+        day_first = re.search(r"\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b", joined)
+        if day_first:
+            return "%s-%02d" % (day_first.group(3), int(day_first.group(2)))
+    return None
 
 
 def _parse_date(raw, fmt):

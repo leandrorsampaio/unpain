@@ -2066,11 +2066,20 @@ def ingest_process():
                     "added": stats["added"], "duplicates": stats["duplicates"], "total": stats["total"],
                     "years": stats["years"], "date_min": stats["date_min"], "date_max": stats["date_max"],
                     "anchors": stats["anchors"],
+                    # The period the statement declares it covers. For a statement
+                    # with no activity this is the only record that the month was
+                    # reported at all, so coverage can stop calling it missing.
+                    "period": stats.get("period"),
                 })
-                results.append({"file": e["original_name"], "status": "processed",
-                                "detail": "%d new (%d duplicates skipped), %s–%s%s" % (
-                                    stats["added"], stats["duplicates"], stats["date_min"] or "?", stats["date_max"] or "?",
-                                    "; " + stats["anchor_message"] if stats["anchor_message"] else "")})
+                if stats["total"]:
+                    detail = "%d new (%d duplicates skipped), %s–%s%s" % (
+                        stats["added"], stats["duplicates"], stats["date_min"] or "?", stats["date_max"] or "?",
+                        "; " + stats["anchor_message"] if stats["anchor_message"] else "")
+                else:
+                    # A statement covering a period with no activity: a "?–?" date
+                    # range and a missing-anchor note would both be noise, not news.
+                    detail = "empty statement — no activity in this period"
+                results.append({"file": e["original_name"], "status": "processed", "detail": detail})
             remaining = [s for s in remaining if s["id"] != e["id"]]
         except Exception as ex:  # noqa: BLE001
             e["error"] = "%s No data was imported." % ex

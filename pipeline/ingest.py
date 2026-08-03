@@ -17,13 +17,19 @@ def preview_file(path):
     """Validate a tabular upload without writing canonical data."""
     cfg = formats.detect(path)
     rows, stats = formats.parse(path, cfg, with_stats=True)
-    if not rows:
+    # A recognised export with no rows is a real statement for a month with no
+    # activity — credit cards issue these routinely. Only call it an error when the
+    # file also held rows we could not read, which means it is not what it claims.
+    # (formats.parse already raises when rows exist but none of them parse.)
+    if not rows and stats["skipped"]:
         raise ValueError("No transactions found. Check that this is a supported bank export and not an empty report.")
     dates = [r["date"] for r in rows]
     currencies = sorted({(r.get("currency") or "EUR").upper() for r in rows})
     return {"format": cfg["name"], "transactions": len(rows), "skipped": stats["skipped"],
             "anchors": len(stats["anchors"]),
-            "date_min": min(dates), "date_max": max(dates), "currencies": currencies}
+            "date_min": min(dates) if dates else None,
+            "date_max": max(dates) if dates else None,
+            "currencies": currencies}
 
 
 def run(verbose=True):
@@ -242,7 +248,7 @@ def ingest_upload(path, account_id, source_stem, original_name=None):
     for y in years:
         transfers.mark_internal(y)
     return {"added": added, "duplicates": dup, "total": added + dup, "years": years,
-            "skipped": stats["skipped"],
+            "skipped": stats["skipped"], "period": stats.get("period"),
             "anchors": anchor_stats, "anchor_message": _anchor_message(anchor_stats),
             "date_min": min(dates) if dates else None, "date_max": max(dates) if dates else None,
             "format": cfg["name"]}

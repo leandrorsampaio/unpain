@@ -418,6 +418,10 @@ I18N.register('de', {
   'Move this rule to another profile': 'Diese Regel in ein anderes Profil verschieben',
   'Apply to entries': 'Auf Einträge anwenden',
   'Replace manual classifications in the selected year with this live rule': 'Manuelle Klassifizierungen im gewählten Jahr durch diese aktive Regel ersetzen',
+  'empty statement — no activity this period': 'Leerer Auszug — keine Bewegungen in diesem Zeitraum',
+  'statement imported — no activity': 'Auszug importiert — keine Bewegungen',
+  'Validated as {format}: an empty statement with no activity. Choose the account, then process.':
+    'Als {format} validiert: ein leerer Auszug ohne Bewegungen. Wähle das Konto und verarbeite dann.',
   'Edit rule': 'Regel bearbeiten',
   'Change this rule’s pattern, category, sharing or scope': 'Muster, Kategorie, Aufteilung oder Geltungsbereich dieser Regel ändern',
   'Save changes': 'Änderungen speichern',

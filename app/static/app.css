@@ -565,6 +565,13 @@ md-outlined-text-field, md-outlined-select { min-width: 160px; }
 .coverage-cell.present { background: var(--good-container); color: var(--on-good-container); }
 .coverage-cell.missing { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
 .coverage-cell.muted { background: var(--md-sys-color-surface-container-high); }
+/* Statement imported, no activity in it: answered, not missing. Outlined rather
+   than filled so it reads as neutral between .present (green) and .missing (red). */
+.coverage-cell.reported {
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline);
+  color: var(--ink2);
+}
 .coverage-anchor { justify-self: center; gap: 4px; }
 .coverage-anchor md-icon { font-size: 18px; width: 18px; height: 18px; }
 .coverage-gap-list { padding-left: 24px; color: var(--ink); }
