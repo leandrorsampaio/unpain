@@ -1,7 +1,7 @@
 /* Family Accountability UI — vanilla JS, talks to the FastAPI endpoints. */
 'use strict';
 
-const state = { meta: null, year: null, tab: 'dashboard', renderId: 0, yearCache: new Map() };
+const state = { meta: null, year: null, tab: 'dashboard', renderId: 0, yearCache: new Map(), lastRendered: null, reviewBatches: 1 };
 const $ = sel => document.querySelector(sel);
 const fmt = v => (v == null ? '–' : (v === 0 ? 0 : v).toLocaleString('en-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'); // v===0 normalizes -0 -> 0
 /* Format an amount in its ORIGINAL (foreign) currency; falls back to "<number> <CODE>"
@@ -388,16 +388,37 @@ function openDoctor() {
   });
 }
 
+/* Every mutating action re-renders the whole tab, which rebuilds #main from
+   scratch and would drop the reader back at the top of the page. When we stay on
+   the same tab+year (an in-place refresh, not navigation) we put the scroll
+   position back afterwards; navigation still starts at the top. */
 async function render() {
   const id = ++state.renderId;
   const tab = state.tab;
   const year = state.year;
+  const inPlace = state.lastRendered && state.lastRendered.tab === tab && state.lastRendered.year === year;
+  const scrollY = inPlace ? window.scrollY : 0;
+  if (!inPlace) state.reviewBatches = 1;   // lazy-loaded review batches belong to one tab+year visit
+  state.lastRendered = { tab, year };
   const views = { dashboard: renderDashboard, transactions: renderTransactions, ingest: renderIngest, review: renderReview, rules: renderRules, categories: renderCategories, settlement: renderSettlement, tax: renderTax, add: renderAdd, feedback: renderFeedback, settings: renderSettings };
   if (tab === 'review') $('#main').innerHTML = '<div class="card p-8 flex items-center justify-center"><md-circular-progress indeterminate></md-circular-progress></div>';
   const badge = ['dashboard', 'review'].includes(tab) ? null : refreshReviewBadge(id, tab, year);
   await views[tab](id);
-  if (renderIsCurrent(id, tab, year)) attachTooltips();
+  if (renderIsCurrent(id, tab, year)) {
+    attachTooltips();
+    if (scrollY) restoreScroll(scrollY, id, tab, year);
+  }
   if (badge) await badge;
+}
+
+/* Re-apply a scroll offset once layout has settled. md-* components upgrade
+   asynchronously, so the page can still be growing on the frame right after
+   innerHTML lands; two rAFs put us past that. The browser clamps on its own when
+   the rebuilt page is shorter (e.g. a review group just left the queue). */
+function restoreScroll(y, id, tab, year) {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (renderIsCurrent(id, tab, year)) window.scrollTo(0, y);
+  }));
 }
 
 /* ---------- helpers ---------- */
@@ -1925,6 +1946,7 @@ async function renderTransactions(renderId = state.renderId) {
     <div class="page-sticky">
       <div class="flex items-center gap-2 flex-wrap">
         ${textField({ id: 't-search', placeholder: T('Search merchant or purpose'), className: 't-search-field w-64', value: state.txnSearch || '' })}
+        ${txnFilterToggle('review', T('Review'))}
         ${txnFilterToggle('oos', T('Out of scope'))}
         ${txnFilterToggle('tax', T('Tax'))}
         ${txnFilterToggle('year_cost', T('Year cost'))}
@@ -1952,6 +1974,7 @@ async function renderTransactions(renderId = state.renderId) {
     let rows = items.filter(t => {
       const isOos = t.sharing === 'out-of-scope';
       if (isOos && !f.flags.has('oos')) return false;              // hide out-of-scope unless included
+      if (f.flags.has('review') && t.status !== 'needs_review') return false;
       if (f.flags.has('tax') && !t.tax_bucket) return false;
       if (f.flags.has('year_cost') && !t.year_cost) return false;
       if (f.flags.has('split') && !t.splits) return false;
@@ -2459,7 +2482,8 @@ function txnRow(t, i) {
       ? `<span class="chip chip-bad">${T('review')}</span>`
       : (isSplit ? `<span class="chip chip-primary">${T('split')}</span>` : catBadge(t.category));
   // split parents are containers: their flags/amount live in the parts, so mute them
-  return `<div class="txn-item ${isSplit ? 'is-split' : ''}" style="${isTransfer ? 'opacity:.6' : ''}">
+  const needsReview = !isTransfer && t.status === 'needs_review';
+  return `<div class="txn-item ${isSplit ? 'is-split' : ''} ${needsReview ? 'needs-review' : ''}" style="${isTransfer ? 'opacity:.6' : ''}">
     <div class="txn-grid">
       <span style="color:var(--ink2)">${fmtDate(t.date)}</span>
       <span class="truncate" style="min-width:0; color:var(--ink2)" ${tooltip(accountLabel(t.account))}>${esc(accountLabel(t.account))}</span>
@@ -2751,6 +2775,7 @@ async function renderRules() {
           <span class="type-caption" style="color:var(--ink2)">${esc(r.sharing || '')} ${r.tax_bucket ? '· tax:' + esc(r.tax_bucket) : ''}</span>
           ${selectField({ label: T('Scope'), value: r.scope || 'family', options: scopeChoices(), attrs: `onchange="moveRule('${r.id}', this.value)" ${tooltip(T('Move this rule to another profile'))}` })}
           <md-outlined-button data-rule-id="${esc(r.id)}" onclick="openApplyRule(this.dataset.ruleId)" ${tooltip(T('Replace manual classifications in the selected year with this live rule'))}>${T('Apply to entries')}</md-outlined-button>
+          <md-text-button data-rule-id="${esc(r.id)}" onclick="openRuleEdit(this.dataset.ruleId)" ${tooltip(T('Change this rule’s pattern, category, sharing or scope'))}><md-icon slot="icon">edit</md-icon>${T('Edit')}</md-text-button>
           <md-text-button onclick="deleteRule('${r.id}')">${T('Delete')}</md-text-button>
         </div>`).join('') || `<div class="p-6 type-body-small text-center" style="color:var(--ink2)">${scope === 'family' ? T('No family rules yet. Create them here or via “Apply + rule” in Review.') : T("No {name}'s rules yet. Create them here or via “Apply + rule” in Review.", { name: personLabel(scope) })}</div>`}
     </div>`;
@@ -3068,19 +3093,26 @@ function reviewGroupHtml([key, txns], gi) {
     </div>`;
 }
 
+/* Returns false when there was nothing left to append, so the replay loop in
+   renderReview() knows to stop. state.reviewBatches remembers how far the user
+   had loaded, so an in-place re-render rebuilds the page at its previous height
+   instead of collapsing back to the first batch under a restored scroll offset. */
 function appendReviewGroups() {
   const host = $('#review-groups');
-  if (!host) return;
+  if (!host) return false;
   const start = +(host.dataset.rendered || 0);
   const end = Math.min(start + REVIEW_BATCH_SIZE, window._groups.length);
+  if (end === start) return false;
   host.insertAdjacentHTML('beforeend', window._groups.slice(start, end).map((group, offset) => reviewGroupHtml(group, start + offset)).join(''));
   host.dataset.rendered = String(end);
+  state.reviewBatches = Math.ceil(end / REVIEW_BATCH_SIZE);
   const more = $('#review-more');
   if (more) {
     more.hidden = end >= window._groups.length;
     more.textContent = T('Load {n} more groups', { n: Math.min(REVIEW_BATCH_SIZE, window._groups.length - end) });
   }
   attachTooltips();
+  return true;
 }
 
 function toggleReviewGroup(acc, gi) {
@@ -3109,7 +3141,9 @@ async function renderReview(renderId = state.renderId) {
   $('#main').innerHTML = `<div class="mb-4 type-body-small" style="color:var(--ink2)">${T('{items} transactions in {groups} groups. Showing {shown} at a time. Pick a category once per group — “Apply + rule” books everything matching and remembers it forever.', { items: items.length, groups: sorted.length, shown: Math.min(REVIEW_BATCH_SIZE, sorted.length) })}</div>
     <div id="review-groups" data-rendered="0"></div>
     <div class="flex justify-center mt-4"><md-outlined-button id="review-more" onclick="appendReviewGroups()"></md-outlined-button></div>`;
-  appendReviewGroups();
+  for (let batch = Math.max(1, state.reviewBatches); batch > 0; batch--) {
+    if (!appendReviewGroups()) break;
+  }
 }
 
 async function applyGroup(gi) {
@@ -3158,26 +3192,23 @@ async function setReviewAccount(id, account) {
   await api('/api/decision', { year: state.year, id, fields: { account } });
 }
 
-function openRuleModal(gi) {
-  const [key, txns] = window._groups[gi];
-  const t = txns[0];
-  const isPaypal = t.counterparty?.toLowerCase().includes('paypal');
-  const defaultPattern = isPaypal ? (t.purpose || '').split(' ')[0] : (t.counterparty || '');
-  const category = $(`#cat-${gi}`).value || '';
-  const sharing = readSeg($(`#share-${gi}`)) || 'shared';
-  const scope = defaultScope(txns);
-
-  const body = `<div class="space-y-3" id="rm-modal-body" data-note="">
+/* THE rule form — one component behind both "create rule from a review group"
+   (openRuleModal) and "edit an existing rule" (openRuleEdit). Render with
+   ruleFormBody(values), read it back with readRuleForm(root). Never hand-build a
+   second copy: a field added here must appear on both screens. */
+function ruleFormBody(values = {}) {
+  const { pattern = '', field = 'counterparty', category = '', sharing = 'shared', scope = 'family', review = false, note = '' } = values;
+  return `<div class="space-y-3" id="rm-modal-body" data-note="${esc(note)}">
       <div class="flex gap-2 items-end">
         <div class="flex-1">
           <label class="type-label" style="color:var(--ink2)">${T('Pattern (min 3 chars)')}</label>
-          ${textField({ id: 'rm-pattern', label: T('Match pattern'), className: 'w-full mt-1', value: defaultPattern })}
+          ${textField({ id: 'rm-pattern', label: T('Match pattern'), className: 'w-full mt-1', value: pattern })}
         </div>
-        <md-icon class="cursor-pointer pb-2" style="color:var(--primary); font-size:24px;" onclick="openLocalNote(this)" ${tooltip(T('Add note to rule'))}>note_add</md-icon>
+        <md-icon class="cursor-pointer pb-2" style="color:var(--primary); font-size:24px;" onclick="openLocalNote(this)" ${tooltip(T('Add note to rule'))}>${note ? 'edit_note' : 'note_add'}</md-icon>
       </div>
       <div>
         <label class="type-label" style="color:var(--ink2)">${T('Match in')}</label>
-        <div class="mt-1">${segControl('rm-field', [['counterparty', T('Merchant name')], ['purpose', T('Purpose text')], ['any', T('Either')]], isPaypal ? 'purpose' : 'counterparty')}</div>
+        <div class="mt-1">${segControl('rm-field', [['counterparty', T('Merchant name')], ['purpose', T('Purpose text')], ['any', T('Either')]], field)}</div>
       </div>
       <div>
         <label class="type-label" style="color:var(--ink2)">${T('Category & Sharing')}</label>
@@ -3190,28 +3221,93 @@ function openRuleModal(gi) {
         <label class="type-label" style="color:var(--ink2)">${T('Scope')}</label>
         ${selectField({ id: 'rm-scope', label: T('Rule scope'), value: scope, options: scopeChoices(), className: 'w-full mt-1' })}
       </div>
-      ${checkboxField({ id: 'rm-review', label: T('Always send to Review'), className: 'type-label mt-2' })}
+      ${checkboxField({ id: 'rm-review', label: T('Always send to Review'), checked: review, className: 'type-label mt-2' })}
     </div>`;
+}
+
+/* Returns the rule values, or null after showing the reason it is not valid. */
+function readRuleForm(root) {
+  const pattern = root.querySelector('#rm-pattern').value.trim();
+  if (pattern.length < 3) { showError(T('Pattern must contain at least 3 characters.')); return null; }
+  const review = root.querySelector('#rm-review').checked;
+  const category = root.querySelector('#rm-cat').value;
+  if (!review && !category) { showError(T('Pick a category or enable “Always send to Review”.')); return null; }
+  return {
+    pattern,
+    field: readSeg(root, 'rm-field'),
+    category: category || null,
+    sharing: readSeg(root.querySelector('#rm-share')) || 'shared',
+    scope: root.querySelector('#rm-scope').value,
+    review,
+    note: root.querySelector('#rm-modal-body').dataset.note || '',
+  };
+}
+
+function openRuleModal(gi) {
+  const [key, txns] = window._groups[gi];
+  const t = txns[0];
+  const isPaypal = t.counterparty?.toLowerCase().includes('paypal');
   const modal = openModal({
-    title: T('Save rule'), body,
+    title: T('Save rule'),
+    body: ruleFormBody({
+      pattern: isPaypal ? (t.purpose || '').split(' ')[0] : (t.counterparty || ''),
+      field: isPaypal ? 'purpose' : 'counterparty',
+      category: $(`#cat-${gi}`).value || '',
+      sharing: readSeg($(`#share-${gi}`)) || 'shared',
+      scope: defaultScope(txns),
+    }),
     actions: `<md-text-button class="rm-cancel">${T('Cancel')}</md-text-button><md-filled-button class="rm-save">${T('Save rule')}</md-filled-button>`,
     onMount: root => {
       root.querySelector('.rm-cancel').onclick = () => root._close();
       root.querySelector('.rm-save').onclick = async () => {
-        const pattern = root.querySelector('#rm-pattern').value.trim();
-        if (pattern.length < 3) { showError(T('Pattern must contain at least 3 characters.')); return; }
-        const review = root.querySelector('#rm-review').checked;
-        const cat = root.querySelector('#rm-cat').value;
-        if (!review && !cat) { showError(T('Pick a category or enable “Always send to Review”.')); return; }
+        const values = readRuleForm(root);
+        if (!values) return;
         await api('/api/rule', {
-          pattern, field: readSeg(root, 'rm-field'), category: cat || null,
-          sharing: readSeg(root.querySelector('#rm-share')) || 'shared',
-          action: review ? 'review' : null, scope: root.querySelector('#rm-scope').value,
-          note: root.querySelector('#rm-modal-body').dataset.note || null,
+          pattern: values.pattern, field: values.field, category: values.category,
+          sharing: values.sharing, action: values.review ? 'review' : null,
+          scope: values.scope, note: values.note || null,
         });
         root._close();
         const pill = $(`#rule-status-${gi}`);
         if (pill) { pill.textContent = T('Rule saved'); pill.className = 'chip chip-good'; }
+      };
+    },
+  });
+  setTimeout(() => modal.querySelector('#rm-pattern').focus(), 50);
+}
+
+/* Edit an existing rule from the Rules page. Sends every field, so clearing one
+   (empty string) really clears it server-side. */
+async function openRuleEdit(id) {
+  const data = await api('/api/rules');
+  const rule = data.rules.find(r => r.id === id);
+  if (!rule) { showError(T('That rule no longer exists.')); render(); return; }
+  const modal = openModal({
+    title: T('Edit rule'),
+    body: ruleFormBody({
+      pattern: rule.match.contains,
+      field: rule.match.field,
+      category: rule.category || '',
+      sharing: rule.sharing || 'shared',
+      scope: rule.scope || 'family',
+      review: rule.action === 'review',
+      note: rule.note || '',
+    }),
+    actions: `<md-text-button class="rm-cancel">${T('Cancel')}</md-text-button><md-filled-button class="rm-save">${T('Save changes')}</md-filled-button>`,
+    onMount: root => {
+      root.querySelector('.rm-cancel').onclick = () => root._close();
+      root.querySelector('.rm-save').onclick = async () => {
+        const values = readRuleForm(root);
+        if (!values) return;
+        await api('/api/rule-update', {
+          id, pattern: values.pattern, field: values.field,
+          category: values.review ? '' : values.category, sharing: values.sharing,
+          action: values.review ? 'review' : '', scope: values.scope, note: values.note,
+        });
+        root._close();
+        state.rulesScope = values.scope;   // follow the rule if it changed profile
+        state.ruleResult = T('Rule updated. Matching transactions were recategorized.');
+        render();
       };
     },
   });

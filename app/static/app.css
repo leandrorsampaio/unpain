@@ -480,6 +480,9 @@ md-outlined-text-field, md-outlined-select { min-width: 160px; }
 
 /* Split parent + its parts are grouped and greyed so they read as one unit. */
 .txn-item.is-split { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+/* Still in the review queue — tinted so it stands out while scanning a month.
+   Listed after .is-split so a split row awaiting review still reads as review. */
+.txn-item.needs-review { background: color-mix(in srgb, var(--bad) 8%, transparent); }
 .split-child:not(:last-child) { border-bottom: 1px dashed var(--line); }
 .is-split .split-child:first-of-type { border-top: 1px solid var(--line); }
 .split-child-arrow { opacity: .6; }

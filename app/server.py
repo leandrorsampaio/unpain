@@ -1434,17 +1434,25 @@ def rule_apply(r: RuleApply):
 
 
 class RuleUpdate(BaseModel):
+    """Every field is optional: None means "leave unchanged". For the clearable
+    ones (note, category, tax_bucket, action) an empty string means "clear"."""
+
     id: str
     scope: Optional[str] = None
     note: Optional[str] = None
     field: Optional[str] = None
+    pattern: Optional[str] = None
+    category: Optional[str] = None
+    sharing: Optional[str] = None
+    tax_bucket: Optional[str] = None
+    action: Optional[str] = None
 
 
 @app.post("/api/rule-update")
 def rule_update(r: RuleUpdate):
     fields = {}
+    people = _people()
     if r.scope is not None:
-        people = _people()
         if r.scope not in ["family"] + people:
             raise HTTPException(400, "bad scope")
         fields["scope"] = r.scope
@@ -1454,6 +1462,36 @@ def rule_update(r: RuleUpdate):
         if r.field not in ("counterparty", "purpose", "any"):
             raise HTTPException(400, "field must be counterparty, purpose or any")
         fields["field"] = r.field
+    if r.pattern is not None:
+        pattern = r.pattern.strip()
+        if len(pattern) < 3:
+            # Same floor as the UI: shorter patterns over-match the whole history.
+            raise HTTPException(400, "pattern must contain at least 3 characters")
+        fields["contains"] = pattern
+    if r.sharing is not None:
+        if r.sharing not in {"shared", "out-of-scope"} | {"personal:" + p for p in people}:
+            raise HTTPException(400, "sharing must be shared, out-of-scope, or personal:<person>")
+        fields["sharing"] = r.sharing
+    if r.category is not None:
+        categories, _, _, _ = _decision_options()
+        if r.category and r.category not in categories:
+            raise HTTPException(400, "category '%s' does not exist" % r.category)
+        fields["category"] = r.category or None
+    if r.tax_bucket is not None:
+        tax_buckets = {b["slug"] for b in read_json(RULES / "tax-buckets.json")["buckets"]}
+        if r.tax_bucket and r.tax_bucket not in tax_buckets:
+            raise HTTPException(400, "Unknown tax bucket '%s'" % r.tax_bucket)
+        fields["tax_bucket"] = r.tax_bucket or None
+    if r.action is not None:
+        if r.action not in ("review", ""):
+            raise HTTPException(400, "action must be 'review' or empty")
+        fields["action"] = r.action or None
+    # A rule either routes to Review or classifies — never both.
+    if fields.get("action") == "review":
+        fields["category"] = None
+        fields["tax_bucket"] = None
+    elif fields.get("category"):
+        fields["action"] = None
     if not fields:
         return {"ok": True}
     if not rules_engine.update_rule(r.id, fields):
