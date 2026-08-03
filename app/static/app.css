@@ -455,7 +455,7 @@ md-outlined-text-field, md-outlined-select { min-width: 160px; }
 .txn-item { border-bottom: 1px solid var(--line); }
 .txn-grid {
   display: grid;
-  grid-template-columns: 56px 140px 210px minmax(0, 1fr) 128px 92px 60px 200px 104px 44px;
+  grid-template-columns: 34px 56px 140px 210px minmax(0, 1fr) 128px 92px 60px 200px 104px 44px;
   align-items: center; gap: 12px; padding: 8px 16px;
   font-size: var(--type-body-small-size); line-height: var(--type-body-small-line); letter-spacing: .25px;
 }

@@ -420,6 +420,27 @@ I18N.register('de', {
   'Replace manual classifications in the selected year with this live rule': 'Manuelle Klassifizierungen im gewählten Jahr durch diese aktive Regel ersetzen',
   'empty statement — no activity this period': 'Leerer Auszug — keine Bewegungen in diesem Zeitraum',
   'statement imported — no activity': 'Auszug importiert — keine Bewegungen',
+  /* ---- Bulk actions (Transactions) ---- */
+  'Select transaction': 'Transaktion auswählen',
+  'Select every transaction matching the current filters': 'Alle Transaktionen auswählen, die den aktuellen Filtern entsprechen',
+  'Select all ({n})': 'Alle auswählen ({n})',
+  'Clear selection': 'Auswahl aufheben',
+  'Bulk actions ({n})': 'Sammelaktionen ({n})',
+  'Bulk edit {n} transactions': '{n} Transaktionen sammelbearbeiten',
+  '{n} selected · net {amount}': '{n} ausgewählt · netto {amount}',
+  'Only the fields you switch on are written. Everything else keeps its current value on each transaction.':
+    'Nur die eingeschalteten Felder werden geschrieben. Alles andere behält seinen aktuellen Wert je Transaktion.',
+  '{n} of these are split transactions. Their parts keep their own categories; editing the parent here will not change the split.':
+    '{n} davon sind aufgeteilte Transaktionen. Ihre Teile behalten ihre eigenen Kategorien; die Bearbeitung des Haupteintrags ändert die Aufteilung nicht.',
+  'Change category': 'Kategorie ändern',
+  'Change sharing': 'Aufteilung ändern',
+  'Change income owner ({n} income rows)': 'Einkommens-Inhaber ändern ({n} Einnahmen)',
+  'Change tax bucket': 'Steuer-Topf ändern',
+  'Change year cost': 'Jahreskosten ändern',
+  'Reset decisions': 'Entscheidungen zurücksetzen',
+  'Remove manual decisions; they fall back to rules / review': 'Manuelle Entscheidungen entfernen; fallen auf Regeln / Prüfung zurück',
+  'Out of scope': 'Außerhalb des Rahmens',
+  'Apply': 'Anwenden',
   'Validated as {format}: an empty statement with no activity. Choose the account, then process.':
     'Als {format} validiert: ein leerer Auszug ohne Bewegungen. Wähle das Konto und verarbeite dann.',
   'Edit rule': 'Regel bearbeiten',

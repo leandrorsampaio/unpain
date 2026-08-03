@@ -48,5 +48,38 @@ class ExtractorTests(unittest.TestCase):
         self.assertEqual(fatal, [])
 
 
+    def test_unsigned_printed_amount_corroborates_a_debit(self):
+        # Annual statements print bare magnitudes and let the running balance carry
+        # direction, so a debit shows as "7,50" against a delta of -7.50.
+        self.assertTrue(extract.amount_agrees("7,50", -750))
+        self.assertTrue(extract.amount_agrees("7,50", 750))
+
+    def test_printed_amount_of_the_wrong_size_still_disagrees(self):
+        self.assertFalse(extract.amount_agrees("7,50", -751))
+        self.assertFalse(extract.amount_agrees("1.234,56", -750))
+
+    def test_a_signed_printed_amount_is_still_checked_signed(self):
+        # Where the statement does give a sign, keep using it: a printed -5,00
+        # against a rising balance is a genuine disagreement, not a magnitude match.
+        self.assertTrue(extract.amount_agrees("-5,00", -500))
+        self.assertFalse(extract.amount_agrees("-5,00", 500))
+
+    def test_debit_row_without_a_minus_sign_parses_strictly(self):
+        words = [
+            word(501, 50, "SALDO"),
+            word(74, 75, "03"), word(74, 83, "Feb."), word(74, 91, "2025"),
+            word(101, 79, "Kartentransaktion"),
+            word(160, 79, "OSIANDER"),
+            word(430, 79, "5,00"), word(480, 79, "95,00"),
+        ]
+        txns, issues, fatal, last = extract.parse_transactions(words, 10000, allow_review=False)
+        self.assertEqual(issues, [])
+        self.assertEqual(fatal, [])
+        self.assertEqual(last, 9500)
+        self.assertEqual(len(txns), 1)
+        self.assertEqual(txns[0]["amount_cents"], -500)
+        self.assertFalse(txns[0]["force_review"])
+
+
 if __name__ == "__main__":
     unittest.main()

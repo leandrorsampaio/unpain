@@ -1525,6 +1525,39 @@ def decision_clear(d: DecisionClear):
     return {"ok": True}
 
 
+class DecisionsClearBulk(BaseModel):
+    year: int
+    ids: list
+
+
+@app.post("/api/decisions-clear-bulk")
+def decisions_clear_bulk(b: DecisionsClearBulk):
+    """Clear the manual decision on many transactions in one write.
+
+    Validates the whole selection before touching anything, so a batch that
+    includes a closed month fails without half-applying.
+    """
+    if not b.ids:
+        raise HTTPException(400, "ids must not be empty")
+    raw_by_id = {txn["id"]: txn for txn in store.load_year_raw(b.year)}
+    months = store.months_state(b.year)
+    for txn_id in b.ids:
+        raw = raw_by_id.get(txn_id)
+        if not raw:
+            raise HTTPException(404, "unknown transaction '%s'" % txn_id)
+        key = raw["date"][:7]
+        if months.get(key) == "closed":
+            raise HTTPException(409, "Month %s is closed. Reopen it first." % key)
+    decs = store.decisions(b.year)
+    cleared = 0
+    for txn_id in set(b.ids):
+        if decs.pop(txn_id, None) is not None:
+            cleared += 1
+    if cleared:
+        store.save_decisions(b.year, decs)
+    return {"ok": True, "cleared": cleared}
+
+
 @app.post("/api/decision-clear-orphan")
 def decision_clear_orphan(d: DecisionClear):
     """Delete a decision whose transaction no longer exists (a doctor

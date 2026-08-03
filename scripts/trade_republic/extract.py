@@ -118,6 +118,22 @@ def statement_summary(words):
     }
 
 
+def amount_agrees(printed_text, delta_cents):
+    """Does the printed amount corroborate the movement in the running balance?
+
+    The amount booked is always the balance delta; this is the cross-check that the
+    row was read off the right line. Statements differ in whether the amount column
+    carries a sign: annual statements print bare magnitudes and let the running
+    balance express direction, so a debit shows as '7,50' against a delta of -7.50.
+    Compare signed when the statement gives us a sign to compare — losing that check
+    where it exists would be a real loss — and by magnitude when it does not.
+    """
+    printed_cents = money_cents(printed_text)
+    if printed_text.strip().startswith("-"):
+        return printed_cents == delta_cents
+    return abs(printed_cents) == abs(delta_cents)
+
+
 def parse_transactions(words, opening_cents, allow_review=False):
     transactions, issues, fatal_issues = [], [], []
     previous_balance = opening_cents
@@ -149,7 +165,7 @@ def parse_transactions(words, opening_cents, allow_review=False):
             printed = [w for w in row if 315 <= w.left < 465 and MONEY_RE.match(w.text)]
             if len(printed) != 1:
                 row_issues.append("expected one printed amount, found %d" % len(printed))
-            elif money_cents(printed[0].text) != delta:
+            elif not amount_agrees(printed[0].text, delta):
                 row_issues.append("printed amount %s disagrees with balance delta %.2f" %
                                   (printed[0].text, delta / 100.0))
             try:

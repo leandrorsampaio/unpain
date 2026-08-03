@@ -1905,6 +1905,42 @@ function personFilterToggle(p) {
 function catFilterChip(slug) {
   return `<md-input-chip label="${esc(catLabel(slug))}" data-slug="${esc(slug)}" style="--cat:${catColorFor(slug)}" onremove="removeCatFilter(this.dataset.slug)"><md-icon slot="icon" style="color:${catColorFor(slug)}">${catIconFor(slug) || 'category'}</md-icon></md-input-chip>`;
 }
+/* Bulk selection is held as transaction ids, never row indices: the list
+   re-renders after every action and re-sorts under filters, so index handles
+   would silently point at the wrong rows. */
+function txnSelection() {
+  if (!state.txnSelection) state.txnSelection = new Set();
+  return state.txnSelection;
+}
+function toggleTxnSelected(id, on) {
+  on ? txnSelection().add(id) : txnSelection().delete(id);
+  refreshBulkBar();
+}
+function selectAllFiltered() {
+  (window._txns || []).forEach(t => txnSelection().add(t.id));
+  document.querySelectorAll('#t-list .txn-select').forEach(box => { box.checked = true; });
+  refreshBulkBar();
+}
+function clearTxnSelection() {
+  txnSelection().clear();
+  document.querySelectorAll('#t-list .txn-select').forEach(box => { box.checked = false; });
+  refreshBulkBar();
+}
+/* The bulk button stays disabled until something is selected. */
+function refreshBulkBar() {
+  const host = $('#t-bulkbar');
+  if (!host) return;
+  const n = txnSelection().size;
+  const total = (window._txns || []).length;
+  host.innerHTML = `
+    <md-outlined-button onclick="selectAllFiltered()" ${total ? '' : 'disabled'} ${tooltip(T('Select every transaction matching the current filters'))}>
+      <md-icon slot="icon">checklist</md-icon>${T('Select all ({n})', { n: total })}</md-outlined-button>
+    <md-text-button onclick="clearTxnSelection()" ${n ? '' : 'disabled'}>${T('Clear selection')}</md-text-button>
+    <md-filled-button onclick="openBulkEdit()" ${n ? '' : 'disabled'}>
+      <md-icon slot="icon">edit_note</md-icon>${T('Bulk actions ({n})', { n })}</md-filled-button>`;
+  attachTooltips();
+}
+
 function txnFilters() {
   if (!state.txnFilters) state.txnFilters = { flags: new Set(), cats: new Set(), accounts: new Set() };
   if (!state.txnFilters.accounts) state.txnFilters.accounts = new Set();
@@ -1968,8 +2004,9 @@ async function renderTransactions(renderId = state.renderId) {
         </div>
       </div>
       ${(f.cats.size || f.accounts.size) ? `<md-chip-set class="mt-2">${[...f.accounts].map(accountFilterChip).join('')}${[...f.cats].map(catFilterChip).join('')}</md-chip-set>` : ''}
-      <div class="flex items-center gap-3 mt-2">
+      <div class="flex items-center gap-3 mt-2 flex-wrap">
         <div id="t-totals" class="type-title txn-totals"></div>
+        <div id="t-bulkbar" class="ml-auto flex items-center gap-2"></div>
       </div>
     </div>
     <div id="t-list" class="mt-4"><div class="flex justify-center p-8"><md-circular-progress indeterminate></md-circular-progress></div></div>`;
@@ -2031,11 +2068,21 @@ async function renderTransactions(renderId = state.renderId) {
       });
     }
     $('#t-list').innerHTML = html;
+    // Forget ids that this year no longer contains; a selection surviving a year
+    // switch would send unknown ids to the bulk endpoint and 404 the whole batch.
+    const visible = new Set(items.map(t => t.id));
+    [...txnSelection()].forEach(id => { if (!visible.has(id)) txnSelection().delete(id); });
+    refreshBulkBar();
     const withEntries = Object.keys(byMonth).map(Number).filter(m => byMonth[m].length);
     const allOpen = withEntries.length > 0 && withEntries.every(m => !collapsed.has(m));
     $('#expand-toggle-wrap').innerHTML = expandToggleBtn(allOpen);
     attachTooltips();
   };
+  // Delegated so it keeps working for month bodies rendered lazily on expand.
+  $('#t-list').addEventListener('change', event => {
+    const box = event.target.closest('.txn-select');
+    if (box) toggleTxnSelected(box.dataset.id, box.checked);
+  });
   $('#t-search').oninput = e => { state.txnSearch = e.target.value; clearTimeout(state._deb); state._deb = setTimeout(load, 250); };
   await load();
 }
@@ -2502,6 +2549,7 @@ function txnRow(t, i) {
   const needsReview = !isTransfer && t.status === 'needs_review';
   return `<div class="txn-item ${isSplit ? 'is-split' : ''} ${needsReview ? 'needs-review' : ''}" style="${isTransfer ? 'opacity:.6' : ''}">
     <div class="txn-grid">
+      <span class="flex justify-center"><md-checkbox class="txn-select" touch-target="wrapper" data-id="${esc(t.id)}" ${txnSelection().has(t.id) ? 'checked' : ''} aria-label="${T('Select transaction')}"></md-checkbox></span>
       <span style="color:var(--ink2)">${fmtDate(t.date)}</span>
       <span class="truncate" style="min-width:0; color:var(--ink2)" ${tooltip(accountLabel(t.account))}>${esc(accountLabel(t.account))}</span>
       <span class="flex items-center gap-1" style="min-width:0">
@@ -2528,6 +2576,7 @@ function splitChildren(t) {
   if (!t.splits) return '';
   return t.splits.map(s => `
     <div class="txn-grid split-child">
+      <span></span>
       <span class="flex justify-center"><md-icon class="split-child-arrow" style="font-size:18px; color:var(--ink2)">subdirectory_arrow_right</md-icon></span>
       <span></span>
       <span class="truncate" style="min-width:0; color:var(--ink2)">${esc(s.purpose) || catName(s.category)}</span>
@@ -2593,6 +2642,93 @@ function openEditTransaction(t) {
       };
     },
   });
+}
+
+/* Bulk editor for the Transactions page. Built from the same shared field
+   components as the single-transaction editor, so a change to a picker reaches
+   both. Every field is gated by its own "change this" switch and only gated
+   fields are sent: /api/decisions-bulk merges into the existing decision, so an
+   untouched field keeps whatever each transaction already had. Split, raw entry
+   edits and attachments are deliberately absent — they are per-transaction. */
+function openBulkEdit() {
+  const ids = [...txnSelection()];
+  const chosen = (window._txns || []).filter(t => ids.includes(t.id));
+  if (!chosen.length) return;
+  const net = chosen.reduce((sum, t) => sum + t.amount_eur, 0);
+  const incomeRows = chosen.filter(t => t.amount_eur > 0);
+  const splitRows = chosen.filter(t => t.splits);
+  const gate = (id, label) => `<label class="md-check"><md-checkbox id="${id}" touch-target="wrapper"></md-checkbox><span class="type-label">${label}</span></label>`;
+  openModal({
+    title: T('Bulk edit {n} transactions', { n: chosen.length }),
+    width: '760px',
+    body: `
+      <div class="type-body-small mb-3" style="color:var(--ink2)">
+        ${T('{n} selected · net {amount}', { n: chosen.length, amount: fmt(net) })}
+      </div>
+      <div class="type-caption mb-4" style="color:var(--ink2)">
+        ${T('Only the fields you switch on are written. Everything else keeps its current value on each transaction.')}
+      </div>
+      ${splitRows.length ? `<div class="type-caption mb-4" style="color:var(--on-warn-container)">
+        ${T('{n} of these are split transactions. Their parts keep their own categories; editing the parent here will not change the split.', { n: splitRows.length })}
+      </div>` : ''}
+      <div class="flex flex-col gap-4">
+        <div>${gate('b-do-cat', T('Change category'))}<div class="mt-1">${catField('id="b-cat"', '')}</div></div>
+        <div>${gate('b-do-share', T('Change sharing'))}<div class="mt-1">${sharingOptions('b-share', 'shared')}</div></div>
+        ${incomeRows.length ? `<div>${gate('b-do-owner', T('Change income owner ({n} income rows)', { n: incomeRows.length }))}<div class="mt-1">${ownerField('b-owner', '')}</div></div>` : ''}
+        <div>${gate('b-do-tax', T('Change tax bucket'))}<div class="mt-1">${taxField('')}</div></div>
+        <div>${gate('b-do-yc', T('Change year cost'))}<div class="mt-1">${yearCostSwitch('b-yc', false)}</div></div>
+      </div>`,
+    actions: `<md-outlined-button class="b-reset" ${tooltip(T('Remove manual decisions; they fall back to rules / review'))}>${T('Reset decisions')}</md-outlined-button>
+      <md-outlined-button class="b-oos">${T('Out of scope')}</md-outlined-button>
+      <md-outlined-button class="b-review">${T('Send to review')}</md-outlined-button>
+      <div class="ml-auto"></div>
+      <md-text-button class="b-cancel">${T('Cancel')}</md-text-button>
+      <md-filled-button class="b-apply">${T('Apply')}</md-filled-button>`,
+    onMount: root => {
+      const apply = root.querySelector('.b-apply');
+      const on = id => !!root.querySelector('#' + id)?.checked;
+      const syncApply = () => {
+        apply.disabled = !['b-do-cat', 'b-do-share', 'b-do-owner', 'b-do-tax', 'b-do-yc'].some(on);
+      };
+      root.addEventListener('change', syncApply);
+      syncApply();
+      root.querySelector('.b-cancel').onclick = () => root._close();
+      root.querySelector('.b-reset').onclick = () => bulkRun(root, ids, null);
+      root.querySelector('.b-oos').onclick = () => bulkRun(root, ids, { sharing: 'out-of-scope' });
+      root.querySelector('.b-review').onclick = () => bulkRun(root, ids, { force_review: true });
+      apply.onclick = () => {
+        const fields = {};
+        if (on('b-do-cat')) fields.category = root.querySelector('#b-cat').value || null;
+        // Not readSharingCtx(): that reader assumes a context shows EITHER the
+        // owner segments (income) OR the sharing segments (expense), and returns
+        // the owner-derived value whenever both exist. Here they are two
+        // independent gated fields over a mixed selection, so read this one.
+        if (on('b-do-share')) fields.sharing = readSeg(root.querySelector('.sharing-field')) || 'shared';
+        if (on('b-do-owner')) { const owner = readOwner(root); if (owner) fields.income_owner = owner; }
+        if (on('b-do-tax')) fields.tax_bucket = readTax(root);
+        if (on('b-do-yc')) fields.year_cost = readYearCost(root);
+        bulkRun(root, ids, fields);
+      };
+    },
+  });
+}
+
+/* Runs one bulk operation. `fields` null means "clear the decisions". Errors keep
+   the modal open — a batch touching a closed month is rejected whole, and losing
+   the chosen values to a closed-month message would be its own small disaster. */
+async function bulkRun(root, ids, fields) {
+  try {
+    if (fields === null) {
+      await api('/api/decisions-clear-bulk', { year: state.year, ids });
+    } else {
+      await api('/api/decisions-bulk', { year: state.year, items: ids.map(id => ({ id, fields })) });
+    }
+  } catch (_) {
+    return;   // api() already surfaced the reason; keep the selection and the modal
+  }
+  root._close();
+  clearTxnSelection();
+  render();
 }
 
 /* Close every open dialog (used after a modal-over-modal action so both the
