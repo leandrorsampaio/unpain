@@ -60,7 +60,11 @@ header-to-field mapping). To add yours:
 - **Never weaken a test to make it pass.** A red test means the code is wrong, or the test found a
   real bug. The `MIN_CHECKS` counters and the real-data tripwire in `run-tests.sh` enforce this.
 - **Never commit personal data.** `data/`, `rules/`, `config.json`, `inbox/`, `receipts/`, and
-  `backups/` are gitignored. Keep it that way.
+  `backups/` are gitignored. Keep it that way. Source files are not covered by that ignore list,
+  so `.githooks/check-personal-data.sh` (run by the pre-commit hook) refuses staged changes that
+  contain a real-looking IBAN or a household name from your local `config.json`. Layout examples
+  copied out of a real statement into a parser, README or test are the usual way this slips
+  through — an IBAN cannot be rotated once it is public.
 
 ## Pull requests
 

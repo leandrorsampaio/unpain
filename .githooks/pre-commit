@@ -1,5 +1,6 @@
 #!/bin/bash
-# Runs the test suite before every commit. Bypass only with --no-verify and a reason.
+# Refuses personal data, then runs the test suite. Bypass only with --no-verify and a reason.
+./.githooks/check-personal-data.sh || exit 1
 if git diff --cached --name-only | grep -qE '^(app/static/|app/vendor-build/)'; then
   ./run-tests.sh
 else
