@@ -481,6 +481,45 @@ check("credit card books the EUR column, never the foreign amount",
       and {row["currency"] for row in card_rows} == {"EUR"})
 check("credit card Saldo trailer is consumed, not counted as an invalid row",
       card_stats["skipped"] == 0)
+# A format config whose decimal style contradicts the file is the defect that
+# reached real books: '26,00' read as dot-decimal becomes 2600.00, and every total
+# downstream stays perfectly self-consistent while being a hundred times wrong.
+wrong_decimal = tmp / "wrong-decimal.csv"
+wrong_decimal.write_text(
+    "date,title,amount\n"
+    "2026-03-01,One,\"26,00\"\n2026-03-02,Two,\"207,78\"\n2026-03-03,Three,\"1.234,56\"\n",
+    encoding="utf-8")
+dot_cfg = {"signature": ["date", "title", "amount"], "delimiter": ",", "decimal": "dot",
+           "date_format": "%Y-%m-%d", "columns": {"date": "date", "amount": "amount",
+                                                  "counterparty": "title"}}
+try:
+    formats.parse(wrong_decimal, dot_cfg)
+    check("a comma-decimal file read as dot-decimal is refused", False)
+except ValueError as exc:
+    check("a comma-decimal file read as dot-decimal is refused", "decimal comma" in str(exc))
+check("the same file parses once the config agrees",
+      [row["amount"] for row in formats.parse(wrong_decimal, dict(dot_cfg, decimal="comma"))]
+      == [26.0, 207.78, 1234.56])
+
+dot_file = tmp / "dot-decimal.csv"
+dot_file.write_text("date,title,amount\n2026-03-01,One,26.00\n2026-03-02,Two,207.78\n"
+                    "2026-03-03,Three,1234.56\n", encoding="utf-8")
+try:
+    formats.parse(dot_file, dict(dot_cfg, decimal="comma"))
+    check("a dot-decimal file read as comma-decimal is refused", False)
+except ValueError as exc:
+    check("a dot-decimal file read as comma-decimal is refused", "decimal point" in str(exc))
+check("a matching dot-decimal config still parses",
+      [row["amount"] for row in formats.parse(dot_file, dot_cfg)] == [26.0, 207.78, 1234.56])
+
+# Whole-number amounts say nothing about decimal style and must not accuse a config.
+ambiguous = tmp / "ambiguous.csv"
+ambiguous.write_text("date,title,amount\n2026-03-01,One,26\n2026-03-02,Two,207\n"
+                     "2026-03-03,Three,1234\n", encoding="utf-8")
+check("amounts with no decimal separator are not judged",
+      len(formats.parse(ambiguous, dot_cfg)) == 3
+      and len(formats.parse(ambiguous, dict(dot_cfg, decimal="comma"))) == 3)
+
 # --- integrity checks that watch the import boundary, where every real bug this
 # store has seen actually originated (a parser or config producing wrong rows,
 # which the arithmetic then faithfully totalled).
@@ -989,7 +1028,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 171
+MIN_CHECKS = 176
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

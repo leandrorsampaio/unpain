@@ -11,7 +11,7 @@ DATA = ROOT / "data"
 RULES = ROOT / "rules"
 INBOX = ROOT / "inbox"
 
-_CURRENCY_JUNK = re.compile(r"[€$\s ]|R\$|EUR|BRL|USD")
+CURRENCY_JUNK = re.compile(r"[€$\s ]|R\$|EUR|BRL|USD")
 
 
 def read_json(path, default=None):
@@ -40,7 +40,7 @@ def cents(amount):
 
 def parse_amount(raw, decimal="comma", sign=1):
     """Parse a bank amount string. decimal='comma' means German 1.234,56."""
-    s = _CURRENCY_JUNK.sub("", str(raw)).strip()
+    s = CURRENCY_JUNK.sub("", str(raw)).strip()
     if not s:
         return None
     if decimal == "comma":

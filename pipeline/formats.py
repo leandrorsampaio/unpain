@@ -11,7 +11,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from .util import parse_amount, read_json
+from .util import CURRENCY_JUNK as _CURRENCY_JUNK_TEXT, parse_amount, read_json
 
 FORMATS_DIR = Path(__file__).parent / "formats"
 
@@ -84,6 +84,7 @@ def parse(path, cfg, with_stats=False):
     out = []
     skipped_dates = []
     captured_anchors = []
+    raw_amounts = []
     for row in rows[header_idx + 1:]:
         if len(row) < 2:
             continue
@@ -116,8 +117,11 @@ def parse(path, cfg, with_stats=False):
             debit = parse_amount(get("amount_debit"), decimal) if get("amount_debit") else None
             credit = parse_amount(get("amount_credit"), decimal) if get("amount_credit") else None
             amount = -abs(debit) if debit is not None else (abs(credit) if credit is not None else None)
+            raw_amounts.extend(value for value in (get("amount_debit"), get("amount_credit")) if value)
         else:
             amount = parse_amount(get("amount"), decimal, sign)
+            if get("amount"):
+                raw_amounts.append(get("amount"))
         if amount is None or amount == 0:
             continue
         txn = {
@@ -135,9 +139,55 @@ def parse(path, cfg, with_stats=False):
     if skipped_dates and (not out or len(skipped_dates) > max(3, len(out) * .1)):
         raise ValueError("Too many rows have invalid dates (%d skipped, %d parsed). Samples: %s" %
                          (len(skipped_dates), len(out), " | ".join(skipped_dates[:3])))
+    _assert_decimal_style(raw_amounts, decimal)
     stats = {"skipped": len(skipped_dates), "skipped_samples": skipped_dates[:3],
              "anchors": captured_anchors, "period": _statement_period(rows[:header_idx], cfg)}
     return (out, stats) if with_stats else out
+
+
+# A trailing ",dd" is a decimal comma; a trailing ".dd" with no later comma is a
+# decimal point. Values like "1234" or "1,234" are ambiguous and are ignored.
+_COMMA_DECIMAL = re.compile(r"^[^,]*,\d{1,2}$")
+_DOT_DECIMAL = re.compile(r"^[^.]*\.\d{1,2}$")
+
+
+def _assert_decimal_style(raw_amounts, decimal):
+    """Refuse a file whose decimal style contradicts the format config.
+
+    This is not a heuristic. Reading '26,00' as dot-decimal yields 2600.00 and
+    '1.234,56' yields 1.23 — every amount silently wrong by a factor of a hundred or
+    a thousand, with nothing downstream able to notice because the numbers stay
+    self-consistent. Only the shape of the source text reveals it, so it is checked
+    here, before anything is written.
+    """
+    comma = dot = 0
+    for raw in raw_amounts:
+        text = _CURRENCY_JUNK_TEXT.sub("", str(raw)).strip()
+        if _COMMA_DECIMAL.match(text):
+            comma += 1
+        elif _DOT_DECIMAL.match(text):
+            dot += 1
+    total = comma + dot
+    if total < 3:
+        return   # too little evidence to accuse a config of being wrong
+    if decimal == "comma" and dot > comma * 4:
+        raise ValueError(
+            "This file writes amounts with a decimal point (%d of %d samples, e.g. %s) but the "
+            "'%s' format expects a decimal comma. Reading it this way would misplace every "
+            "amount." % (dot, total, _sample(raw_amounts, _DOT_DECIMAL), decimal))
+    if decimal != "comma" and comma > dot * 4:
+        raise ValueError(
+            "This file writes amounts with a decimal comma (%d of %d samples, e.g. %s) but the "
+            "format expects a decimal point. Reading it this way would multiply every plain "
+            "amount by a hundred." % (comma, total, _sample(raw_amounts, _COMMA_DECIMAL)))
+
+
+def _sample(raw_amounts, pattern):
+    for raw in raw_amounts:
+        text = _CURRENCY_JUNK_TEXT.sub("", str(raw)).strip()
+        if pattern.match(text):
+            return "'%s'" % text
+    return "?"
 
 
 def _statement_period(preamble_rows, cfg):
