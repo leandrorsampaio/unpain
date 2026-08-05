@@ -107,5 +107,17 @@ class ExtractorTests(unittest.TestCase):
         self.assertTrue(fatal)
 
 
+class BalanceAnchorTests(unittest.TestCase):
+    def test_anchors_bracket_the_transactions(self):
+        txns = [{"date": "2025-03-05"}, {"date": "2025-03-20"}]
+        self.assertEqual(extract.balance_anchors(txns, 120000, 128000), [
+            {"date": "2025-03-04", "balance": 1200.0},
+            {"date": "2025-03-20", "balance": 1280.0},
+        ])
+
+    def test_no_transactions_means_no_anchors(self):
+        self.assertEqual(extract.balance_anchors([], 100, 100), [])
+
+
 if __name__ == "__main__":
     unittest.main()

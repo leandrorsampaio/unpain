@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 
@@ -232,6 +232,25 @@ def write_csv(path, transactions):
     tmp_path.replace(path)
 
 
+def _balance_anchors(txns, summary):
+    """The two balances this statement proves, dated so a span between them covers
+    exactly its transactions.
+
+    The gate already asserts opening + sum == closing and that the running balance
+    ends on the closing figure, so both are authoritative. Dating the closing at the
+    last transaction (rather than the printed period end) keeps it exact, and the
+    opening sits one day before the first so that first transaction falls inside.
+    """
+    if not txns:
+        return []
+    dates = sorted(t["date"] for t in txns)
+    opening_date = (date.fromisoformat(dates[0]) - timedelta(days=1)).isoformat()
+    return [
+        {"date": opening_date, "balance": summary["opening_cents"] / 100.0},
+        {"date": dates[-1], "balance": summary["closing_cents"] / 100.0},
+    ]
+
+
 def extract_pdf(pdf, output, allow_review=False):
     """Extract one statement and return its report; never write an unsafe CSV."""
     pdf, output = Path(pdf), Path(output)
@@ -253,6 +272,7 @@ def extract_pdf(pdf, output, allow_review=False):
     ok = summary_ok and transaction_ok and safe_issues
     report.update({
         "status": "ok" if ok else "failed",
+        "balance_anchors": _balance_anchors(txns, summary) if ok else [],
         "period": summary["period_text"],
         "account_iban": summary["account_iban"],
         "transactions_extracted": len(txns),

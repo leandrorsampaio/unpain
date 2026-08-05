@@ -28,6 +28,7 @@ import subprocess
 import sys
 import tempfile
 from collections import namedtuple
+from datetime import date, timedelta
 from pathlib import Path
 
 Word = namedtuple("Word", "page left top width text")
@@ -185,6 +186,24 @@ def verify_chain(transactions):
     return opening, ordered[-1]["balance_cents"], breaks
 
 
+def balance_anchors(transactions, opening, closing):
+    """The balances this statement proves, dated to bracket its transactions.
+
+    verify_chain has already walked every printed balance, so the opening (derived
+    from the oldest row) and the closing (the newest row's own balance) are both
+    sound. The opening sits one day early so the oldest transaction falls inside the
+    span rather than on its boundary.
+    """
+    if not transactions or opening is None:
+        return []
+    dates = sorted(t["date"] for t in transactions)
+    opening_date = (date.fromisoformat(dates[0]) - timedelta(days=1)).isoformat()
+    return [
+        {"date": opening_date, "balance": opening / 100.0},
+        {"date": dates[-1], "balance": closing / 100.0},
+    ]
+
+
 def write_csv(path, transactions):
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     with open(tmp_path, "w", newline="", encoding="utf-8") as fh:
@@ -224,6 +243,7 @@ def extract_pdf(pdf, output, allow_review=False):
     ok = chain_ok and safe_issues
     report.update({
         "status": "ok" if ok else "failed",
+        "balance_anchors": balance_anchors(txns, opening, closing) if ok else [],
         "period": statement_period(words),
         "account_iban": None,
         "transactions_extracted": len(txns),

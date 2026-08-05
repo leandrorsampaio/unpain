@@ -176,5 +176,27 @@ class JointAccountTests(unittest.TestCase):
         self.assertEqual(txns[0]["counterparty_iban"], "")
 
 
+class BalanceAnchorTests(unittest.TestCase):
+    """The statement's own balances become checkpoints the doctor re-verifies."""
+
+    def test_anchors_bracket_the_period(self):
+        summary = extract.statement_summary(
+            header() + summary_page("+50,00€", "-4.475,00€", "+4.425,00€", "0,00€"))
+        summary["period_text"] = "01.01.2025 - 31.01.2025"
+        anchors = extract.balance_anchors(summary)
+        # The old balance predates the period, so a transaction on day one falls
+        # inside the span rather than on its boundary.
+        self.assertEqual(anchors, [
+            {"date": "2024-12-31", "balance": 50.0},
+            {"date": "2025-01-31", "balance": 0.0},
+        ])
+
+    def test_no_anchors_without_a_readable_period(self):
+        summary = extract.statement_summary(
+            header() + summary_page("0,00€", "0,00€", "0,00€", "0,00€"))
+        summary["period_text"] = ""
+        self.assertEqual(extract.balance_anchors(summary), [])
+
+
 if __name__ == "__main__":
     unittest.main()

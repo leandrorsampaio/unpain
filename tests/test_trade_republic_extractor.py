@@ -81,5 +81,18 @@ class ExtractorTests(unittest.TestCase):
         self.assertFalse(txns[0]["force_review"])
 
 
+class BalanceAnchorTests(unittest.TestCase):
+    def test_anchors_bracket_the_transactions(self):
+        txns = [{"date": "2025-02-03"}, {"date": "2025-11-20"}]
+        summary = {"opening_cents": 2431550, "closing_cents": 2475697}
+        self.assertEqual(extract._balance_anchors(txns, summary), [
+            {"date": "2025-02-02", "balance": 24315.50},
+            {"date": "2025-11-20", "balance": 24756.97},
+        ])
+
+    def test_no_transactions_means_no_anchors(self):
+        self.assertEqual(extract._balance_anchors([], {"opening_cents": 0, "closing_cents": 0}), [])
+
+
 if __name__ == "__main__":
     unittest.main()

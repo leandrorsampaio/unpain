@@ -2299,6 +2299,17 @@ def ingest_process():
                 source_stem = "%s__%s" % (acct, e["id"])
                 stats = ingest.ingest_upload(extracted, acct, source_stem, original_name=e["original_name"])
                 extracted.unlink(missing_ok=True)
+                # The extractor proved these balances against the statement's own
+                # arithmetic; recording them turns each import into a checkpoint the
+                # doctor re-verifies against the transactions between them. Dropping
+                # them, as we used to, threw away the only evidence that a parser read
+                # the file correctly.
+                if report.get("balance_anchors"):
+                    anchor_result = anchors.record(acct, report["balance_anchors"],
+                                                   e["original_name"] or "statement.pdf",
+                                                   upload=source_stem)
+                    stats["anchors"] = anchor_result
+                    stats["anchor_message"] = ingest._anchor_message(anchor_result)
                 safe = re.sub(r"[^A-Za-z0-9._-]", "_", e["original_name"] or "statement.pdf")
                 processed_dir = INBOX / "processed"
                 processed_dir.mkdir(parents=True, exist_ok=True)

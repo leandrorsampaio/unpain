@@ -31,6 +31,7 @@ import subprocess
 import sys
 import tempfile
 from collections import namedtuple
+from datetime import date, timedelta
 from pathlib import Path
 
 Word = namedtuple("Word", "page left top width text")
@@ -127,6 +128,24 @@ def statement_summary(words):
     ibans = [w.text for w in words if re.match(r"^DE\d{20}$", w.text) and w.top >= FOOTER_TOP]
     summary["account_iban"] = ibans[0] if ibans else None
     return summary
+
+
+def balance_anchors(summary):
+    """The old and new balances, dated from the statement's own period.
+
+    N26 prints no running balance, so unlike the other extractors these dates come
+    from the period line rather than from a transaction. The old balance is the
+    position before the period opens, hence the day before it starts.
+    """
+    period = re.findall(r"(\d{2})\.(\d{2})\.(\d{4})", summary.get("period_text") or "")
+    if len(period) < 2:
+        return []
+    start = date(int(period[0][2]), int(period[0][1]), int(period[0][0]))
+    end = date(int(period[1][2]), int(period[1][1]), int(period[1][0]))
+    return [
+        {"date": (start - timedelta(days=1)).isoformat(), "balance": summary["opening_cents"] / 100.0},
+        {"date": end.isoformat(), "balance": summary["closing_cents"] / 100.0},
+    ]
 
 
 def parse_transactions(words, allow_review=False):
@@ -252,6 +271,7 @@ def extract_pdf(pdf, output, allow_review=False):
     ok = summary_ok and transaction_ok and safe_issues
     report.update({
         "status": "ok" if ok else "failed",
+        "balance_anchors": balance_anchors(summary) if ok else [],
         "period": summary["period_text"],
         "account_iban": summary["account_iban"],
         "transactions_extracted": len(txns),
