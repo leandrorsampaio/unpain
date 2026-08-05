@@ -2787,7 +2787,10 @@ function openBulkEdit() {
         ${T('Only the fields you switch on are written. Everything else keeps its current value on each transaction.')}
       </div>
       ${splitRows.length ? `<div class="type-caption mb-4" style="color:var(--on-warn-container)">
-        ${T('{n} of these are split transactions. Their parts keep their own categories; editing the parent here will not change the split.', { n: splitRows.length })}
+        ${T('{n} of these are split transactions. Category and tax here apply to the parent only — the parts keep their own.', { n: splitRows.length })}
+      </div>
+      <div class="b-split-danger type-body-small mb-4 p-3" hidden style="color:var(--md-sys-color-on-error-container); background:var(--md-sys-color-error-container); border-radius:8px">
+        ${T('Sharing is different: marking a split transaction out of scope removes the WHOLE transaction from every total, including parts that are categorized and counted today. Check those {n} before applying.', { n: splitRows.length })}
       </div>` : ''}
       <div class="flex flex-col gap-4">
         <div>${gate('b-do-cat', T('Change category'))}<div class="mt-1">${catField('id="b-cat"', '')}</div></div>
@@ -2808,11 +2811,30 @@ function openBulkEdit() {
       const syncApply = () => {
         apply.disabled = !['b-do-cat', 'b-do-share', 'b-do-owner', 'b-do-tax', 'b-do-yc'].some(on);
       };
-      root.addEventListener('change', syncApply);
+      // The split warning only matters once sharing is actually in play, so it
+      // appears with the switch rather than shouting from the start.
+      const danger = root.querySelector('.b-split-danger');
+      const syncDanger = () => { if (danger) danger.hidden = !on('b-do-share'); };
+      root.addEventListener('change', () => { syncApply(); syncDanger(); });
       syncApply();
+      syncDanger();
       root.querySelector('.b-cancel').onclick = () => root._close();
       root.querySelector('.b-reset').onclick = () => bulkRun(root, ids, null);
-      root.querySelector('.b-oos').onclick = () => bulkRun(root, ids, { sharing: 'out-of-scope' });
+      root.querySelector('.b-oos').onclick = () => {
+        if (!splitRows.length) return bulkRun(root, ids, { sharing: 'out-of-scope' });
+        // Excluding a split parent silently drops its counted parts too, so this
+        // one asks first and says what it would cost.
+        const counted = splitRows.reduce((sum, t) => sum + (t.splits || [])
+          .filter(p => (p.sharing || t.sharing) !== 'out-of-scope')
+          .reduce((s, p) => s + p.amount, 0), 0);
+        confirmAction({
+          title: T('Mark {n} transactions out of scope?', { n: chosen.length }),
+          danger: true, confirmLabel: T('Mark out of scope'),
+          body: T('{n} of them are split. Excluding a split removes the whole transaction, including parts worth {amount} that are counted today.',
+            { n: splitRows.length, amount: fmt(counted) }),
+          onConfirm: () => bulkRun(root, ids, { sharing: 'out-of-scope' }),
+        });
+      };
       root.querySelector('.b-review').onclick = () => bulkRun(root, ids, { force_review: true });
       apply.onclick = () => {
         const fields = {};
@@ -3719,6 +3741,10 @@ function openSplit(id, total, onSaved) {
     m.querySelector('#split-rows').insertAdjacentHTML('beforeend', getRowHtml());
     window._updateSplitMath();
   };
+  // Run once on open. Reopening an existing split otherwise leaves Save disabled and
+  // "Remaining" showing the full amount until an amount field is touched, so editing
+  // only a category or sharing looked impossible.
+  window._updateSplitMath();
   m.querySelector('#s-save').onclick = async () => {
     if (m.querySelector('#s-save').hasAttribute('disabled')) return;
     const parts = Array.from(m.querySelectorAll('.split-row')).map(r => ({
@@ -3732,7 +3758,14 @@ function openSplit(id, total, onSaved) {
     }));
     
     if (parts.some(p => !p.amount)) { showError(T('Fill in every split amount.')); return; }
-    
+    // Every part must be classified or explicitly excluded. The server enforces this
+    // too, but its message names a part number without saying which control to touch.
+    const unclassified = parts.findIndex(p => !p.category && p.sharing !== 'out-of-scope');
+    if (unclassified !== -1) {
+      showError(T('Part {n} needs a category — or set its sharing to “Out of scope” to leave it uncategorized.', { n: unclassified + 1 }));
+      return;
+    }
+
     // Fallback category
     const mainCategory = parts.find(p => p.category)?.category || null;
     
@@ -4527,10 +4560,19 @@ async function fillSettingsArea() {
       ['feedback', T('My Notes'), T('Your notes and their attachments.')],
       ['config', T('Settings'), T('Household, split, currencies, language.')],
     ];
+    const exportYears = (state.meta.years || [state.year]).slice().sort((a, b) => b - a);
     host.innerHTML = `<div class="flex flex-col gap-6">
       ${settingsSection(T('Where your data lives'),
         T('Everything is plain files on your machine — fully offline. You can copy any of these folders yourself, or download a backup below.'),
         folderTreeHtml())}
+      ${settingsSection(T('Export transactions to a spreadsheet'),
+        T('Every transaction of one year as a single table, plus a Summary tab with the dashboard figures — money in and out, savings, savings rate, month by month. Each figure sits beside a live formula that rebuilds it from the rows, so an auditor can check rather than trust.'), `
+        <div class="flex items-center gap-2 flex-wrap">
+          ${selectField({ id: 'export-year', label: T('Year'), value: state.year,
+            options: exportYears.map(y => [y, String(y)]) })}
+          <md-outlined-button id="export-txns"><md-icon slot="icon">table_view</md-icon>${T('Download spreadsheet')}</md-outlined-button>
+        </div>
+        <div class="type-caption mt-2" style="color:var(--ink2)">${T('Contains counterparty IBANs and your notes — worth a look before you forward it.')}</div>`)}
       ${settingsSection(T('Export a backup'), T('A zip of your data. Everything is included by default — untick anything you want to leave out.'), `
         <div class="export-parts">
           ${parts.map(([id, label, desc]) => `
@@ -4560,6 +4602,11 @@ async function fillSettingsArea() {
         `<div><md-outlined-button class="danger-btn" onclick="openDeleteYear()"><md-icon slot="icon">delete_forever</md-icon>${T('Delete a year…')}</md-outlined-button></div>`)}
     </div>`;
     wireFileField(host);
+    // Content-Disposition download, so the page stays where it is.
+    $('#export-txns').onclick = () => {
+      const year = $('#export-year').value || state.year;
+      window.location.href = `/api/transactions-export?year=${encodeURIComponent(year)}`;
+    };
     $('#do-restore').onclick = () => {
       const fileEl = $('#imp-file');
       if (!fileEl || !fileEl.files.length) { showError(T('Choose a backup zip first.')); return; }

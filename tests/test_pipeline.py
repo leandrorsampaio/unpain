@@ -21,8 +21,8 @@ build_sandbox(tmp)
 
 sys.path.insert(0, str(PROJECT))
 from fastapi import HTTPException  # noqa: E402
-from pipeline import anchors, coverage, doctor, formats, ingest, settle, store, transfers  # noqa: E402
-from pipeline.util import cents, load_accounts, write_json  # noqa: E402
+from pipeline import anchors, coverage, doctor, formats, fx, ingest, settle, store, transfers  # noqa: E402
+from pipeline.util import cents, load_accounts, read_json, write_json  # noqa: E402
 from app import server  # noqa: E402
 
 failures = []
@@ -481,6 +481,188 @@ check("credit card books the EUR column, never the foreign amount",
       and {row["currency"] for row in card_rows} == {"EUR"})
 check("credit card Saldo trailer is consumed, not counted as an invalid row",
       card_stats["skipped"] == 0)
+# --- integrity checks that watch the import boundary, where every real bug this
+# store has seen actually originated (a parser or config producing wrong rows,
+# which the arithmetic then faithfully totalled).
+
+
+def _checks_named(name, year=None):
+    return [f for f in doctor.run(year)["findings"] if f["check"] == name]
+
+
+# An account labelled with the wrong currency reads a manual balance or an anchor in
+# that currency, turning R$1.500 into 1.500 EUR.
+currency_doc = read_json(tmp / "data" / "accounts.json")
+original_accounts = json.loads(json.dumps(currency_doc))
+for account in currency_doc["accounts"]:
+    if account["id"] == "bank1-person1":
+        account["currency"] = "BRL"
+write_json(tmp / "data" / "accounts.json", currency_doc)
+check("an account whose currency contradicts its transactions is flagged",
+      any("bank1-person1" in f["ids"] for f in _checks_named("account-currency")))
+write_json(tmp / "data" / "accounts.json", original_accounts)
+check("matching account currencies are not flagged", not _checks_named("account-currency"))
+
+# A placeholder rate file converts every foreign amount wrongly and looks fine.
+fx_backup = fx.CACHE.read_bytes() if fx.CACHE.exists() else None
+fx._rates = None
+fx.CACHE.parent.mkdir(parents=True, exist_ok=True)
+brl_txn = dict(store.load_year_raw(2026)[0])
+brl_txn.update({"id": "fx-probe", "currency": "BRL", "amount_original": -100.0, "fx_rate": 6.25,
+                "source": {"file": "fx-probe.csv", "format": "test"}})
+store.append_transactions(2026, "fx-probe", [brl_txn])
+fx.CACHE.write_text("Date,USD,BRL\n" + "".join(
+    "2026-01-%02d,1.1000,6.2500\n" % day for day in range(1, 29)), encoding="utf-8")
+fx_findings = _checks_named("fx-cache")
+check("a flat placeholder rate series is flagged",
+      any("identical" in f["message"] for f in fx_findings), str([f["message"] for f in fx_findings]))
+check("a two-currency rate file is flagged as a stand-in",
+      any("only" in f["message"] and "currencies" in f["message"] for f in fx_findings))
+fx.CACHE.unlink()
+fx._rates = None
+check("a missing rate cache is reported, not downloaded",
+      any("no ECB rate cache" in f["message"] for f in _checks_named("fx-cache"))
+      and not fx.CACHE.exists())
+(tmp / "data" / "2026" / "transactions" / "fx-probe.jsonl").unlink()
+if fx_backup is not None:
+    fx.CACHE.write_bytes(fx_backup)
+fx._rates = None
+
+# The out-of-scope category is a label; only the sharing flag removes a transaction
+# from the totals. Carrying the label alone leaves it counted, as an expense.
+drift_txn = next(t for t in store.load_year_raw(2026) if not t.get("splits"))
+store.save_decisions(2026, {drift_txn["id"]: {"category": "out-of-scope/out-of-scope",
+                                              "sharing": "shared"}})
+check("out-of-scope category without the flag is flagged",
+      any(drift_txn["id"] in f["ids"] for f in _checks_named("out-of-scope-drift", 2026)))
+store.save_decisions(2026, {drift_txn["id"]: {"category": "out-of-scope/out-of-scope",
+                                              "sharing": "out-of-scope"}})
+check("out-of-scope category with the flag is not flagged",
+      not _checks_named("out-of-scope-drift", 2026))
+store.save_decisions(2026, {})
+
+# An upload that legitimately produced no rows writes no transaction file, so it must
+# not be reported as a missing source — that finding could never be cleared.
+stale_uploads = [
+    {"id": "empty-upload", "source_stem": "bank1-person1__empty", "total": 0, "added": 0,
+     "account": "bank1-person1", "kind": "table", "status": "processed"},
+    {"id": "vanished-upload", "source_stem": "bank1-person1__vanished", "total": 7, "added": 7,
+     "account": "bank1-person1", "kind": "table", "status": "processed"},
+]
+write_json(tmp / "data" / "uploads.json", {"uploads": stale_uploads})
+stale_found = [f for f in doctor.run()["findings"] if f["check"] == "stale-upload-ref"]
+check("an empty statement is not reported as a missing source",
+      not any("empty-upload" in (f.get("ids") or []) for f in stale_found))
+check("an upload whose rows really vanished is still reported",
+      any("vanished-upload" in (f.get("ids") or []) for f in stale_found))
+write_json(tmp / "data" / "uploads.json", {"uploads": []})
+
+# A split part may be left uncategorized only by marking it out of scope. The split
+# editor depends on this contract: without it there is no way to exclude one leg of a
+# split, which is what drove an "out of scope" category into existence as a workaround.
+split_host = next(t for t in store.effective_year(2026) if not t.get("splits"))
+half = round(split_host["amount_eur"] / 2, 2)
+server.decision(server.Decision(year=2026, id=split_host["id"], fields={"splits": [
+    {"amount": half, "category": "core-living/groceries", "sharing": "shared"},
+    {"amount": round(split_host["amount_eur"] - half, 2), "category": None, "sharing": "out-of-scope"},
+], "category": "core-living/groceries", "sharing": "shared"}))
+split_saved = next(t for t in store.effective_year(2026) if t["id"] == split_host["id"])
+check("a split part can be out of scope with no category",
+      any(p.get("sharing") == "out-of-scope" and not p.get("category") for p in split_saved["splits"]))
+check("the out-of-scope split part stays outside the math",
+      not any(r["in_expense_math"] for r in server._export_rows(2026)
+              if r["transaction_id"] == split_host["id"] and r["sharing"] == "out-of-scope"))
+try:
+    server.decision(server.Decision(year=2026, id=split_host["id"], fields={"splits": [
+        {"amount": half, "category": "core-living/groceries", "sharing": "shared"},
+        {"amount": round(split_host["amount_eur"] - half, 2), "category": None, "sharing": "shared"},
+    ], "category": "core-living/groceries", "sharing": "shared"}))
+    check("a shared split part still needs a category", False)
+except HTTPException as exc:
+    check("a shared split part still needs a category", exc.status_code == 400)
+server.decision_clear(server.DecisionClear(year=2026, id=split_host["id"]))
+
+# The spreadsheet export must reproduce the app's own figures, or it is a
+# plausible-looking file that quietly disagrees with every screen.
+export_rows = server._export_rows(2026)
+counted = [r for r in export_rows if r["in_expense_math"]]
+export_lines = []
+for txn in store.effective_year(2026):
+    if txn.get("kind") == "internal-transfer":
+        continue
+    if txn.get("splits"):
+        export_lines += [p["amount"] for p in txn["splits"]
+                         if (p.get("sharing") or txn.get("sharing")) != "out-of-scope"]
+    elif txn.get("sharing") != "out-of-scope":
+        export_lines.append(txn["amount_eur"])
+check("export counts the same lines as the app",
+      len(counted) == len(export_lines),
+      "export=%d app=%d" % (len(counted), len(export_lines)))
+check("export sums to the same total as the app",
+      cents(sum(r["amount_eur"] for r in counted)) == cents(sum(export_lines)))
+check("export emits every transaction plus every split part",
+      len(export_rows) == len(store.effective_year(2026))
+      + sum(len(t.get("splits") or []) for t in store.effective_year(2026)))
+check("export never counts a split parent and its parts twice",
+      all(not (r["row_type"] == "transaction" and r["in_expense_math"]
+               and any(o["transaction_id"] == r["transaction_id"] and o["row_type"] == "split-part"
+                       for o in export_rows))
+          for r in export_rows))
+check("export flags internal transfers as outside the math",
+      all(not r["in_expense_math"] for r in export_rows if r["kind"] == "internal-transfer"))
+check("export flags out-of-scope rows as outside the math",
+      all(not r["in_expense_math"] for r in export_rows if r["sharing"] == "out-of-scope"))
+# Build the actual workbook too: the row builder being right says nothing about the
+# endpoint that writes the file.
+export_response = server.transactions_export(2026)
+export_path = Path(export_response.path)
+check("export endpoint writes a workbook", export_path.is_file() and export_path.stat().st_size > 0)
+from openpyxl import load_workbook  # noqa: E402
+export_book = load_workbook(export_path)
+export_sheet = export_book[export_book.sheetnames[0]]
+check("workbook has a header row plus every export row",
+      export_sheet.max_row == len(export_rows) + 1,
+      "sheet=%d rows=%d" % (export_sheet.max_row, len(export_rows)))
+check("workbook columns match the declared schema",
+      [cell.value for cell in export_sheet[1]] == [name for name, _ in server.EXPORT_COLUMNS])
+check("workbook ships the legend sheet", "Legend" in export_book.sheetnames)
+check("workbook ships the summary sheet", "Summary" in export_book.sheetnames)
+
+# The Summary sheet is only worth anything for an audit if its figures can be
+# rebuilt from the rows beside them. Recompute its SUMIFS here and compare with
+# what the dashboard reports.
+export_summary = settle.year_summary(2026)
+
+
+def _export_sumifs(income, month=None, exclude_year_costs=False):
+    total = 0.0
+    for row in export_rows:
+        if not row["in_expense_math"] or row["is_income"] != income:
+            continue
+        if month is not None and row["month"] != month:
+            continue
+        if exclude_year_costs and row["year_cost"]:
+            continue
+        total += row["amount_eur"] or 0
+    return total
+
+
+check("export income is decided by category, not by sign",
+      all(r["is_income"] == (r["category_slug"] in settle.income_categories())
+          for r in export_rows if r["category_slug"]))
+check("summary year income rebuilds from the rows",
+      cents(_export_sumifs(True)) == cents(export_summary["income"]))
+check("summary year expenses rebuild from the rows",
+      cents(_export_sumifs(False)) == cents(export_summary["expenses"]))
+check("summary months rebuild from the rows",
+      all(cents(_export_sumifs(True, m["month"], True)) == cents(m["income"])
+          and cents(_export_sumifs(False, m["month"], True)) == cents(m["expenses"])
+          for m in export_summary["months"]))
+check("summary carries a live formula next to each stored figure",
+      any(isinstance(cell.value, str) and cell.value.startswith("=SUMIFS(")
+          for row in export_book["Summary"].iter_rows() for cell in row))
+export_path.unlink()
+
 # Deleting an import must take everything it created and nothing else, and must
 # not touch a closed month. A surviving anchor asserts a balance for data that is
 # no longer in the store, which fails the next chain verification.
@@ -807,7 +989,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 143
+MIN_CHECKS = 171
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

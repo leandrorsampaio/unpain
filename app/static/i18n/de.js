@@ -258,6 +258,8 @@ I18N.register('de', {
   'Add part': 'Teil hinzufügen',
   'Save split': 'Aufteilung speichern',
   'Extra': 'Zu viel',
+  'Part {n} needs a category — or set its sharing to “Out of scope” to leave it uncategorized.':
+    'Teil {n} braucht eine Kategorie — oder setze die Aufteilung auf „Außerhalb des Rahmens“, um ihn ohne Kategorie zu lassen.',
   'Fill in every split amount.': 'Jeden Aufteilungsbetrag ausfüllen.',
   '(Split into {n} parts)': '(In {n} Teile aufgeteilt)',
   'Split into {n} parts': 'In {n} Teile aufgeteilt',
@@ -421,6 +423,13 @@ I18N.register('de', {
   'empty statement — no activity this period': 'Leerer Auszug — keine Bewegungen in diesem Zeitraum',
   'statement imported — no activity': 'Auszug importiert — keine Bewegungen',
   /* ---- Bulk actions (Transactions) ---- */
+  /* ---- Settings: transaction export ---- */
+  'Export transactions to a spreadsheet': 'Transaktionen als Tabelle exportieren',
+  'Every transaction of one year as a single table, plus a Summary tab with the dashboard figures — money in and out, savings, savings rate, month by month. Each figure sits beside a live formula that rebuilds it from the rows, so an auditor can check rather than trust.':
+    'Alle Transaktionen eines Jahres in einer Tabelle, dazu ein Reiter „Summary“ mit den Kennzahlen des Dashboards — Einnahmen, Ausgaben, Ersparnis, Sparquote, Monat für Monat. Neben jeder Zahl steht eine Formel, die sie aus den Zeilen neu berechnet, damit man prüfen statt vertrauen kann.',
+  'Download spreadsheet': 'Tabelle herunterladen',
+  'Contains counterparty IBANs and your notes — worth a look before you forward it.':
+    'Enthält IBANs der Gegenparteien und deine Notizen — vor dem Weiterleiten kurz prüfen.',
   /* ---- Ingest: processed-file filters ---- */
   'All accounts': 'Alle Konten',
   'All owners': 'Alle Inhaber',
@@ -442,8 +451,14 @@ I18N.register('de', {
   '{n} selected · net {amount}': '{n} ausgewählt · netto {amount}',
   'Only the fields you switch on are written. Everything else keeps its current value on each transaction.':
     'Nur die eingeschalteten Felder werden geschrieben. Alles andere behält seinen aktuellen Wert je Transaktion.',
-  '{n} of these are split transactions. Their parts keep their own categories; editing the parent here will not change the split.':
-    '{n} davon sind aufgeteilte Transaktionen. Ihre Teile behalten ihre eigenen Kategorien; die Bearbeitung des Haupteintrags ändert die Aufteilung nicht.',
+  '{n} of these are split transactions. Category and tax here apply to the parent only — the parts keep their own.':
+    '{n} davon sind aufgeteilte Transaktionen. Kategorie und Steuer gelten hier nur für den Haupteintrag — die Teile behalten ihre eigenen.',
+  'Sharing is different: marking a split transaction out of scope removes the WHOLE transaction from every total, including parts that are categorized and counted today. Check those {n} before applying.':
+    'Bei der Aufteilung ist es anders: Wird eine aufgeteilte Transaktion außerhalb des Rahmens gesetzt, verschwindet die GESAMTE Transaktion aus allen Summen — auch Teile, die heute kategorisiert und gezählt werden. Prüfe diese {n} vor dem Anwenden.',
+  'Mark {n} transactions out of scope?': '{n} Transaktionen außerhalb des Rahmens setzen?',
+  'Mark out of scope': 'Außerhalb des Rahmens setzen',
+  '{n} of them are split. Excluding a split removes the whole transaction, including parts worth {amount} that are counted today.':
+    '{n} davon sind aufgeteilt. Wird eine Aufteilung ausgeschlossen, verschwindet die gesamte Transaktion — samt Teilen im Wert von {amount}, die heute gezählt werden.',
   'Change category': 'Kategorie ändern',
   'Change sharing': 'Aufteilung ändern',
   'Change income owner ({n} income rows)': 'Einkommens-Inhaber ändern ({n} Einnahmen)',

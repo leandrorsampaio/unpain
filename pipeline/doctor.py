@@ -2,7 +2,7 @@
 from collections import Counter, defaultdict
 from datetime import date
 
-from . import anchors, ingest, rules_engine, store
+from . import anchors, fx, ingest, rules_engine, store
 from .util import DATA, RULES, cents, load_accounts, load_config, read_json
 
 
@@ -274,6 +274,12 @@ def _stale_upload_refs(ctx):
     out = []
     for upload in ctx["uploads"]:
         stem = upload.get("source_stem")
+        # A statement covering a period with no activity produces no rows, and
+        # append_transactions writes nothing for an empty list — so having no file is
+        # expected here, not evidence that data went missing. Flagging it produced a
+        # finding that could never be cleared, which is worse than not checking.
+        if upload.get("total") == 0:
+            continue
         if stem and stem not in stems:
             upload_id = upload.get("id") or stem
             out.append(_finding("info", "stale-upload-ref", 0,
@@ -282,10 +288,110 @@ def _stale_upload_refs(ctx):
     return out
 
 
+def _account_currency_mismatch(ctx):
+    """An account whose transactions are not in the currency it declares.
+
+    Nothing is wrong today — every transaction carries its own currency and is
+    converted at the rate of its own date. It bites later: a manual balance or a
+    balance anchor is read in the ACCOUNT's currency, so a BRL account labelled EUR
+    turns a R$1.500 balance into 1.500 €.
+    """
+    out = []
+    for account_id, account in ctx["accounts"].items():
+        declared = (account.get("currency") or "EUR").upper()
+        seen = {(txn.get("currency") or "EUR").upper()
+                for year in ctx["all_years"] for txn in ctx["raw"].get(year, [])
+                if txn.get("account") == account_id}
+        foreign = sorted(seen - {declared})
+        if seen and declared not in seen:
+            out.append(_finding("warning", "account-currency", 0,
+                                "Account '%s' is set to %s but all its transactions are in %s."
+                                % (account_id, declared, ", ".join(sorted(seen))), [account_id]))
+        elif foreign:
+            out.append(_finding("info", "account-currency", 0,
+                                "Account '%s' is set to %s and also holds %s transactions."
+                                % (account_id, declared, ", ".join(foreign)), [account_id]))
+    return out
+
+
+def _fx_cache_sanity(ctx):
+    """Catch an implausible ECB cache before it silently converts everything wrong.
+
+    A stand-in file once sat here carrying two currencies and one flat rate for
+    every date across five years; nothing noticed until a foreign import was
+    checked by hand. Real ECB data has dozens of currencies and moves daily.
+    """
+    needed = {(txn.get("currency") or "EUR").upper()
+              for year in ctx["all_years"] for txn in ctx["raw"].get(year, [])} - {"EUR"}
+    if not needed:
+        return []
+    # fx._load() downloads when the cache is absent, and doctor must never write —
+    # so the absence is reported rather than repaired.
+    if not fx.CACHE.exists():
+        return [_finding("warning", "fx-cache", 0,
+                         "Foreign-currency transactions exist but no ECB rate cache is present. "
+                         "Run 'fx-update'.", [])]
+    try:
+        rates = fx._load()
+    except Exception as exc:  # noqa: BLE001 - an unreadable cache is itself the finding
+        return [_finding("warning", "fx-cache", 0,
+                         "Foreign-currency transactions exist but ECB rates could not be read: %s. "
+                         "Run 'fx-update'." % exc, [])]
+    out = []
+    currencies = {code for day in rates.values() for code in day}
+    if len(currencies) < 10:
+        out.append(_finding("warning", "fx-cache", 0,
+                            "The ECB rate cache lists only %d currencies. The real series carries "
+                            "dozens — this looks like a stand-in file. Run 'fx-update'."
+                            % len(currencies), []))
+    for code in sorted(needed & currencies):
+        series = {day[code] for day in rates.values() if code in day}
+        if len(series) == 1:
+            out.append(_finding("warning", "fx-cache", 0,
+                                "Every cached %s rate is identical (%s). A real series moves daily, "
+                                "so conversions are being made against a placeholder. Run 'fx-update'."
+                                % (code, series.pop()), []))
+    missing = sorted(needed - currencies)
+    if missing:
+        out.append(_finding("warning", "fx-cache", 0,
+                            "Transactions use %s but the ECB cache has no such rate. Run 'fx-update'."
+                            % ", ".join(missing), []))
+    return out
+
+
+def _out_of_scope_drift(ctx):
+    """A transaction sitting in the out-of-scope CATEGORY without the out-of-scope FLAG.
+
+    The two are different things: the flag removes a transaction from every total,
+    the category is just a label. A row carrying only the label is still counted,
+    and because that category group is typed as an expense it lands in the expense
+    figure — silently, and with the wrong sign for anything income-like.
+    """
+    out = []
+    for year in ctx["years"]:
+        drifted = []
+        for txn in ctx["raw"].get(year, []):
+            decision = ctx["decisions"].get(year, {}).get(txn.get("id"), {})
+            category = decision.get("category")
+            sharing = decision.get("sharing") or txn.get("sharing")
+            # Split parts carry their own sharing, and the parent's label is cosmetic.
+            if decision.get("splits"):
+                continue
+            if category == "out-of-scope/out-of-scope" and sharing != "out-of-scope":
+                drifted.append(txn["id"])
+        if drifted:
+            out.append(_finding("warning", "out-of-scope-drift", year,
+                                "%d transactions use the out-of-scope category but are not marked "
+                                "out of scope, so they still count in every total." % len(drifted),
+                                sorted(drifted)))
+    return out
+
+
 CHECKS = (
     _orphan_decisions, _unknown_accounts, _unknown_categories, _bad_splits,
     _duplicate_ids, _unknown_sharing_and_owner, _anchor_findings, _cash_desync,
     _review_in_closed_month, _unpaired_markers, _orphan_budgets, _stale_upload_refs,
+    _account_currency_mismatch, _fx_cache_sanity, _out_of_scope_drift,
 )
 
 

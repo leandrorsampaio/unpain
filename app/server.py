@@ -1183,6 +1183,240 @@ def tax_export(year: int):
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+EXPORT_COLUMNS = [
+    ("row_type", "transaction, or split-part for one leg of a split"),
+    ("in_expense_math", "TRUE for the rows the dashboards and settlement actually count"),
+    ("is_income", "TRUE when the category is an income category. NOT the sign: a refund "
+                  "booked to an expense category is a negative expense, never income."),
+    ("month", "1-12, so the Summary sheet can pivot on it"),
+    ("date", ""), ("account", ""), ("account_label", ""), ("owner", ""),
+    ("counterparty", ""), ("purpose", ""), ("note", ""),
+    ("category_group", ""), ("category_sub", ""), ("category_slug", ""),
+    ("sharing", ""), ("income_owner", ""), ("year_cost", ""),
+    ("tax_bucket", ""), ("tax_confirmed", ""), ("tax_owner", ""),
+    ("amount_eur", ""), ("amount_original", ""), ("currency", ""), ("fx_rate", ""),
+    ("kind", ""), ("status", ""), ("matched_rule", ""),
+    ("counterparty_iban", ""),
+    ("source_file", "the statement this came from"), ("source_format", ""),
+    ("transaction_id", ""), ("attachments", ""),
+]
+
+
+def _category_names():
+    """slug -> (group name, sub name), for the two category columns."""
+    names = {}
+    for group in read_json(RULES / "categories.json")["categories"]:
+        for sub in group.get("subs", []):
+            names["%s/%s" % (group["slug"], sub["slug"])] = (group["name"], sub["name"])
+    return names
+
+
+def _export_rows(year):
+    """One row per money line: split parts replace their parent in the totals.
+
+    A split transaction cannot be one honest row — its legs carry their own
+    categories and sharing. Both are emitted, and `in_expense_math` marks exactly
+    the rows the app counts, so summing that subset reproduces the dashboards
+    instead of double-counting a split or quietly including an internal transfer.
+    """
+    accounts, _ = load_accounts()
+    names = _category_names()
+    income_cats = settle.income_categories()
+    rows = []
+
+    def line(txn, part=None):
+        source = txn.get("source") or {}
+        account = accounts.get(txn.get("account"), {})
+        category = (part or txn).get("category")
+        group_name, sub_name = names.get(category or "", ("", ""))
+        sharing = (part or txn).get("sharing") or txn.get("sharing")
+        counted = (txn.get("kind") != "internal-transfer" and sharing != "out-of-scope"
+                   and (part is not None or not txn.get("splits")))
+        amount = part["amount"] if part else txn.get("amount_eur")
+        attachments = [a.get("file", "") for a in (txn.get("attachments") or [])]
+        # Mirrors settle._is_income exactly: category first, sign only as a fallback
+        # for an uncategorized line.
+        is_income = category in income_cats if category else (amount or 0) > 0
+        return {
+            "row_type": "split-part" if part else "transaction",
+            "in_expense_math": bool(counted),
+            "is_income": bool(is_income),
+            "month": int(str(txn.get("date"))[5:7]),
+            "date": txn.get("date"),
+            "account": txn.get("account"),
+            "account_label": account.get("label") or account.get("bank") or "",
+            "owner": account.get("owner") or "",
+            "counterparty": txn.get("counterparty") or "",
+            "purpose": (part or {}).get("purpose") or txn.get("purpose") or "",
+            "note": (part or txn).get("note") or "",
+            "category_group": group_name,
+            "category_sub": sub_name,
+            "category_slug": category or "",
+            "sharing": sharing or "",
+            "income_owner": txn.get("income_owner") or "",
+            "year_cost": bool((part or txn).get("year_cost")),
+            "tax_bucket": (part or txn).get("tax_bucket") or "",
+            "tax_confirmed": bool(txn.get("tax_confirmed")),
+            "tax_owner": txn.get("tax_owner") or "",
+            "amount_eur": amount,
+            "amount_original": None if part else txn.get("amount_original"),
+            "currency": "EUR" if part else (txn.get("currency") or "EUR"),
+            "fx_rate": None if part else txn.get("fx_rate"),
+            "kind": txn.get("kind") or "",
+            "status": txn.get("status") or "",
+            "matched_rule": txn.get("matched_rule") or "",
+            "counterparty_iban": txn.get("counterparty_iban") or "",
+            "source_file": source.get("file") or "",
+            "source_format": source.get("format") or "",
+            "transaction_id": txn.get("id"),
+            "attachments": "; ".join(attachments),
+        }
+
+    for txn in sorted(store.effective_year(year), key=lambda t: (t["date"], t.get("account") or "")):
+        rows.append(line(txn))
+        for part in txn.get("splits") or []:
+            rows.append(line(txn, part))
+    return rows
+
+
+MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+               "July", "August", "September", "October", "November", "December"]
+
+
+def _add_summary_sheet(wb, year, data_sheet, headers, row_count):
+    """The dashboard's figures, each beside a formula that rebuilds it from the
+    Transactions sheet and a difference that must read 0.
+
+    An audit wants to check the numbers, not take them on faith, so the workbook
+    carries its own derivation: the app's stored value, a live SUMIFS over the raw
+    rows, and the gap between them.
+    """
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    summary = settle.year_summary(year)
+    col = {name: get_column_letter(i) for i, name in enumerate(headers, start=1)}
+    last = row_count + 1
+    quoted = "'%s'" % data_sheet
+
+    def rng(name):
+        return "%s!$%s$2:$%s$%d" % (quoted, col[name], col[name], last)
+
+    def sumifs(income, month=None, exclude_year_costs=False):
+        parts = ["%s" % rng("amount_eur"),
+                 "%s,TRUE" % rng("in_expense_math"),
+                 "%s,%s" % (rng("is_income"), "TRUE" if income else "FALSE")]
+        if month:
+            parts.append("%s,%d" % (rng("month"), month))
+        if exclude_year_costs:
+            parts.append("%s,FALSE" % rng("year_cost"))
+        return "=SUMIFS(%s)" % ",".join(parts)
+
+    ws = wb.create_sheet("Summary")
+    bold = Font(bold=True)
+    ws.append(["Summary %d" % year])
+    ws["A1"].font = Font(bold=True, size=14)
+    ws.append([])
+    ws.append(["Year total", "App", "Recomputed from rows", "Difference"])
+    for cell in ws[3]:
+        cell.font = bold
+    totals = [
+        ("Money in (income)", summary["income"], sumifs(True)),
+        ("Money out (expenses)", summary["expenses"], sumifs(False)),
+    ]
+    for label, value, formula in totals:
+        ws.append([label, value, formula, "=C%d-B%d" % (ws.max_row + 1, ws.max_row + 1)])
+    savings_row = ws.max_row + 1
+    ws.append(["Savings (in + out)", summary["savings"], "=C%d+C%d" % (savings_row - 2, savings_row - 1),
+               "=C%d-B%d" % (savings_row, savings_row)])
+    ws.append(["Savings rate", None if not summary["income"] else summary["savings"] / summary["income"],
+               "=IF(C%d=0,\"\",C%d/C%d)" % (savings_row - 2, savings_row, savings_row - 2), ""])
+    ws.cell(row=ws.max_row, column=2).number_format = "0%"
+    ws.cell(row=ws.max_row, column=3).number_format = "0%"
+    ws.append(["Transactions counted", summary["transactions"], "", ""])
+    ws.append(["Needs review", summary.get("needs_review", 0), "", ""])
+    ws.append([])
+
+    header_row = ws.max_row + 1
+    ws.append(["Month", "Money in", "Money out", "Savings", "Savings rate",
+               "Year costs (excluded)", "Transactions",
+               "Money in (recomputed)", "Money out (recomputed)", "Difference in", "Difference out"])
+    for cell in ws[header_row]:
+        cell.font = bold
+    for month in summary["months"]:
+        index = month["month"]
+        row = ws.max_row + 1
+        ws.append([
+            MONTH_NAMES[index - 1], month["income"], month["expenses"], month["savings"],
+            None if not month["income"] else month["savings"] / month["income"],
+            month.get("year_costs_excluded", 0), month.get("transactions", 0),
+            sumifs(True, month=index, exclude_year_costs=True),
+            sumifs(False, month=index, exclude_year_costs=True),
+            "=H%d-B%d" % (row, row), "=I%d-C%d" % (row, row),
+        ])
+        ws.cell(row=row, column=5).number_format = "0%"
+    ws.append([])
+    ws.append(["Note", "Monthly figures exclude year-cost entries; the year total includes them. "
+                       "That is why the twelve months do not add up to the year row."])
+    ws.append(["", "Every Difference column must read 0. If one does not, the sheet and the rows "
+                   "disagree and neither should be trusted."])
+    ws.append(["", "Money out is negative. Income is decided by category, not by sign: a refund "
+                   "booked to an expense category reduces expenses rather than adding income."])
+    for column, width in (("A", 24), ("B", 16), ("C", 22), ("D", 16), ("E", 13),
+                          ("F", 20), ("G", 14), ("H", 20), ("I", 21), ("J", 13), ("K", 13)):
+        ws.column_dimensions[column].width = width
+    return ws
+
+
+@app.get("/api/transactions-export")
+def transactions_export(year: int):
+    """Every transaction of one year as a single flat table."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    rows = _export_rows(year)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Transactions %d" % year
+    headers = [name for name, _ in EXPORT_COLUMNS]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for row in rows:
+        ws.append([row.get(name) for name in headers])
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = "A1:%s%d" % (get_column_letter(len(headers)), max(len(rows) + 1, 1))
+    for index, name in enumerate(headers, start=1):
+        widest = max([len(name)] + [len(str(r.get(name) or "")) for r in rows[:400]])
+        ws.column_dimensions[get_column_letter(index)].width = min(max(widest + 2, 10), 52)
+
+    _add_summary_sheet(wb, year, ws.title, headers, len(rows))
+
+    legend = wb.create_sheet("Legend")
+    legend.append(["Column", "Meaning"])
+    for cell in legend[1]:
+        cell.font = Font(bold=True)
+    for name, meaning in EXPORT_COLUMNS:
+        if meaning:
+            legend.append([name, meaning])
+    legend.append([])
+    legend.append(["Totals", "Filter in_expense_math = TRUE to reproduce the app's figures."])
+    legend.append(["", "It excludes internal transfers and out-of-scope rows, which the app "
+                       "ignores everywhere, and takes a split's parts instead of its parent."])
+    legend.append(["Fairness", "Deliberately absent: the income-proportional split is a yearly "
+                               "figure computed from salary, never a per-transaction value. See the "
+                               "Settlement tab."])
+    legend.column_dimensions["A"].width = 20
+    legend.column_dimensions["B"].width = 100
+
+    out = DATA / str(year) / ("transactions-%d.xlsx" % year)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(out)
+    return FileResponse(out, filename="transactions-%d.xlsx" % year,
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
 class Decision(BaseModel):
     year: int
     id: str
