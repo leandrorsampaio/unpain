@@ -39,6 +39,7 @@ add/save/delete buttons.
 - Run server: `.venv/bin/uvicorn app.server:app --port 8765`
 - CLI: `.venv/bin/python -m pipeline.cli ingest|status|summary|settle|tax|fx-update`
 - Read-only data audit: `.venv/bin/python -m pipeline.cli doctor [year]`
+- Watch already-closed months: `.venv/bin/python -m pipeline.cli close-baseline [year]`
 - Tests: `./run-tests.sh` (all) / `./run-tests.sh --fast` (skip browser smoke only).
   The repository pre-commit hook chooses the full suite for UI changes and fast otherwise.
   GitHub Actions CI enforces the complete test suite, including the `tests/test_oracle.py` math invariant checker over 5 years of synthetic fixture data, on all branches.
@@ -59,7 +60,13 @@ add/save/delete buttons.
   merchant rule sets category and sharing too, and a decisions-only check is blind to it.
 - Settlement ratio: only subcategories with `ratio_income: true` (currently salary), owner
   `couple` counts half to each. Monthly = estimate; annual = binding.
-- Closed months (`data/<year>/months.json`) reject decisions (HTTP 409).
+- Closed months (`data/<year>/months.json`) reject decisions (HTTP 409). That lock covers
+  decisions and nothing else — a merchant rule, transfer detection and a re-ingest all rewrite a
+  closed month freely. So closing also records the month's figures (`pipeline/closings.py` →
+  `data/<year>/closings.json`) and `doctor` reports `closed-month-drift` when they no longer match.
+  It reports rather than prevents: a change to a closed month is often a correction, and refusing
+  those would preserve a known error. Reopening drops the baseline; `cli close-baseline` adopts
+  current figures for months closed before this existed. Nothing ever *computes* from a snapshot.
 - Categories: never delete, set `archived: true`. Slugs are stable ids.
 - Rule scope: `family` (default) applies everywhere; `<person>` scope applies only to that
   person's accounts and beats family rules. Couple-owned accounts match family rules only.

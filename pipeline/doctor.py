@@ -2,7 +2,7 @@
 from collections import Counter, defaultdict
 from datetime import date
 
-from . import anchors, fx, ingest, rules_engine, settle, store
+from . import anchors, closings, fx, ingest, rules_engine, settle, store
 from .util import DATA, RULES, cents, load_accounts, load_config, read_json
 
 
@@ -425,6 +425,38 @@ def _out_of_scope_drift(ctx):
     return out
 
 
+def _closed_month_drift(ctx):
+    """A month called settled whose figures have moved since.
+
+    The month lock rejects decisions and nothing else, so a merchant rule, transfer
+    detection or a re-ingest can all rewrite a closed month without asking and without
+    leaving a trace. This is the only thing that notices. It reports rather than
+    prevents: a change to a closed month is often a correction, and refusing those
+    would mean preserving an error to protect a figure that is already wrong.
+    """
+    out = []
+    for year in ctx["years"]:
+        rows = closings.verify(year)
+        drifted = [r for r in rows if r["status"] == "drifted"]
+        unwatched = [r["month"] for r in rows if r["status"] == "unwatched"]
+        for row in drifted:
+            moved = ", ".join(
+                "%s %s -> %s" % (name, row["stored"].get(name), row["current"].get(name))
+                for name in closings.FIELDS
+                if str(row["stored"].get(name)) != str(row["current"].get(name)))
+            out.append(_finding("error", "closed-month-drift", year,
+                                "Month %s was closed on %s but its figures have changed since "
+                                "(%s). Reopen it, check the change is intended, and close it "
+                                "again to accept the new figures."
+                                % (row["month"], (row["closed_at"] or "?")[:10], moved), []))
+        if unwatched:
+            out.append(_finding("info", "closed-month-unwatched", year,
+                                "%d closed months have no recorded figures, so a later change to "
+                                "them cannot be detected. Run 'close-baseline' to adopt their "
+                                "current figures as the baseline." % len(unwatched), []))
+    return out
+
+
 def _effective_kind(ctx, txn):
     decision = ctx["all_decisions"].get(int(txn["date"][:4]), {}).get(txn.get("id"), {})
     return rules_engine.effective_kind(txn, decision)
@@ -471,7 +503,7 @@ CHECKS = (
     _duplicate_ids, _unknown_sharing_and_owner, _anchor_findings, _cash_desync,
     _review_in_closed_month, _unpaired_markers, _orphan_budgets, _stale_upload_refs,
     _account_currency_mismatch, _anchor_currency_drift, _fx_cache_sanity, _out_of_scope_drift,
-    _orphan_transfer_marks,
+    _orphan_transfer_marks, _closed_month_drift,
 )
 
 

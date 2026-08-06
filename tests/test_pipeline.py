@@ -21,7 +21,7 @@ build_sandbox(tmp)
 
 sys.path.insert(0, str(PROJECT))
 from fastapi import HTTPException  # noqa: E402
-from pipeline import anchors, coverage, doctor, formats, fx, ingest, settle, store, transfers  # noqa: E402
+from pipeline import anchors, closings, coverage, doctor, formats, fx, ingest, settle, store, transfers  # noqa: E402
 from pipeline.util import cents, load_accounts, read_json, write_json  # noqa: E402
 from app import server  # noqa: E402
 
@@ -756,6 +756,53 @@ check("doctor reports the pair left one-sided by that decision",
 store.save_decisions(2026, {})
 transfers.mark_internal(2026)
 
+# Closing a month is meant to settle it, but the lock only rejects decisions. A
+# merchant rule, transfer detection and a re-ingest all rewrite a closed month without
+# asking and without leaving a trace — one rule edit moved a closed year's expenses by
+# 63.34 EUR in production and nothing noticed. The figures are recorded at closing so a
+# later change is visible. It is reported, not prevented: such a change is often a
+# correction, and refusing those preserves a known error to protect a wrong figure.
+closing_months = store.months_state(2026)
+closing_txn = next(t for t in store.load_year_raw(2026) if t.get("kind") != "internal-transfer")
+closing_month = int(closing_txn["date"][5:7])
+closing_key = "2026-%02d" % closing_month
+store.save_months_state(2026, {})
+closings.save(2026, {})
+
+server.close_month(server.MonthState(year=2026, month=closing_month, state="closed"))
+check("closing a month records what it contained",
+      closings.load(2026).get(closing_key, {}).get("transactions") is not None)
+check("and nothing has drifted yet",
+      not _checks_named("closed-month-drift", 2026))
+
+# Move it through a merchant rule: the path a decisions-only view is blind to, and the
+# one that actually moved a closed month in production.
+closing_rules = read_json(tmp / "rules" / "merchant-rules.json")
+write_json(tmp / "rules" / "merchant-rules.json", {"rules": closing_rules["rules"] + [
+    {"id": "closing-drift-probe", "scope": "family",
+     "match": {"field": "counterparty", "contains": closing_txn["counterparty"]},
+     "category": "out-of-scope/out-of-scope", "sharing": "out-of-scope"}]})
+store._EFFECTIVE_CACHE.clear()
+check("a closed month whose figures moved is reported",
+      any(closing_key in f["message"] for f in _checks_named("closed-month-drift", 2026)))
+write_json(tmp / "rules" / "merchant-rules.json", closing_rules)
+store._EFFECTIVE_CACHE.clear()
+check("and the report clears once the figures match again",
+      not _checks_named("closed-month-drift", 2026))
+
+server.close_month(server.MonthState(year=2026, month=closing_month, state="open"))
+check("reopening withdraws the baseline along with the claim",
+      closing_key not in closings.load(2026))
+store.save_months_state(2026, {closing_key: "closed"})
+check("a closed month with no baseline is reported as unwatched, never as unchanged",
+      bool(_checks_named("closed-month-unwatched", 2026)))
+check("adopting a baseline starts watching it",
+      closings.baseline(2026) == [closing_key]
+      and not _checks_named("closed-month-unwatched", 2026)
+      and not _checks_named("closed-month-drift", 2026))
+store.save_months_state(2026, closing_months)
+closings.save(2026, {})
+
 # An upload that legitimately produced no rows writes no transaction file, so it must
 # not be reported as a missing source — that finding could never be cleared.
 stale_uploads = [
@@ -1232,7 +1279,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 201
+MIN_CHECKS = 208
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

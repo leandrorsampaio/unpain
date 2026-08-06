@@ -23,7 +23,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline import anchors, coverage, doctor, fx, ingest, networth, recurring, rules_engine, settle, store, transfers  # noqa: E402
+from pipeline import anchors, closings, coverage, doctor, fx, ingest, networth, recurring, rules_engine, settle, store, transfers  # noqa: E402
 from pipeline.util import DATA, INBOX, ROOT, RULES, cents, load_config, read_json, write_json, load_accounts  # noqa: E402
 
 app = FastAPI(title="FamilyAccountability")
@@ -2512,6 +2512,13 @@ def close_month(m: MonthState):
     states = store.months_state(m.year)
     states["%d-%02d" % (m.year, m.month)] = m.state
     store.save_months_state(m.year, states)
+    # Record what the month contained at the moment it was called settled, so any
+    # later change to it — by rule, by detection, by re-ingest — is visible instead
+    # of silent. Reopening withdraws the claim, so the baseline goes with it.
+    if m.state == "closed":
+        closings.record(m.year, m.month)
+    else:
+        closings.drop(m.year, m.month)
     return {"ok": True}
 
 
@@ -2530,6 +2537,8 @@ def close_year(y: YearState):
     for month in range(1, 13):
         states["%d-%02d" % (y.year, month)] = y.state
     store.save_months_state(y.year, states)
+    for month in range(1, 13):
+        closings.record(y.year, month) if y.state == "closed" else closings.drop(y.year, month)
     return {"ok": True}
 
 

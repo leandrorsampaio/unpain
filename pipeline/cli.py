@@ -3,7 +3,7 @@ import argparse
 import json
 import sys
 
-from . import doctor, fx, ingest, settle, store
+from . import closings, doctor, fx, ingest, settle, store
 from .util import ConfigError, load_config
 
 
@@ -22,6 +22,9 @@ def main():
     sp.add_argument("year", type=int)
     sub.add_parser("fx-update", help="refresh ECB rates cache")
     sp = sub.add_parser("doctor", help="read-only data integrity check")
+    sp.add_argument("year", nargs="?", type=int)
+    sp = sub.add_parser("close-baseline",
+                        help="adopt current figures as the baseline for already-closed months")
     sp.add_argument("year", nargs="?", type=int)
     args = p.parse_args()
     load_config()  # fail fast with a clear message if config.json is missing/invalid
@@ -45,6 +48,14 @@ def main():
     elif args.cmd == "fx-update":
         fx._download()
         print("ECB rates updated.")
+    elif args.cmd == "close-baseline":
+        years = [args.year] if args.year else store.years()
+        for year in years:
+            adopted = closings.baseline(year)
+            print("%d: %d month(s) now watched%s" %
+                  (year, len(adopted), (": " + ", ".join(adopted)) if adopted else ""))
+        print("These figures are today's, not the figures at the time each month was "
+              "closed — that evidence was never recorded. Changes are watched from now on.")
     elif args.cmd == "doctor":
         result = doctor.run(args.year)
         counts = {severity: sum(item["severity"] == severity for item in result["findings"])
