@@ -481,6 +481,29 @@ check("credit card books the EUR column, never the foreign amount",
       and {row["currency"] for row in card_rows} == {"EUR"})
 check("credit card Saldo trailer is consumed, not counted as an invalid row",
       card_stats["skipped"] == 0)
+# A statement that prints its own period total lets the bank check our arithmetic.
+# It is not a running balance, so it cannot be an anchor, but it still catches a
+# dropped or mis-read row before anything is written.
+total_cfg = {"signature": ["Datum", "Betrag"], "delimiter": ";", "decimal": "comma",
+             "date_format": "%d.%m.%Y", "columns": {"date": "Datum", "amount": 1},
+             "statement_total": {"match": "Saldo", "amount_column": 1}}
+good_total = tmp / "with-total.csv"
+good_total.write_text("Datum;Betrag\n01.03.2026;-10,00\n02.03.2026;-15,50\nSaldo:;-25,50\n",
+                      encoding="utf-8")
+check("a statement whose rows match its stated total parses",
+      [row["amount"] for row in formats.parse(good_total, total_cfg)] == [-10.0, -15.5])
+short_total = tmp / "missing-row.csv"
+short_total.write_text("Datum;Betrag\n01.03.2026;-10,00\nSaldo:;-25,50\n", encoding="utf-8")
+try:
+    formats.parse(short_total, total_cfg)
+    check("a row missing against the stated total is refused", False)
+except ValueError as exc:
+    check("a row missing against the stated total is refused", "add up to" in str(exc))
+no_total = tmp / "no-total.csv"
+no_total.write_text("Datum;Betrag\n01.03.2026;-10,00\n02.03.2026;-15,50\n", encoding="utf-8")
+check("a statement without a stated total is still accepted",
+      len(formats.parse(no_total, total_cfg)) == 2)
+
 # A format config whose decimal style contradicts the file is the defect that
 # reached real books: '26,00' read as dot-decimal becomes 2600.00, and every total
 # downstream stays perfectly self-consistent while being a hundred times wrong.
@@ -1028,7 +1051,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 176
+MIN_CHECKS = 179
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

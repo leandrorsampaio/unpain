@@ -1,10 +1,15 @@
 {
   "name": "deutsche-bank-kreditkarte",
-  "signature": ["Belegdatum", "Eingangstag", "Verwendungszweck", "Kurs"],
+  "signature": [
+    "Belegdatum",
+    "Eingangstag",
+    "Verwendungszweck",
+    "Kurs"
+  ],
   "delimiter": ";",
   "decimal": "comma",
   "date_format": "%d.%m.%Y",
-  "_note": "Deutsche Bank credit card export, verified against real statements 2025-01..2025-12. Five preamble lines (title, card metadata, Abrechnungsdatum) precede the header; parse() finds the header by signature. Two columns are named 'Betrag': index 4 is the FOREIGN amount, index 6 the EUR amount already converted by the bank. Both are addressed by position, never by name — by name the duplicate resolution decides whether a BRL amount gets booked as euros. We take the bank's EUR figure (index 6) so ingested totals reconcile against the printed statement; the card's own FX spread is baked in, which no ECB rate can reproduce. Consequence: the original foreign amount is not retained for these rows. Dates are d.m.Y without zero padding (1.2.2025). balance_row exists so the trailing 'Saldo:' line is consumed rather than counted as an unparseable row — without it a month with no spending (only Saldo 0) trips the all-rows-invalid guard. It captures no anchor: that row carries no date, and the statement date sits on a separate 'Abrechnungsdatum:' preamble line the row parser never sees.",
+  "_note": "Deutsche Bank credit card export, verified against real statements 2025-01..2025-12. Five preamble lines (title, card metadata, Abrechnungsdatum) precede the header; parse() finds the header by signature. Two columns are named 'Betrag': index 4 is the FOREIGN amount, index 6 the EUR amount already converted by the bank. Both are addressed by position, never by name — by name the duplicate resolution decides whether a BRL amount gets booked as euros. We take the bank's EUR figure (index 6) so ingested totals reconcile against the printed statement; the card's own FX spread is baked in, which no ECB rate can reproduce. Consequence: the original foreign amount is not retained for these rows. Dates are d.m.Y without zero padding (1.2.2025). balance_row exists so the trailing 'Saldo:' line is consumed rather than counted as an unparseable row — without it a month with no spending (only Saldo 0) trips the all-rows-invalid guard. It captures no anchor: that row carries no date, and the statement date sits on a separate 'Abrechnungsdatum:' preamble line the row parser never sees. statement_total makes the bank check our arithmetic: the rows must add up to the Saldo the statement prints for its own period. That is not a running balance, so it cannot be a balance anchor, but it still catches a dropped or mis-read row before anything is imported.",
   "balance_row": {
     "match": "Saldo"
   },
@@ -17,5 +22,9 @@
     "currency": 7,
     "counterparty": "Verwendungszweck",
     "purpose": "Verwendungszweck"
+  },
+  "statement_total": {
+    "match": "Saldo",
+    "amount_column": 6
   }
 }

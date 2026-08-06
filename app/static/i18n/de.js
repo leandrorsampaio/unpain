@@ -431,6 +431,9 @@ I18N.register('de', {
   'Contains counterparty IBANs and your notes — worth a look before you forward it.':
     'Enthält IBANs der Gegenparteien und deine Notizen — vor dem Weiterleiten kurz prüfen.',
   /* ---- Ingest: processed-file filters ---- */
+  'Currency': 'Währung',
+  'The currency this account is held in. Transactions keep their own currency and are converted at the rate of their date — this is what a balance you record here is read as.':
+    'Die Währung, in der dieses Konto geführt wird. Transaktionen behalten ihre eigene Währung und werden zum Kurs ihres Datums umgerechnet — dies bestimmt, wie ein hier erfasster Kontostand gelesen wird.',
   'All accounts': 'Alle Konten',
   'All owners': 'Alle Inhaber',
   'All years': 'Alle Jahre',

@@ -2477,7 +2477,10 @@ function accountRow(a, n) {
       ${ownerSelect('ar-owner', a.owner)}
       ${textField({ label: T('Bank'), className: 'ar-bank acct-field', value: a.bank || '' })}
       ${accountTypeSelect('ar-type', a.type)}
+      ${selectField({ label: T('Currency'), className: 'ar-currency acct-field',
+        value: (a.currency || 'EUR'), options: currencyOptions() })}
     </div>
+    <div class="type-caption mt-2" style="color:var(--ink2)">${T('The currency this account is held in. Transactions keep their own currency and are converted at the rate of their date — this is what a balance you record here is read as.')}</div>
     <div class="account-checks mt-3">
       ${lowActivitySwitch(a.low_activity ?? (a.type === 'cash'))}
       <md-text-button onclick="openRecordBalance('${esc(a.id)}')"><md-icon slot="icon">account_balance_wallet</md-icon>${T('Record balance…')}</md-text-button>
@@ -2509,6 +2512,7 @@ async function saveAccount(id) {
     owner: r.querySelector('.ar-owner').value,
     bank: r.querySelector('.ar-bank').value.trim(),
     type: r.querySelector('.ar-type').value.trim(),
+    currency: r.querySelector('.ar-currency').value,
     low_activity: readLowActivity(r),
   });
   acctRefresh();

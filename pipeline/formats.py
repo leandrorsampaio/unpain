@@ -11,7 +11,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from .util import CURRENCY_JUNK as _CURRENCY_JUNK_TEXT, parse_amount, read_json
+from .util import CURRENCY_JUNK as _CURRENCY_JUNK_TEXT, cents, parse_amount, read_json
 
 FORMATS_DIR = Path(__file__).parent / "formats"
 
@@ -85,6 +85,7 @@ def parse(path, cfg, with_stats=False):
     skipped_dates = []
     captured_anchors = []
     raw_amounts = []
+    stated_total = None
     for row in rows[header_idx + 1:]:
         if len(row) < 2:
             continue
@@ -105,6 +106,9 @@ def parse(path, cfg, with_stats=False):
         rawdate = get("date")
         date = _parse_date(rawdate, cfg.get("date_format", "%d.%m.%Y"))
         if date is None:
+            total = _statement_total(row, cfg)
+            if total is not None:
+                stated_total = total
             matched_balance, anchor = _balance_anchor(row, col, cfg)
             if anchor:
                 captured_anchors.append(anchor)
@@ -140,6 +144,14 @@ def parse(path, cfg, with_stats=False):
         raise ValueError("Too many rows have invalid dates (%d skipped, %d parsed). Samples: %s" %
                          (len(skipped_dates), len(out), " | ".join(skipped_dates[:3])))
     _assert_decimal_style(raw_amounts, decimal)
+    if stated_total is not None:
+        parsed_total = sum(cents(row["amount"]) for row in out)
+        if parsed_total != stated_total:
+            raise ValueError(
+                "This statement says its total is %.2f but the rows read from it add up to %.2f "
+                "(%d rows, off by %.2f). Something was mis-read or missed, so nothing was imported."
+                % (stated_total / 100.0, parsed_total / 100.0, len(out),
+                   (parsed_total - stated_total) / 100.0))
     stats = {"skipped": len(skipped_dates), "skipped_samples": skipped_dates[:3],
              "anchors": captured_anchors, "period": _statement_period(rows[:header_idx], cfg)}
     return (out, stats) if with_stats else out
@@ -149,6 +161,30 @@ def parse(path, cfg, with_stats=False):
 # decimal point. Values like "1234" or "1,234" are ambiguous and are ignored.
 _COMMA_DECIMAL = re.compile(r"^[^,]*,\d{1,2}$")
 _DOT_DECIMAL = re.compile(r"^[^.]*\.\d{1,2}$")
+
+
+def _statement_total(row, cfg):
+    """The total a statement states for itself, in cents, or None.
+
+    A credit-card statement prints the sum of its own period rather than a running
+    balance, so it cannot become a balance anchor — but it is still the bank
+    asserting an arithmetic fact about the file, which is exactly what makes a
+    mis-parse detectable.
+    """
+    total_cfg = cfg.get("statement_total") or {}
+    match_text = str(total_cfg.get("match") or "")
+    if not match_text:
+        return None
+    cells = [str(cell).strip() for cell in row]
+    if not any(match_text.lower() in cell.lower() for cell in cells):
+        return None
+    index = total_cfg.get("amount_column")
+    if not isinstance(index, int) or not 0 <= index < len(cells):
+        return None
+    # Apply the format's sign so the total is compared on the same footing as the
+    # rows it is meant to check.
+    value = parse_amount(cells[index], cfg.get("decimal", "comma"), cfg.get("sign", 1))
+    return None if value is None else cents(value)
 
 
 def _assert_decimal_style(raw_amounts, decimal):
