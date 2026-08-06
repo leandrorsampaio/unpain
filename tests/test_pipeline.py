@@ -565,6 +565,28 @@ check("an account whose currency contradicts its transactions is flagged",
 write_json(tmp / "data" / "accounts.json", original_accounts)
 check("matching account currencies are not flagged", not _checks_named("account-currency"))
 
+# An anchor keeps the currency it was written with, so changing an account's
+# currency strands the anchors it already had. verify() then declines the span
+# rather than comparing across currencies — correct, but silent: the account simply
+# stops being verified and nothing says so.
+anchors.add_manual("bank1-person1", "2026-05-31", 1000.0)
+check("a fresh anchor matches its account and is not flagged",
+      not _checks_named("anchor-currency"))
+drifted_doc = read_json(tmp / "data" / "accounts.json")
+for account in drifted_doc["accounts"]:
+    if account["id"] == "bank1-person1":
+        account["currency"] = "BRL"
+write_json(tmp / "data" / "accounts.json", drifted_doc)
+drift_findings = _checks_named("anchor-currency")
+check("an anchor left behind by a currency change is flagged",
+      any("bank1-person1" in f["ids"] for f in drift_findings),
+      str([f["message"] for f in drift_findings]))
+check("the message says the account is no longer being verified",
+      any("no longer being verified" in f["message"] for f in drift_findings))
+write_json(tmp / "data" / "accounts.json", original_accounts)
+anchors.remove("bank1-person1", "2026-05-31")
+check("clearing the stale anchor clears the finding", not _checks_named("anchor-currency"))
+
 # A placeholder rate file converts every foreign amount wrongly and looks fine.
 fx_backup = fx.CACHE.read_bytes() if fx.CACHE.exists() else None
 fx._rates = None
@@ -1051,7 +1073,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 179
+MIN_CHECKS = 183
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

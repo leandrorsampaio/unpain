@@ -314,6 +314,31 @@ def _account_currency_mismatch(ctx):
     return out
 
 
+def _anchor_currency_drift(ctx):
+    """An anchor stamped with a currency its account no longer uses.
+
+    An anchor records the account's currency at the moment it was written, so
+    changing an account's currency later strands every anchor it already had.
+    verify() then refuses the span rather than comparing across currencies — the
+    safe choice, but a silent one: the account simply stops being verified, and
+    nothing says so. Re-record the statement to fix it.
+    """
+    out = []
+    for account_id, account in ctx["accounts"].items():
+        declared = (account.get("currency") or "EUR").upper()
+        stale = sorted({anchor["date"] for anchor in ctx["anchors"]
+                        if anchor.get("account") == account_id
+                        and (anchor.get("currency") or "EUR").upper() != declared})
+        if stale:
+            out.append(_finding("warning", "anchor-currency", 0,
+                                "Account '%s' is %s but %d of its balance anchors were recorded in "
+                                "another currency (%s), so its balances are no longer being "
+                                "verified. Re-record those statements."
+                                % (account_id, declared, len(stale), ", ".join(stale[:3])),
+                                [account_id]))
+    return out
+
+
 def _fx_cache_sanity(ctx):
     """Catch an implausible ECB cache before it silently converts everything wrong.
 
@@ -391,7 +416,7 @@ CHECKS = (
     _orphan_decisions, _unknown_accounts, _unknown_categories, _bad_splits,
     _duplicate_ids, _unknown_sharing_and_owner, _anchor_findings, _cash_desync,
     _review_in_closed_month, _unpaired_markers, _orphan_budgets, _stale_upload_refs,
-    _account_currency_mismatch, _fx_cache_sanity, _out_of_scope_drift,
+    _account_currency_mismatch, _anchor_currency_drift, _fx_cache_sanity, _out_of_scope_drift,
 )
 
 
