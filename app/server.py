@@ -756,6 +756,96 @@ def review_count(year: int):
     return {"count": sum(1 for t in store.effective_year(year) if t["status"] == "needs_review")}
 
 
+@app.get("/api/transfers")
+def transfers_list(year: int):
+    """Everything detection has excluded from the totals, so it can be reviewed.
+
+    Automatic exclusion is the only operation that removes money from every figure
+    without anyone agreeing to it. Listing it is what makes a wrong call visible
+    instead of silent.
+    """
+    months = store.months_state(year)
+    rows = transfers.detected(year)
+    by_id = {row["id"]: row for row in rows}
+
+    # One movement of money, seen twice. Reviewing it twice would invite the user to
+    # answer the same question two ways, which is the one answer the data cannot hold.
+    groups, seen = [], set()
+    for row in rows:
+        if row["id"] in seen:
+            continue
+        legs = [row]
+        partner = by_id.get(row.get("partner_id") or "")
+        if partner is not None and partner["id"] != row["id"]:
+            legs.append(partner)
+        seen.update(leg["id"] for leg in legs)
+        for leg in legs:
+            leg["month_closed"] = months.get(leg["date"][:7]) == "closed"
+        groups.append({
+            "id": row["id"], "reason": row["reason"], "status": row["status"],
+            "amount_eur": abs(row["amount_eur"]),
+            "date": min(leg["date"] for leg in legs),
+            "month_closed": any(leg["month_closed"] for leg in legs),
+            "legs": sorted(legs, key=lambda leg: -leg["amount_eur"]),
+        })
+    groups.sort(key=lambda g: (g["status"] != "pending", g["date"], g["id"]))
+    return {"items": groups,
+            "pending": sum(1 for g in groups if g["status"] == "pending"),
+            "confirmed": sum(1 for g in groups if g["status"] == "confirmed"),
+            "rejected": sum(1 for g in groups if g["status"] == "rejected")}
+
+
+@app.get("/api/transfers-pending-count")
+def transfers_pending_count(year: int):
+    return {"count": transfers_list(year)["pending"]}
+
+
+class TransferVerdict(BaseModel):
+    year: int
+    id: str
+    confirmed: bool
+
+
+@app.post("/api/transfer-confirm")
+def transfer_confirm(v: TransferVerdict):
+    """Record a human verdict on a detected transfer. Both legs move together.
+
+    A pair means one movement of money seen twice, so confirming or rejecting one
+    side and leaving the other is never coherent.
+
+    The month lock guards figures that have been settled, so it applies to any write
+    that changes them — rejecting a transfer puts money back into the totals. Merely
+    confirming what is already excluded changes no figure at all, and blocking that
+    would make a closed year impossible to audit, which is the opposite of the point.
+    """
+    raw = {t["id"]: t for t in store.load_year_raw(v.year)}
+    target = raw.get(v.id)
+    if target is None:
+        raise HTTPException(404, "unknown transaction")
+    decs = store.decisions(v.year)
+    months = store.months_state(v.year)
+    kind = "internal-transfer" if v.confirmed else "normal"
+
+    legs = [target]
+    partner = raw.get(target.get("transfer_partner") or "")
+    if partner is not None and partner["id"] != target["id"]:
+        legs.append(partner)
+
+    for leg in legs:
+        excluded_now = (decs.get(leg["id"], {}).get("kind") or leg.get("kind")) == "internal-transfer"
+        if excluded_now == v.confirmed:
+            continue  # no figure moves, so the lock has nothing to protect
+        key = leg["date"][:7]
+        if months.get(key) == "closed":
+            raise HTTPException(409, "Month %s is closed. Reopen it first." % key)
+
+    for leg in legs:
+        decs.setdefault(leg["id"], {})["kind"] = kind
+    store.save_decisions(v.year, decs)
+    transfers.mark_internal(v.year)
+    return {"ok": True, "updated": [leg["id"] for leg in legs]}
+
+
 @app.get("/api/transactions")
 def transactions(year: int, month: int = None):
     txns = store.effective_year(year)

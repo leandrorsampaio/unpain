@@ -66,8 +66,13 @@ function setReviewBadge(count) {
   el.style.display = count ? '' : 'none'; // hide the chip entirely when nothing to review
 }
 async function refreshReviewBadge(id, tab, year) {
-  const data = await cachedYearData('review-count', `/api/review-count?year=${year}`);
-  if (renderIsCurrent(id, tab, year)) setReviewBadge(data.count);
+  // Detected transfers wait for confirmation too, and they are the queue nobody
+  // would think to look for: an excluded transaction shows up nowhere else.
+  const [review, transfers] = await Promise.all([
+    cachedYearData('review-count', `/api/review-count?year=${year}`),
+    cachedYearData('transfers-count', `/api/transfers-pending-count?year=${year}`),
+  ]);
+  if (renderIsCurrent(id, tab, year)) setReviewBadge(review.count + transfers.count);
 }
 
 /* ---------- boot ---------- */
@@ -3422,20 +3427,93 @@ function toggleReviewGroup(acc, gi) {
   attachTooltips();
 }
 
+/* ---------- detected internal transfers ----------
+   Marking a transaction as a transfer between our own accounts removes it from
+   every total. That is the only judgement the app makes on its own that money
+   depends on, and until it was listed here a wrong one was invisible: the
+   transaction simply stopped existing. Nothing is auto-accepted — each pair waits
+   for a human, staying excluded meanwhile so the totals never swing on a guess. */
+const TRANSFER_REASONS = {
+  'pair:same-owner': 'Opposite amounts on two accounts you both own',
+  'pair:named': 'Opposite amounts, and your name appears in the text',
+  'pair:fx-tolerant': 'Opposite amounts across currencies, allowing for conversion',
+  marker: 'The text matches one of your transfer markers',
+  decision: 'You marked this yourself',
+};
+
+function transferLegRow(leg) {
+  const text = esc(leg.counterparty || leg.purpose || '—');
+  return `<div class="flex items-center gap-3 py-1">
+      <span style="width:5.5rem;color:var(--ink2)">${fmtDate(leg.date, true)}</span>
+      <span style="width:7rem;text-align:right;font-variant-numeric:tabular-nums">${fmt(leg.amount_eur)}</span>
+      <span style="width:11rem;color:var(--ink2)">${esc(accountLabel(leg.account))}</span>
+      <span class="flex-1 truncate" title="${text}">${text}</span>
+    </div>`;
+}
+
+function transferCard(group) {
+  const reason = T(TRANSFER_REASONS[group.reason] || group.reason);
+  const single = group.legs.length < 2;
+  return `<div class="card p-4 mb-3">
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <span class="type-title-small">${fmt(group.amount_eur)}</span>
+        <span class="type-body-small" style="color:var(--ink2)">${esc(reason)}</span>
+      </div>
+      <div class="type-body-small mb-3">${group.legs.map(transferLegRow).join('')}</div>
+      ${single ? `<div class="type-body-small mb-2" style="color:var(--on-warn-container)">${T('No matching second leg was found for this one.')}</div>` : ''}
+      <div class="flex gap-2 items-center">
+        <md-filled-button onclick="confirmTransfer('${esc(group.id)}', true)">
+          <md-icon slot="icon">check</md-icon>${T('Yes, my own money moving')}</md-filled-button>
+        <md-outlined-button onclick="confirmTransfer('${esc(group.id)}', false)">
+          <md-icon slot="icon">close</md-icon>${T('No, count it')}</md-outlined-button>
+        ${group.month_closed ? `<span class="type-body-small" style="color:var(--ink2)">${T('Month is closed — confirming is fine, rejecting needs it reopened.')}</span>` : ''}
+      </div>
+    </div>`;
+}
+
+function transfersReviewSection(data) {
+  const pending = (data.items || []).filter(g => g.status === 'pending');
+  if (!pending.length) return '';
+  return `<section class="mb-6">
+      <h2 class="type-title-medium mb-1">${T('Money moved between your own accounts')}</h2>
+      <p class="type-body-small mb-3" style="color:var(--ink2)">${T('{n} of these are being left out of your totals. They are not counted while you decide. Confirm each one, or say it is a real transaction and it goes back into the numbers.', { n: pending.length })}</p>
+      ${pending.map(transferCard).join('')}
+    </section>`;
+}
+
+async function confirmTransfer(id, confirmed) {
+  try {
+    await api('/api/transfer-confirm', { year: state.year, id, confirmed });
+  } catch (err) {
+    showError(err.message || String(err));
+    return;
+  }
+  invalidateYearCache();   // the verdict moves totals, review counts and the badge
+  render();
+}
+
 async function renderReview(renderId = state.renderId) {
   const tab = 'review';
   const year = state.year;
   window._reviewExpanded = window._reviewExpanded || new Set();
   window._decided = {};   // ids split / out-of-scoped in this render (skipped by applyGroup)
-  const { items } = await cachedYearData('review', `/api/review?year=${year}`);
+  const [{ items }, transfers] = await Promise.all([
+    cachedYearData('review', `/api/review?year=${year}`),
+    cachedYearData('transfers', `/api/transfers?year=${year}`),
+  ]);
   if (!renderIsCurrent(renderId, tab, year)) return;
-  setReviewBadge(items.length);
-  if (!items.length) { $('#main').innerHTML = `<div class="card p-8 text-center" style="color:var(--good)">✓ ${T('Nothing to review.')}</div>`; return; }
+  setReviewBadge(items.length + transfers.pending);
+  const transferSection = transfersReviewSection(transfers);
+  if (!items.length) {
+    $('#main').innerHTML = transferSection ||
+      `<div class="card p-8 text-center" style="color:var(--good)">✓ ${T('Nothing to review.')}</div>`;
+    return;
+  }
   const groups = {};
   items.forEach(t => (groups[groupKey(t)] = groups[groupKey(t)] || []).push(t));
   const sorted = Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
   window._groups = sorted;
-  $('#main').innerHTML = `<div class="mb-4 type-body-small" style="color:var(--ink2)">${T('{items} transactions in {groups} groups. Showing {shown} at a time. Pick a category once per group — “Apply + rule” books everything matching and remembers it forever.', { items: items.length, groups: sorted.length, shown: Math.min(REVIEW_BATCH_SIZE, sorted.length) })}</div>
+  $('#main').innerHTML = `${transferSection || ''}<div class="mb-4 type-body-small" style="color:var(--ink2)">${T('{items} transactions in {groups} groups. Showing {shown} at a time. Pick a category once per group — “Apply + rule” books everything matching and remembers it forever.', { items: items.length, groups: sorted.length, shown: Math.min(REVIEW_BATCH_SIZE, sorted.length) })}</div>
     <div id="review-groups" data-rendered="0"></div>
     <div class="flex justify-center mt-4"><md-outlined-button id="review-more" onclick="appendReviewGroups()"></md-outlined-button></div>`;
   for (let batch = Math.max(1, state.reviewBatches); batch > 0; batch--) {

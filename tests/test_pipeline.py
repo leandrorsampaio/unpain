@@ -563,6 +563,16 @@ check("assigning a category releases it from the transfer pairing",
 check("and it is counted again",
       any(e["txn"]["id"] == pair_a["id"] for e in settle.entries(store.effective_year(2026))))
 
+# The pair is the whole evidence for excluding either leg. Release one and the other
+# is excluding money on the strength of a pairing that no longer exists — invisibly,
+# because an excluded transaction shows up nowhere. Seven real savings-plan purchases
+# sat like this after their partners turned out to be reimbursements.
+partner_id = pair_a.get("transfer_partner")
+check("a pair records which transaction it is paired with", bool(partner_id))
+partner_now = next(t for t in store.effective_year(2026) if t["id"] == partner_id)
+check("releasing one leg releases its orphaned partner",
+      partner_now["kind"] == "normal" and not partner_now.get("transfer_reason"))
+
 # Marking a transaction out of scope agrees it should not count, which is what a
 # genuine transfer looks like — it must not be mistaken for a contradiction. Tested
 # on a still-paired transaction, since releasing one leaves its partner unpaired.
@@ -667,6 +677,43 @@ store.save_decisions(2026, {drift_txn["id"]: {"category": "out-of-scope/out-of-s
 check("out-of-scope category with the flag is not flagged",
       not _checks_named("out-of-scope-drift", 2026))
 store.save_decisions(2026, {})
+
+# A merchant rule drifts exactly the same way, and a check that reads only decisions
+# cannot see it. Fifteen real dividends were counted as expenses for this reason: the
+# rule said out-of-scope category, shared sharing, and nothing in the app disagreed.
+rules_path = tmp / "rules" / "merchant-rules.json"
+rules_backup = read_json(rules_path)
+rule_txn = next(t for t in store.load_year_raw(2026)
+                if not t.get("splits") and t.get("kind") != "internal-transfer"
+                and (t.get("counterparty") or "").strip())
+write_json(rules_path, {"rules": rules_backup["rules"] + [
+    {"id": "drift-probe", "scope": "family",
+     "match": {"field": "counterparty", "contains": rule_txn["counterparty"]},
+     "category": "out-of-scope/out-of-scope", "sharing": "shared"}]})
+check("a merchant rule with the same drift is flagged too",
+      any(rule_txn["id"] in f["ids"] for f in _checks_named("out-of-scope-drift", 2026)))
+write_json(rules_path, rules_backup)
+check("and the finding clears when the rule is corrected",
+      not _checks_named("out-of-scope-drift", 2026))
+
+# An excluded transaction appears in no total and no list, so a mark whose partner is
+# gone can only be found by asking. Doctor is the only thing that asks.
+orphan_files = store.load_year_by_file(2026)
+orphan_txn = None
+for rows in orphan_files.values():
+    for row in rows:
+        if row.get("kind") == "internal-transfer" and row.get("transfer_partner"):
+            row["transfer_partner"] = "no-such-transaction#1"
+            orphan_txn = row
+            break
+    if orphan_txn:
+        break
+store.rewrite_year(2026, orphan_files)
+check("doctor reports a transfer mark whose partner is gone",
+      any(orphan_txn["id"] in f["ids"] for f in _checks_named("orphan-transfer-mark", 2026)))
+transfers.mark_internal(2026)
+check("re-running detection releases it",
+      not _checks_named("orphan-transfer-mark", 2026))
 
 # An upload that legitimately produced no rows writes no transaction file, so it must
 # not be reported as a missing source — that finding could never be cleared.
@@ -1116,7 +1163,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 188
+MIN_CHECKS = 194
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

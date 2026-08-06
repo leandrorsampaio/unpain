@@ -63,9 +63,14 @@ def mark_internal(year):
         changed_years.add(int(t["date"][:4]))
 
     def mark_pair(n, p, reason):
-        for txn in (n, p):
+        for txn, other in ((n, p), (p, n)):
             txn["kind"] = "internal-transfer"
             txn["transfer_reason"] = reason
+            # Which transaction this one is paired against. Without it a mark
+            # outlives its own justification: when the other leg is released the
+            # survivor keeps excluding money on the strength of a pair that no
+            # longer exists (see release_orphans).
+            txn["transfer_partner"] = other["id"]
             txn.pop("possible_transfer", None)
             txn.pop("possible_transfer_reason", None)
             changed(txn)
@@ -97,14 +102,77 @@ def mark_internal(year):
         if t.get("kind") == "internal-transfer" and t.get("transfer_reason") and user_classified(t):
             t["kind"] = "normal"
             t.pop("transfer_reason", None)
+            t.pop("transfer_partner", None)
             changed(t)
+
+    # A pair is the whole justification for excluding either leg, so a mark whose
+    # partner is gone has nothing left holding it up. This happens whenever one leg
+    # is released above: the survivor would otherwise keep money out of the totals
+    # on the strength of a pairing that no longer exists.
+    def release_orphans():
+        by_id = {t["id"]: t for t in all_txns}
+
+        def still_paired(t):
+            return (t.get("kind") == "internal-transfer"
+                    or decision_for(t).get("kind") == "internal-transfer")
+
+        # Marks written before partners were recorded carry no id to check, so the
+        # partner is re-identified the same way it was chosen: an opposite amount
+        # on another account inside the window, itself still excluded.
+        claimed = {t["transfer_partner"] for t in all_txns if t.get("transfer_partner")}
+        legacy = [t for t in all_txns
+                  if str(t.get("transfer_reason", "")).startswith("pair:")
+                  and not t.get("transfer_partner") and still_paired(t)]
+        for t in legacy:
+            amount = cents(t["amount_eur"])
+            best = None
+            for other in legacy:
+                if other["id"] == t["id"] or other["id"] in claimed:
+                    continue
+                if (cents(other["amount_eur"]) < 0) == (amount < 0):
+                    continue
+                if not pair_context(t, other) and not pair_context(other, t):
+                    continue
+                diff = abs(abs(cents(other["amount_eur"])) - abs(amount))
+                tolerance = 0 if t.get("transfer_reason") != "pair:fx-tolerant" else \
+                    max(FX_MATCH_FLOOR_CENTS, int(round(abs(amount) * .01)))
+                if diff <= tolerance:
+                    distance = abs((_d(other["date"]) - _d(t["date"])).days)
+                    if best is None or (distance, diff) < best[0]:
+                        best = ((distance, diff), other)
+            if best:
+                t["transfer_partner"] = best[1]["id"]
+                best[1]["transfer_partner"] = t["id"]
+                claimed.update((t["id"], best[1]["id"]))
+                changed(t)
+                changed(best[1])
+
+        for t in all_txns:
+            if decision_for(t).get("kind") == "internal-transfer":
+                continue  # the user said so; detection does not get a vote
+            if t.get("kind") != "internal-transfer":
+                continue
+            if not str(t.get("transfer_reason", "")).startswith("pair:"):
+                continue
+            partner = by_id.get(t.get("transfer_partner") or "")
+            if partner is not None and still_paired(partner):
+                continue
+            t["kind"] = "normal"
+            t.pop("transfer_reason", None)
+            t.pop("transfer_partner", None)
+            changed(t)
+
+    release_orphans()
 
     for t in all_txns:
         decided_kind = decision_for(t).get("kind")
         if decided_kind == "normal":
             if t.get("kind") == "internal-transfer":
                 t["kind"] = "normal"
-                t.pop("transfer_reason", None)
+                # The reason survives an explicit rejection: it is the record that
+                # detection proposed this and a human said no, which is what lets the
+                # verdict be reviewed later and undone. Detection cannot re-claim it —
+                # a decided kind removes it from the candidate pool below.
                 changed(t)
             continue
         if decided_kind == "internal-transfer":
@@ -141,15 +209,25 @@ def mark_internal(year):
         for n in negs:
             if n["id"] in matched:
                 continue
+            # Nearest in time, not merely the first found. Three equal amounts can be
+            # in flight at once (a cash deposit, and a personal->joint transfer of the
+            # same size days later); taking the first candidate paired the deposit
+            # with the transfer and left the real opposite leg counted as income.
+            # A same-owner pair also beats a name-in-the-text pair at equal distance.
+            choices = []
             for p in poss:
                 if p["id"] in matched:
                     continue
                 context = pair_context(n, p)
                 if not context:
                     continue
-                mark_pair(n, p, "pair:" + context)
-                matched.update((n["id"], p["id"]))
-                break
+                distance = abs((_d(p["date"]) - _d(n["date"])).days)
+                choices.append(((distance, 0 if context == "same-owner" else 1), p, context))
+            if not choices:
+                continue
+            _, p, context = min(choices, key=lambda item: item[0])
+            mark_pair(n, p, "pair:" + context)
+            matched.update((n["id"], p["id"]))
 
     # FX bookings legitimately differ after conversion and fees. Match the closest
     # remaining eligible pair, but only where the amount is large enough for an
@@ -212,3 +290,45 @@ def mark_internal(year):
     for changed_year in changed_years:
         store.rewrite_year(changed_year, by_year[changed_year])
     return bool(changed_years)
+
+
+def detected(year):
+    """Every transaction detection has excluded from the totals, with its status.
+
+    Automatic exclusion is the one operation here that removes money from every
+    figure without anybody agreeing to it, so it is the one that most needs to be
+    visible. 'pending' rows are detection's own guess; 'confirmed' and 'rejected'
+    carry a decision, which already outranks detection everywhere else.
+    """
+    raw = store.load_year_raw(year)
+    decisions = store.decisions(year)
+    by_id = {t["id"]: t for t in raw}
+    out = []
+    for t in raw:
+        decided = decisions.get(t["id"], {}).get("kind")
+        reason = t.get("transfer_reason")
+        if t.get("kind") != "internal-transfer" and decided != "internal-transfer":
+            # A rejected detection is still worth showing: it explains why a
+            # transfer-looking row is counted.
+            if not (reason and decided == "normal"):
+                continue
+        partner = by_id.get(t.get("transfer_partner") or "")
+        out.append({
+            "id": t["id"],
+            "date": t["date"],
+            "account": t.get("account"),
+            "amount_eur": t.get("amount_eur"),
+            "counterparty": t.get("counterparty"),
+            "purpose": t.get("purpose"),
+            "reason": reason or "decision",
+            "status": "confirmed" if decided == "internal-transfer"
+                      else "rejected" if decided == "normal" else "pending",
+            "partner_id": t.get("transfer_partner"),
+            "partner": None if partner is None else {
+                "id": partner["id"], "date": partner["date"],
+                "account": partner.get("account"), "amount_eur": partner.get("amount_eur"),
+                "counterparty": partner.get("counterparty"),
+            },
+        })
+    out.sort(key=lambda r: (r["status"] != "pending", r["date"], r["id"]))
+    return out

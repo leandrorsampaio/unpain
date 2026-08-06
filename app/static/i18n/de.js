@@ -911,4 +911,24 @@ I18N.register('de', {
   'Delete failed: ': 'Löschen fehlgeschlagen: ',
   'Deleted {year}. Safety backup saved as {name}. Reloading…':
     '{year} gelöscht. Sicherungs-Backup gespeichert als {name}. Wird neu geladen…',
+
+  /* Detected internal transfers */
+  'Money moved between your own accounts': 'Geld zwischen deinen eigenen Konten',
+  '{n} of these are being left out of your totals. They are not counted while you decide. Confirm each one, or say it is a real transaction and it goes back into the numbers.':
+    '{n} davon bleiben aus deinen Summen heraus. Während du entscheidest, zählen sie nicht mit. Bestätige jede einzelne — oder sag, dass es eine echte Buchung ist, dann fließt sie wieder in die Zahlen ein.',
+  'Opposite amounts on two accounts you both own':
+    'Entgegengesetzte Beträge auf zwei Konten, die euch beiden gehören',
+  'Opposite amounts, and your name appears in the text':
+    'Entgegengesetzte Beträge, und dein Name steht im Text',
+  'Opposite amounts across currencies, allowing for conversion':
+    'Entgegengesetzte Beträge in verschiedenen Währungen, Umrechnung eingerechnet',
+  'The text matches one of your transfer markers':
+    'Der Text passt zu einem deiner Übertragungs-Merkmale',
+  'You marked this yourself': 'Das hast du selbst markiert',
+  'No matching second leg was found for this one.':
+    'Zu dieser Buchung wurde keine passende Gegenbuchung gefunden.',
+  'Yes, my own money moving': 'Ja, mein eigenes Geld',
+  'No, count it': 'Nein, mitzählen',
+  'Month is closed — confirming is fine, rejecting needs it reopened.':
+    'Monat ist abgeschlossen — bestätigen geht, ablehnen erst nach dem Öffnen.',
 });

@@ -10,7 +10,8 @@ in [PLAN.md](PLAN.md). Everything user-facing is in **English**.
 
 `inbox/` files → `pipeline/ingest.py` (format detection via `pipeline/formats/*.json`, content-hash
 dedupe, ECB FX conversion) → JSONL store in `data/<year>/transactions/` → `pipeline/transfers.py`
-marks internal transfers (configured markers / conservative pair-match) → categorization is **derived on read**
+marks internal transfers (configured markers / conservative pair-match, each pair recording its
+`transfer_partner` and awaiting confirmation in the review queue) → categorization is **derived on read**
 in `pipeline/rules_engine.py`: decision (`data/<year>/decisions.json`) > merchant rule
 (`rules/merchant-rules.json`) > needs_review. All math (`pipeline/settle.py`) recomputes from the
 effective view; nothing derived is stored. UI: FastAPI (`app/server.py`) + vanilla JS
@@ -49,6 +50,13 @@ add/save/delete buttons.
 - Money comparisons use `util.cents()`, never float equality. German CSVs use comma decimals.
 - Transaction ids are content hashes + occurrence suffix; re-ingesting a file must be a no-op.
 - `sharing: out-of-scope` and `kind: internal-transfer` are invisible to ALL math.
+- Detected transfers are never silently final. Each pair stores `transfer_partner`, appears in the
+  review queue via `/api/transfers` until a human confirms or rejects it, and both legs move together
+  (`/api/transfer-confirm`). A mark whose partner is released is an orphan: `transfers.mark_internal`
+  drops it and `doctor` reports `orphan-transfer-mark`. A verdict that changes no total is allowed in a
+  closed month (confirming what is already excluded); one that puts money back is not.
+- Any check on what the totals contain must read the **effective** view, not `decisions.json` — a
+  merchant rule sets category and sharing too, and a decisions-only check is blind to it.
 - Settlement ratio: only subcategories with `ratio_income: true` (currently salary), owner
   `couple` counts half to each. Monthly = estimate; annual = binding.
 - Closed months (`data/<year>/months.json`) reject decisions (HTTP 409).

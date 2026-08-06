@@ -33,6 +33,9 @@ def _context(year):
         "categories": categories, "rules": rules, "config": config,
         "tax_buckets": read_json(RULES / "tax-buckets.json")["buckets"],
         "files": files_by_year, "raw": raw_by_year, "decisions": decisions,
+        # The view the totals are actually computed from. Checks that read only
+        # decisions are blind to everything a merchant rule decides.
+        "effective": {item: store.effective_year(item) for item in years},
         "months": months, "anchors": anchor_rows, "conflicts": conflicts,
         "budgets": read_json(RULES / "budgets.json", default={"budgets": {}}).get("budgets", {}),
         "uploads": read_json(DATA / "uploads.json", default={"uploads": []}).get("uploads", []),
@@ -395,14 +398,16 @@ def _out_of_scope_drift(ctx):
     out = []
     for year in ctx["years"]:
         drifted = []
-        for txn in ctx["raw"].get(year, []):
-            decision = ctx["decisions"].get(year, {}).get(txn.get("id"), {})
-            category = decision.get("category")
-            sharing = decision.get("sharing") or txn.get("sharing")
-            # Split parts carry their own sharing, and the parent's label is cosmetic.
-            if decision.get("splits"):
-                continue
-            if category == "out-of-scope/out-of-scope" and sharing != "out-of-scope":
+        for txn in ctx["effective"].get(year, []):
+            # Reading the effective view, not the decision: a category assigned by a
+            # merchant rule drifts exactly the same way, and reading decisions alone
+            # missed 15 dividends whose rule said out-of-scope while its sharing said
+            # shared. The check has to look where the totals look.
+            if txn.get("splits"):
+                continue  # split parts carry their own sharing; the parent label is cosmetic
+            if txn.get("kind") == "internal-transfer":
+                continue  # already invisible to every total
+            if txn.get("category") == "out-of-scope/out-of-scope" and txn.get("sharing") != "out-of-scope":
                 drifted.append(txn["id"])
         if drifted:
             out.append(_finding("warning", "out-of-scope-drift", year,
@@ -412,11 +417,43 @@ def _out_of_scope_drift(ctx):
     return out
 
 
+def _orphan_transfer_marks(ctx):
+    """A pair-matched transfer whose other leg is no longer excluded.
+
+    The pair is the entire evidence for excluding either side: two opposite amounts
+    on our own accounts within a few days. Release one leg — because it turned out to
+    be a real expense — and the survivor keeps money out of every total on the
+    strength of a pairing that no longer exists. Nothing else in the system reports
+    it, because an excluded transaction is invisible by design.
+    """
+    out = []
+    for year in ctx["years"]:
+        by_id = {txn.get("id"): txn for item in ctx["all_years"] for txn in ctx["raw"].get(item, [])}
+        orphans = []
+        for txn in ctx["raw"].get(year, []):
+            if not str(txn.get("transfer_reason", "")).startswith("pair:"):
+                continue
+            if ctx["decisions"].get(year, {}).get(txn.get("id"), {}).get("kind") == "internal-transfer":
+                continue  # confirmed by hand; it no longer rests on the pairing
+            if txn.get("kind") != "internal-transfer":
+                continue
+            partner = by_id.get(txn.get("transfer_partner") or "")
+            if partner is None or partner.get("kind") != "internal-transfer":
+                orphans.append(txn["id"])
+        if orphans:
+            out.append(_finding("error", "orphan-transfer-mark", year,
+                                "%d transactions are excluded as internal transfers but their "
+                                "matching leg is not. Run 'ingest' to re-run detection, which "
+                                "releases them." % len(orphans), sorted(orphans)))
+    return out
+
+
 CHECKS = (
     _orphan_decisions, _unknown_accounts, _unknown_categories, _bad_splits,
     _duplicate_ids, _unknown_sharing_and_owner, _anchor_findings, _cash_desync,
     _review_in_closed_month, _unpaired_markers, _orphan_budgets, _stale_upload_refs,
     _account_currency_mismatch, _anchor_currency_drift, _fx_cache_sanity, _out_of_scope_drift,
+    _orphan_transfer_marks,
 )
 
 
