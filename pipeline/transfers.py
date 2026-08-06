@@ -26,6 +26,36 @@ FX_MATCH_MIN_CENTS = 2500     # below 25 EUR, match on the proportional rule alo
 FX_MATCH_FLOOR_CENTS = 100    # and never allow more than this in absolute terms
 
 
+def evidence_holds(a, b, accounts, owner_names, window):
+    """Do these two rows still look like one movement of money seen twice?
+
+    Pairing rests entirely on the rows themselves: opposite amounts, on two of our own
+    accounts, a few days apart. Editing an amount, a date or an account changes that
+    evidence, and nothing re-asked the question — a pair corrected from 100 to 80 EUR
+    stayed excluded, with both sides invisible to every total.
+    """
+    if a["id"] == b["id"] or a["account"] == b["account"]:
+        return False
+    ac, bc = cents(a["amount_eur"]), cents(b["amount_eur"])
+    if (ac < 0) == (bc < 0):
+        return False    # both the same direction: not two sides of one movement
+    if abs((_d(a["date"]) - _d(b["date"])).days) > window:
+        return False
+    owner_a = accounts.get(a["account"], {}).get("owner")
+    owner_b = accounts.get(b["account"], {}).get("owner")
+    text = " ".join(filter(None, [a.get("counterparty"), a.get("purpose"),
+                                  b.get("counterparty"), b.get("purpose")])).lower()
+    if not ((owner_a is not None and owner_a == owner_b)
+            or any(name in text for name in owner_names)):
+        return False
+    left, right = abs(ac), abs(bc)
+    if "fx-tolerant" in (str(a.get("transfer_reason", "")) + str(b.get("transfer_reason", ""))):
+        if max(left, right) < FX_MATCH_MIN_CENTS:
+            return False
+        return abs(left - right) <= max(FX_MATCH_FLOOR_CENTS, int(round(max(left, right) * .01)))
+    return left == right
+
+
 def mark_internal(year):
     accounts, meta = load_accounts()
     cfg = load_config()
@@ -155,8 +185,18 @@ def mark_internal(year):
             if not str(t.get("transfer_reason", "")).startswith("pair:"):
                 continue
             partner = by_id.get(t.get("transfer_partner") or "")
-            if partner is not None and still_paired(partner):
+            # Both that the partner is still excluded, and that the two rows still
+            # look like one movement. An edit to either side can leave the pairing
+            # arithmetically impossible while both halves stay quietly excluded.
+            if (partner is not None and still_paired(partner)
+                    and evidence_holds(t, partner, accounts, owner_names, window)):
                 continue
+            if partner is not None and still_paired(partner) \
+                    and decision_for(partner).get("kind") != "internal-transfer":
+                partner["kind"] = "normal"
+                partner.pop("transfer_reason", None)
+                partner.pop("transfer_partner", None)
+                changed(partner)
             t["kind"] = "normal"
             t.pop("transfer_reason", None)
             t.pop("transfer_partner", None)

@@ -1591,6 +1591,23 @@ def _validate_decision_fields(fields, raw, options=None):
                                 (total / 100.0, cents(raw["amount_eur"]) / 100.0))
 
 
+def _reconcile_transfers(year):
+    """Re-run transfer detection after anything that changes its inputs.
+
+    Detection reads categories, splits, kind decisions and the raw rows themselves, so
+    every one of those is a reason to ask the question again. Saving a decision without
+    doing this left a categorised transaction still excluded as a transfer — the
+    category applied to nothing until the next ingest, and the money stayed missing
+    from every total in the meantime.
+
+    Closed months are deliberately not exempt. Skipping them would leave one leg of a
+    pair straddling a month boundary unmarked, and would make a wrong exclusion inside
+    a closed month permanent. Detection runs everywhere; closings.py records what each
+    closed month contained so any change it makes is reported rather than silent.
+    """
+    transfers.mark_internal(year)
+
+
 @app.post("/api/decision")
 def decision(d: Decision):
     raw = _assert_open(d.year, d.id)
@@ -1600,6 +1617,7 @@ def decision(d: Decision):
     current.update(d.fields)
     decs[d.id] = current
     store.save_decisions(d.year, decs)
+    _reconcile_transfers(d.year)
     return {"ok": True}
 
 
@@ -1639,6 +1657,7 @@ def decisions_bulk(batch: DecisionsBulk):
         current.update(fields)
         decs[txn_id] = current
     store.save_decisions(batch.year, decs)
+    _reconcile_transfers(batch.year)
     return {"ok": True, "updated": len(validated)}
 
 
@@ -1851,6 +1870,7 @@ def decision_clear(d: DecisionClear):
     if d.id in decs:
         del decs[d.id]
         store.save_decisions(d.year, decs)
+        _reconcile_transfers(d.year)
     return {"ok": True}
 
 
@@ -1884,6 +1904,7 @@ def decisions_clear_bulk(b: DecisionsClearBulk):
             cleared += 1
     if cleared:
         store.save_decisions(b.year, decs)
+        _reconcile_transfers(b.year)
     return {"ok": True, "cleared": cleared}
 
 
@@ -1941,6 +1962,7 @@ def transaction_edit(e: TxnEdit):
             raise HTTPException(400, "Unknown account '%s'" % e.account)
         changes["account"] = e.account
     store.edit_transaction(e.year, e.id, changes)
+    _reconcile_transfers(e.year)
     return {"ok": True}
 
 
@@ -1954,6 +1976,7 @@ def transaction_edit_reset(d: DecisionClear):
         store.reset_transaction(d.year, d.id)
     except KeyError:
         raise HTTPException(404, "No manual edit to reset.")
+    _reconcile_transfers(d.year)
     return {"ok": True}
 
 

@@ -29,7 +29,7 @@ shutil.copy(PROJECT / "examples" / "accounts.json", root / "data" / "accounts.js
 
 from app import server  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
-from pipeline import store, transfers  # noqa: E402
+from pipeline import doctor, settle, store, transfers  # noqa: E402
 
 accounts = json.loads((root / "data" / "accounts.json").read_text())
 ids = [a["id"] for a in (accounts["accounts"] if isinstance(accounts, dict) else accounts)]
@@ -113,6 +113,80 @@ try:
     raise AssertionError("an unknown transaction must 404")
 except HTTPException as exc:
     assert exc.status_code == 404, exc.status_code
+
+
+# Detection reads categories, splits, kind decisions and the raw rows themselves, so
+# every write to those has to ask the question again. It did not, and a categorised
+# transaction stayed excluded as a transfer: the category applied to nothing until the
+# next ingest, and the money was missing from every total until then.
+def seed_pair(prefix, amount, first, second):
+    rows = [
+        txn(prefix + "-out#1", ACCOUNT_A, -amount, first, "Own transfer"),
+        txn(prefix + "-in#1", ACCOUNT_B, amount, second, "Own transfer"),
+    ]
+    (root / "data" / "2025" / "transactions" / (prefix + ".jsonl")).write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    transfers.mark_internal(2025)
+    return [r["id"] for r in rows]
+
+
+def kinds(*ids):
+    view = {t["id"]: t for t in store.effective_year(2025)}
+    return [view[i]["kind"] for i in ids]
+
+
+store.save_decisions(2025, {})
+out_id, in_id = seed_pair("cat", 400.00, "2025-07-04", "2025-07-05")
+assert kinds(out_id, in_id) == ["internal-transfer"] * 2, "the pair starts excluded"
+server.decision(server.Decision(year=2025, id=out_id,
+                                fields={"category": "core-living/groceries", "sharing": "shared"}))
+assert kinds(out_id, in_id) == ["normal", "normal"], \
+    "a category releases the pair immediately, not at the next ingest"
+counted = {e["txn"]["id"] for e in settle.entries(store.effective_year(2025))}
+assert {out_id, in_id} <= counted, "and both legs are counted from that moment"
+
+# The same through the bulk endpoint, which is how the review queue writes.
+store.save_decisions(2025, {})
+out_id, in_id = seed_pair("bulk", 300.00, "2025-08-04", "2025-08-05")
+assert kinds(out_id, in_id) == ["internal-transfer"] * 2
+server.decisions_bulk(server.DecisionsBulk(year=2025, items=[
+    {"id": out_id, "fields": {"category": "core-living/groceries", "sharing": "shared"}}]))
+assert kinds(out_id, in_id) == ["normal", "normal"], "bulk writes reconcile too"
+
+# Clearing the decision hands the transaction back to automatic detection, which pairs
+# it again. "Clear" means restore the automatic answer, not leave a hole.
+server.decisions_clear_bulk(server.DecisionsClearBulk(year=2025, ids=[out_id]))
+assert kinds(out_id, in_id) == ["internal-transfer"] * 2, \
+    "clearing a decision restores the automatic pairing"
+
+# Pairing rests entirely on the rows: opposite amounts, two of our accounts, days
+# apart. An edit changes that evidence, and nothing re-asked — a pair corrected from
+# 100 to 80 stayed excluded with both halves invisible to every total.
+store.save_decisions(2025, {})
+out_id, in_id = seed_pair("edit", 100.00, "2025-09-04", "2025-09-05")
+assert kinds(out_id, in_id) == ["internal-transfer"] * 2
+server.transaction_edit(server.TxnEdit(year=2025, id=out_id, date="2025-09-04",
+                                       counterparty="Own transfer", amount_eur=-80.00))
+assert kinds(out_id, in_id) == ["normal", "normal"], \
+    "an edit that breaks the pairing releases both legs"
+server.transaction_edit_reset(server.DecisionClear(year=2025, id=out_id))
+assert kinds(out_id, in_id) == ["internal-transfer"] * 2, \
+    "and resetting the edit restores the evidence, so the pair returns"
+
+# Detection is deliberately not exempt from closed months — skipping them would leave
+# one leg of a boundary-straddling pair unmarked, and make a wrong exclusion inside a
+# closed month permanent. What makes that safe is that the change is reported.
+store.save_decisions(2025, {})
+out_id, in_id = seed_pair("boundary", 100.00, "2025-10-30", "2025-11-02")
+assert kinds(out_id, in_id) == ["internal-transfer"] * 2
+server.close_month(server.MonthState(year=2025, month=10, state="closed"))
+assert not [f for f in doctor.run(2025)["findings"] if f["check"] == "closed-month-drift"]
+server.transaction_edit(server.TxnEdit(year=2025, id=in_id, date="2025-11-02",
+                                       counterparty="Own transfer", amount_eur=80.00))
+assert kinds(out_id, in_id) == ["normal", "normal"], "the pair is released across the boundary"
+drift = [f for f in doctor.run(2025)["findings"] if f["check"] == "closed-month-drift"]
+assert any("2025-10" in f["message"] for f in drift), \
+    "and the closed month it moved is reported rather than changed in silence"
 
 shutil.rmtree(root, ignore_errors=True)
 print("Transfer review endpoints passed")
