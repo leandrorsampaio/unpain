@@ -19,6 +19,13 @@ def _d(iso):
     return date.fromisoformat(iso)
 
 
+# Currency-conversion drift is proportional to the amount, so an absolute
+# allowance only makes sense once the amount is large enough for one to be small
+# relative to it.
+FX_MATCH_MIN_CENTS = 2500     # below 25 EUR, match on the proportional rule alone
+FX_MATCH_FLOOR_CENTS = 100    # and never allow more than this in absolute terms
+
+
 def mark_internal(year):
     accounts, meta = load_accounts()
     cfg = load_config()
@@ -144,8 +151,9 @@ def mark_internal(year):
                 matched.update((n["id"], p["id"]))
                 break
 
-    # FX bookings legitimately differ after conversion/fees. Match the closest
-    # remaining eligible pair inside max(€2, 1% of the larger leg).
+    # FX bookings legitimately differ after conversion and fees. Match the closest
+    # remaining eligible pair, but only where the amount is large enough for an
+    # absolute allowance to mean anything (see FX_MATCH_MIN_CENTS).
     negs = [t for t in candidates if t["amount_eur"] < 0 and t["id"] not in matched]
     poss = [t for t in candidates if t["amount_eur"] > 0 and t["id"] not in matched]
     for n in negs:
@@ -156,8 +164,16 @@ def mark_internal(year):
             if (n.get("currency") or "EUR").upper() == "EUR" and (p.get("currency") or "EUR").upper() == "EUR":
                 continue
             nc, pc = abs(cents(n["amount_eur"])), abs(cents(p["amount_eur"]))
+            # A fee-sized allowance is meaningless on a small amount: the configured
+            # 2.00 EUR floor is 81% of a 2.47 EUR transaction, so any two small
+            # opposite amounts in the window paired up — dividends, subscriptions and
+            # airport purchases were all being called transfers between own accounts.
+            # Real conversion drift is proportional (a 300 EUR transfer arriving as
+            # 298.18), so below this size only the proportional rule applies.
+            if max(nc, pc) < FX_MATCH_MIN_CENTS:
+                continue
             diff = abs(nc - pc)
-            tolerance = max(base_tolerance, int(round(max(nc, pc) * .01)))
+            tolerance = max(FX_MATCH_FLOOR_CENTS, int(round(max(nc, pc) * .01)))
             if diff <= tolerance:
                 choices.append((diff, p))
         if choices:
