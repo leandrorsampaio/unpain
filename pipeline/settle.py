@@ -53,26 +53,45 @@ def ratio_income_categories():
             for s in c["subs"] if s.get("ratio_income")}
 
 
+def part_view(txn, part=None):
+    """The effective classification of one money line.
+
+    A split part states only what differs from its parent and inherits the rest, so
+    reading a part's fields directly is wrong wherever the parent's value is what
+    applies. This is the single definition of that inheritance: the totals, the
+    spreadsheet export and the integrity checks must all resolve a part the same way,
+    or the app disagrees with its own audit trail. Pass part=None for an unsplit
+    transaction, which is the same question with a trivial answer.
+    """
+    if part is None:
+        return {"category": txn.get("category"), "sharing": txn.get("sharing", "shared"),
+                "tax_bucket": txn.get("tax_bucket"), "year_cost": bool(txn.get("year_cost", False))}
+    return {
+        "category": part.get("category") if part.get("category") is not None else txn.get("category"),
+        "sharing": part.get("sharing") or txn.get("sharing", "shared"),
+        "tax_bucket": part.get("tax_bucket") if "tax_bucket" in part else txn.get("tax_bucket"),
+        "year_cost": bool(part.get("year_cost", txn.get("year_cost", False))),
+    }
+
+
+def money_lines(txn):
+    """The lines a transaction contributes: its split parts, or itself."""
+    parts = txn.get("splits")
+    return [(txn, part) for part in parts] if parts else [(txn, None)]
+
+
 def entries(txns):
     """Expand splits; drop out-of-scope."""
     out = []
     for t in txns:
         if t.get("sharing") == "out-of-scope":
             continue
-        parts = t.get("splits") or [{"amount": t["amount_eur"], "category": t.get("category"),
-                                     "sharing": t.get("sharing", "shared"),
-                                     "tax_bucket": t.get("tax_bucket"), "year_cost": t.get("year_cost", False)}]
-        for p in parts:
-            if (p.get("sharing") or t.get("sharing", "shared")) == "out-of-scope":
+        for _, part in money_lines(t):
+            view = part_view(t, part)
+            if view["sharing"] == "out-of-scope":
                 continue
-            out.append({
-                "txn": t,
-                "amount": p["amount"],
-                "category": p.get("category") if p.get("category") is not None else t.get("category"),
-                "sharing": p.get("sharing") or t.get("sharing", "shared"),
-                "tax_bucket": p.get("tax_bucket") if "tax_bucket" in p else t.get("tax_bucket"),
-                "year_cost": p.get("year_cost", t.get("year_cost", False)),
-            })
+            out.append(dict(view, txn=t,
+                            amount=part["amount"] if part else t["amount_eur"]))
     return out
 
 

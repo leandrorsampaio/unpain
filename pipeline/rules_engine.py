@@ -83,6 +83,20 @@ def _tax_for_category(category, tax_buckets=None):
     return None
 
 
+def effective_kind(txn, decision):
+    """Whether a transaction counts, or is money moving between our own accounts.
+
+    A manual decision is authoritative: kind=normal is how a person restores a
+    false-positive transfer to the accounting view, and it takes effect the moment it
+    is saved — before detection next runs and rewrites the stored row. Anything asking
+    whether a transaction is excluded must ask here rather than read the stored field,
+    or it will describe a pair as intact while one half is already being counted.
+    """
+    if decision and "kind" in decision:
+        return decision["kind"]
+    return txn.get("kind") or "normal"
+
+
 def effective(txn, decision, rules, owner=None, config=None, tax_buckets=None):
     """Return the merged transaction view used by all downstream math.
 
@@ -103,10 +117,7 @@ def effective(txn, decision, rules, owner=None, config=None, tax_buckets=None):
     t["status"] = "needs_review"
     t["matched_rule"] = None
 
-    # A manual kind decision is authoritative. In particular, kind=normal is
-    # how a user restores a false-positive transfer to the accounting view.
-    if decision and "kind" in decision:
-        t["kind"] = decision["kind"]
+    t["kind"] = effective_kind(txn, decision)
     if t.get("kind") == "internal-transfer":
         t["sharing"] = "out-of-scope"
         t["status"] = "auto"

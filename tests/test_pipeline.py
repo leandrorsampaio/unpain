@@ -696,6 +696,28 @@ write_json(rules_path, rules_backup)
 check("and the finding clears when the rule is corrected",
       not _checks_named("out-of-scope-drift", 2026))
 
+# The same drift inside a split. Skipping split parents left this completely
+# unpoliced: settle counts a part carrying the out-of-scope label without the flag
+# exactly as it counts an unsplit one, so the expense figure moves and nothing says so.
+split_txn = next(t for t in store.load_year_raw(2026) if t.get("kind") != "internal-transfer")
+half = round(split_txn["amount_eur"] / 2, 2)
+rest = round(split_txn["amount_eur"] - half, 2)
+store.save_decisions(2026, {split_txn["id"]: {"splits": [
+    {"amount": half, "category": "out-of-scope/out-of-scope", "sharing": "shared"},
+    {"amount": rest, "category": "core-living/groceries", "sharing": "shared"}]}})
+drift_effective = next(t for t in store.effective_year(2026) if t["id"] == split_txn["id"])
+check("the drifted split part is genuinely counted",
+      any(e["category"] == "out-of-scope/out-of-scope"
+          for e in settle.entries([drift_effective])))
+check("out-of-scope drift inside a split part is flagged",
+      any(split_txn["id"] in f["ids"] for f in _checks_named("out-of-scope-drift", 2026)))
+store.save_decisions(2026, {split_txn["id"]: {"splits": [
+    {"amount": half, "category": "out-of-scope/out-of-scope", "sharing": "out-of-scope"},
+    {"amount": rest, "category": "core-living/groceries", "sharing": "shared"}]}})
+check("and it clears once that part carries the flag",
+      not _checks_named("out-of-scope-drift", 2026))
+store.save_decisions(2026, {})
+
 # An excluded transaction appears in no total and no list, so a mark whose partner is
 # gone can only be found by asking. Doctor is the only thing that asks.
 orphan_files = store.load_year_by_file(2026)
@@ -714,6 +736,25 @@ check("doctor reports a transfer mark whose partner is gone",
 transfers.mark_internal(2026)
 check("re-running detection releases it",
       not _checks_named("orphan-transfer-mark", 2026))
+
+# Releasing a leg by hand takes effect the moment the decision is saved, while the
+# stored row still says internal-transfer until detection next runs. Judging the pair
+# by the stored value reports it as intact while one half is already being counted and
+# the other is still excluded — the money is wrong in exactly one direction and
+# nothing says so.
+store.save_decisions(2026, {})
+transfers.mark_internal(2026)
+live = next(t for t in store.load_year_raw(2026)
+            if t.get("kind") == "internal-transfer" and t.get("transfer_partner"))
+store.save_decisions(2026, {live["transfer_partner"]: {"kind": "normal"}})
+sides = {t["id"]: t["kind"] for t in store.effective_year(2026)
+         if t["id"] in (live["id"], live["transfer_partner"])}
+check("a kind=normal decision releases one leg while the other stays excluded",
+      sorted(sides.values()) == ["internal-transfer", "normal"])
+check("doctor reports the pair left one-sided by that decision",
+      any(live["id"] in f["ids"] for f in _checks_named("orphan-transfer-mark", 2026)))
+store.save_decisions(2026, {})
+transfers.mark_internal(2026)
 
 # An upload that legitimately produced no rows writes no transaction file, so it must
 # not be reported as a missing source — that finding could never be cleared.
@@ -786,6 +827,34 @@ check("export flags internal transfers as outside the math",
       all(not r["in_expense_math"] for r in export_rows if r["kind"] == "internal-transfer"))
 check("export flags out-of-scope rows as outside the math",
       all(not r["in_expense_math"] for r in export_rows if r["sharing"] == "out-of-scope"))
+
+# A split part states only what differs from its parent. The workbook is what an
+# external audit reconciles against, so resolving that inheritance differently from
+# the totals makes the app disagree with its own audit trail: parts appeared
+# uncategorised, not year-cost and untaxed while the app counted them as all three.
+inherit_txn = next(t for t in store.load_year_raw(2026) if t.get("kind") != "internal-transfer")
+inherit_half = round(inherit_txn["amount_eur"] / 2, 2)
+inherit_rest = round(inherit_txn["amount_eur"] - inherit_half, 2)
+inherit_bucket = read_json(tmp / "rules" / "tax-buckets.json")["buckets"][0]["slug"]
+store.save_decisions(2026, {inherit_txn["id"]: {
+    "category": "core-living/groceries", "year_cost": True, "tax_bucket": inherit_bucket,
+    "splits": [{"amount": inherit_half, "sharing": "shared"},
+               {"amount": inherit_rest, "sharing": "shared"}]}})
+inherit_effective = next(t for t in store.effective_year(2026) if t["id"] == inherit_txn["id"])
+inherit_entries = settle.entries([inherit_effective])
+inherit_exported = [r for r in server._export_rows(2026)
+                    if r["transaction_id"] == inherit_txn["id"] and r["row_type"] == "split-part"]
+check("a split part inherits the parent's fields in the totals",
+      all(e["category"] == "core-living/groceries" and e["year_cost"]
+          and e["tax_bucket"] == inherit_bucket for e in inherit_entries))
+check("and the workbook resolves that inheritance identically",
+      len(inherit_exported) == len(inherit_entries)
+      and all((r["category_slug"] or None) == e["category"]
+              and bool(r["year_cost"]) == bool(e["year_cost"])
+              and (r["tax_bucket"] or None) == (e["tax_bucket"] or None)
+              for r, e in zip(inherit_exported, inherit_entries)))
+store.save_decisions(2026, {})
+export_rows = server._export_rows(2026)
 # Build the actual workbook too: the row builder being right says nothing about the
 # endpoint that writes the file.
 export_response = server.transactions_export(2026)
@@ -1163,7 +1232,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 194
+MIN_CHECKS = 201
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

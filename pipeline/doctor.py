@@ -2,7 +2,7 @@
 from collections import Counter, defaultdict
 from datetime import date
 
-from . import anchors, fx, ingest, rules_engine, store
+from . import anchors, fx, ingest, rules_engine, settle, store
 from .util import DATA, RULES, cents, load_accounts, load_config, read_json
 
 
@@ -33,6 +33,10 @@ def _context(year):
         "categories": categories, "rules": rules, "config": config,
         "tax_buckets": read_json(RULES / "tax-buckets.json")["buckets"],
         "files": files_by_year, "raw": raw_by_year, "decisions": decisions,
+        # Decisions for every year, not just the audited one: a transfer pair can
+        # straddle a year boundary, and judging its far leg by the stored row alone
+        # is the defect this exists to avoid.
+        "all_decisions": {item: store.decisions(item) for item in all_years},
         # The view the totals are actually computed from. Checks that read only
         # decisions are blind to everything a merchant rule decides.
         "effective": {item: store.effective_year(item) for item in years},
@@ -403,18 +407,27 @@ def _out_of_scope_drift(ctx):
             # merchant rule drifts exactly the same way, and reading decisions alone
             # missed 15 dividends whose rule said out-of-scope while its sharing said
             # shared. The check has to look where the totals look.
-            if txn.get("splits"):
-                continue  # split parts carry their own sharing; the parent label is cosmetic
             if txn.get("kind") == "internal-transfer":
                 continue  # already invisible to every total
-            if txn.get("category") == "out-of-scope/out-of-scope" and txn.get("sharing") != "out-of-scope":
-                drifted.append(txn["id"])
+            # Every money line, parts included. Skipping split parents left the same
+            # defect completely unpoliced inside a split, where a part carrying the
+            # label without the flag is counted exactly as an unsplit one would be.
+            for _, part in settle.money_lines(txn):
+                view = settle.part_view(txn, part)
+                if view["category"] == "out-of-scope/out-of-scope" and view["sharing"] != "out-of-scope":
+                    drifted.append(txn["id"])
+                    break
         if drifted:
             out.append(_finding("warning", "out-of-scope-drift", year,
                                 "%d transactions use the out-of-scope category but are not marked "
                                 "out of scope, so they still count in every total." % len(drifted),
                                 sorted(drifted)))
     return out
+
+
+def _effective_kind(ctx, txn):
+    decision = ctx["all_decisions"].get(int(txn["date"][:4]), {}).get(txn.get("id"), {})
+    return rules_engine.effective_kind(txn, decision)
 
 
 def _orphan_transfer_marks(ctx):
@@ -427,18 +440,23 @@ def _orphan_transfer_marks(ctx):
     it, because an excluded transaction is invisible by design.
     """
     out = []
+    by_id = {txn.get("id"): txn for item in ctx["all_years"] for txn in ctx["raw"].get(item, [])}
     for year in ctx["years"]:
-        by_id = {txn.get("id"): txn for item in ctx["all_years"] for txn in ctx["raw"].get(item, [])}
         orphans = []
         for txn in ctx["raw"].get(year, []):
             if not str(txn.get("transfer_reason", "")).startswith("pair:"):
                 continue
             if ctx["decisions"].get(year, {}).get(txn.get("id"), {}).get("kind") == "internal-transfer":
                 continue  # confirmed by hand; it no longer rests on the pairing
-            if txn.get("kind") != "internal-transfer":
+            # Effective kinds on both sides, not stored ones. A manual kind=normal
+            # decision releases a leg the moment it is saved, while the stored row
+            # still reads internal-transfer until detection next runs — so comparing
+            # stored values reports a pair as intact while one half is already being
+            # counted and the other is still excluded.
+            if _effective_kind(ctx, txn) != "internal-transfer":
                 continue
             partner = by_id.get(txn.get("transfer_partner") or "")
-            if partner is None or partner.get("kind") != "internal-transfer":
+            if partner is None or _effective_kind(ctx, partner) != "internal-transfer":
                 orphans.append(txn["id"])
         if orphans:
             out.append(_finding("error", "orphan-transfer-mark", year,

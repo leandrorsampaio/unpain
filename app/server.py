@@ -1317,9 +1317,14 @@ def _export_rows(year):
     def line(txn, part=None):
         source = txn.get("source") or {}
         account = accounts.get(txn.get("account"), {})
-        category = (part or txn).get("category")
+        # The one definition of split-part inheritance, shared with the totals. A
+        # part states only what differs from its parent; resolving that here by hand
+        # made the workbook disagree with the app about category, year_cost and
+        # tax_bucket — on the very rows an external audit reconciles.
+        view = settle.part_view(txn, part)
+        category = view["category"]
         group_name, sub_name = names.get(category or "", ("", ""))
-        sharing = (part or txn).get("sharing") or txn.get("sharing")
+        sharing = view["sharing"]
         counted = (txn.get("kind") != "internal-transfer" and sharing != "out-of-scope"
                    and (part is not None or not txn.get("splits")))
         amount = part["amount"] if part else txn.get("amount_eur")
@@ -1344,8 +1349,8 @@ def _export_rows(year):
             "category_slug": category or "",
             "sharing": sharing or "",
             "income_owner": txn.get("income_owner") or "",
-            "year_cost": bool((part or txn).get("year_cost")),
-            "tax_bucket": (part or txn).get("tax_bucket") or "",
+            "year_cost": view["year_cost"],
+            "tax_bucket": view["tax_bucket"] or "",
             "tax_confirmed": bool(txn.get("tax_confirmed")),
             "tax_owner": txn.get("tax_owner") or "",
             "amount_eur": amount,
