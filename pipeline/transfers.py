@@ -63,6 +63,35 @@ def mark_internal(year):
             txn.pop("possible_transfer_reason", None)
             changed(txn)
 
+    def user_classified(t):
+        """Has a human said this is a real, classified transaction?
+
+        Only a category (or a split, which carries categories) counts. Pair
+        matching sees nothing but two opposite amounts a few days apart, so a
+        50 EUR reimbursement and an unrelated 50 EUR share purchase are
+        indistinguishable to it — and marking both as an internal transfer erases
+        a judgement someone actually made.
+
+        Sharing deliberately does NOT count. Marking a transaction out of scope
+        agrees that it should not appear in the totals, which is exactly what a
+        genuine transfer between your own accounts looks like; treating that as a
+        contradiction would un-pair real transfers.
+        """
+        decision = decision_for(t)
+        return bool(decision.get("category") or decision.get("splits"))
+
+    # Release anything automatic detection claimed that has since been given a
+    # category. Only these are touched: re-deriving every mark from scratch cannot
+    # reproduce pairings earlier runs found under different year windows, and would
+    # silently release genuine transfers it can no longer re-pair.
+    for t in all_txns:
+        if decision_for(t).get("kind") == "internal-transfer":
+            continue
+        if t.get("kind") == "internal-transfer" and t.get("transfer_reason") and user_classified(t):
+            t["kind"] = "normal"
+            t.pop("transfer_reason", None)
+            changed(t)
+
     for t in all_txns:
         decided_kind = decision_for(t).get("kind")
         if decided_kind == "normal":
@@ -73,7 +102,7 @@ def mark_internal(year):
             continue
         if decided_kind == "internal-transfer":
             continue
-        if t.get("kind") == "internal-transfer":
+        if t.get("kind") == "internal-transfer" or user_classified(t):
             continue
         text = ((t.get("counterparty") or "") + " " + (t.get("purpose") or "")).lower()
         if any(m in text for m in markers):
@@ -85,7 +114,8 @@ def mark_internal(year):
 
     # Clear stale hints, then pair-match the remainder.
     candidates = [t for t in all_txns
-                  if t.get("kind") == "normal" and not decision_for(t).get("kind")]
+                  if t.get("kind") == "normal" and not decision_for(t).get("kind")
+                  and not user_classified(t)]
     for t in candidates:
         had_hint = "possible_transfer" in t or "possible_transfer_reason" in t
         t.pop("possible_transfer", None)

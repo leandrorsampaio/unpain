@@ -543,6 +543,49 @@ check("amounts with no decimal separator are not judged",
       len(formats.parse(ambiguous, dot_cfg)) == 3
       and len(formats.parse(ambiguous, dict(dot_cfg, decimal="comma"))) == 3)
 
+# Pair matching sees only two opposite amounts a few days apart, so an unrelated
+# receipt and payment of the same size look exactly like a transfer between your own
+# accounts. Marking both silently deleted a category a person had already assigned,
+# and the money left every total without a trace.
+pair_a = next(t for t in store.load_year_raw(2026)
+              if t.get("kind") == "internal-transfer" and t["amount_eur"] > 0)
+store.save_decisions(2026, {})
+transfers.mark_internal(2026)
+check("a paired transaction starts out excluded",
+      next(t for t in store.effective_year(2026) if t["id"] == pair_a["id"])["kind"]
+      == "internal-transfer")
+store.save_decisions(2026, {pair_a["id"]: {"category": "to-receive/reimbursement",
+                                           "sharing": "shared"}})
+transfers.mark_internal(2026)
+released = next(t for t in store.effective_year(2026) if t["id"] == pair_a["id"])
+check("assigning a category releases it from the transfer pairing",
+      released["kind"] == "normal" and not released.get("transfer_reason"))
+check("and it is counted again",
+      any(e["txn"]["id"] == pair_a["id"] for e in settle.entries(store.effective_year(2026))))
+
+# Marking a transaction out of scope agrees it should not count, which is what a
+# genuine transfer looks like — it must not be mistaken for a contradiction. Tested
+# on a still-paired transaction, since releasing one leaves its partner unpaired.
+store.save_decisions(2026, {})
+transfers.mark_internal(2026)
+pair_b = next(t for t in store.load_year_raw(2026)
+              if t.get("kind") == "internal-transfer" and t["id"] != pair_a["id"])
+store.save_decisions(2026, {pair_b["id"]: {"sharing": "out-of-scope"}})
+transfers.mark_internal(2026)
+check("sharing alone does not release a transfer",
+      next(t for t in store.effective_year(2026) if t["id"] == pair_b["id"])["kind"]
+      == "internal-transfer")
+
+# An explicit kind decision still wins over everything, category included.
+store.save_decisions(2026, {pair_b["id"]: {"category": "to-receive/reimbursement",
+                                           "kind": "internal-transfer"}})
+transfers.mark_internal(2026)
+check("an explicit internal-transfer decision beats a category",
+      next(t for t in store.effective_year(2026) if t["id"] == pair_b["id"])["kind"]
+      == "internal-transfer")
+store.save_decisions(2026, {})
+transfers.mark_internal(2026)
+
 # --- integrity checks that watch the import boundary, where every real bug this
 # store has seen actually originated (a parser or config producing wrong rows,
 # which the arithmetic then faithfully totalled).
@@ -1073,7 +1116,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 183
+MIN_CHECKS = 188
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 
