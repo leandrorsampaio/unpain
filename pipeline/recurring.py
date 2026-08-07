@@ -16,7 +16,7 @@ from collections import defaultdict
 from datetime import date
 
 from .util import RULES, read_json, write_json
-from . import store
+from . import settle, store
 
 OVERRIDES_PATH = RULES / "recurring-overrides.json"
 
@@ -43,17 +43,43 @@ def set_override(key, state):
     return o
 
 
-def _sharing_in_scope(t, scope):
+def _sharing_in_scope(sharing, scope):
     if scope == "all":
         return True
-    sh = t.get("sharing")
-    return sh == "shared" if scope == "shared" else sh == "personal:" + scope
+    return sharing == "shared" if scope == "shared" else sharing == "personal:" + scope
+
+
+def _countable_amount(t, scope):
+    """What this transaction actually contributes to the fixed base, splits respected.
+
+    A split is still one charge from one merchant, so it stays one occurrence — but
+    its size is only the parts that count. Reading the parent's amount instead made a
+    100 EUR bill split 60 shared / 40 out of scope look like a 100 EUR fixed cost, so
+    the planner overstated the household's committed spending.
+    """
+    if t.get("sharing") == "out-of-scope":
+        return 0.0
+    total = 0.0
+    for _, part in settle.money_lines(t):
+        view = settle.part_view(t, part)
+        if view["sharing"] == "out-of-scope" or not _sharing_in_scope(view["sharing"], scope):
+            continue
+        total += part["amount"] if part else t["amount_eur"]
+    return total
+
+
+def _occurrences(year, scope):
+    """One entry per charge, carrying the amount that counts rather than the raw one."""
+    out = []
+    for t in store.effective_year(year):
+        amount = _countable_amount(t, scope)
+        if amount < 0:
+            out.append(dict(t, amount_eur=amount))
+    return out
 
 
 def detect(year, scope="all"):
-    txns = [t for t in store.effective_year(year)
-            if t.get("sharing") != "out-of-scope" and t["amount_eur"] < 0
-            and _sharing_in_scope(t, scope)]
+    txns = _occurrences(year, scope)
     groups = defaultdict(list)
     for t in txns:
         key = _merchant_key(t)
@@ -127,9 +153,7 @@ def _history(year, recurring_keys, scope="all"):
     if not recurring_keys:
         return []
     per_month = defaultdict(float)
-    for t in store.effective_year(year):
-        if t.get("sharing") == "out-of-scope" or t["amount_eur"] >= 0 or not _sharing_in_scope(t, scope):
-            continue
+    for t in _occurrences(year, scope):
         if _merchant_key(t) in recurring_keys:
             per_month[int(t["date"][5:7])] += abs(t["amount_eur"])
     if not per_month:
