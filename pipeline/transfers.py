@@ -341,6 +341,18 @@ def mark_internal(year):
             changed(txn)
             hinted.add(txn["id"])
 
+    # A pairing is a statement both rows make about each other, so it is checked once
+    # everything else has settled. When a leg re-pairs with somebody new, the row it
+    # used to point at is left holding a link nobody returns — and a one-way link
+    # invites two readers to draw two different pictures of one movement.
+    final = {t["id"]: t for t in all_txns}
+    for t in all_txns:
+        partner = final.get(t.get("transfer_partner") or "")
+        if t.get("transfer_partner") and (partner is None
+                                          or partner.get("transfer_partner") != t["id"]):
+            t.pop("transfer_partner", None)
+            changed(t)
+
     for changed_year in changed_years:
         store.rewrite_year(changed_year, by_year[changed_year])
     return bool(changed_years)
