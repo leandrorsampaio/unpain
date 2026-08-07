@@ -182,6 +182,11 @@ def _summary(txns, monthly, scope="all", accounts=None):
         accounts, _ = load_accounts()
     income_cats = income_categories()
     es = [e for e in entries(txns) if in_scope(e, scope, income_cats, accounts)]
+    # A year cost is deliberately absent from the monthly picture, so it must be absent
+    # from the monthly count as well. Counting it there described the figures beside it
+    # as covering more than they do — the count and the totals have to be about the
+    # same set of money, or the count is quietly answering a different question.
+    counted = [e for e in es if not (monthly and e["year_cost"])]
     by_category = defaultdict(float)
     income_by_owner = defaultdict(float)
     income = expense = year_costs = 0.0
@@ -203,7 +208,7 @@ def _summary(txns, monthly, scope="all", accounts=None):
         "year_costs_excluded": round(year_costs, 2),
         "by_category": {k: round(v, 2) for k, v in sorted(by_category.items())},
         "income_by_owner": {k: round(v, 2) for k, v in sorted(income_by_owner.items())},
-        "transactions": len({e["txn"]["id"] for e in es}),
+        "transactions": len({e["txn"]["id"] for e in counted}),
         "needs_review": needs_review,
     }
 

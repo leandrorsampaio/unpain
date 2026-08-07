@@ -305,6 +305,19 @@ store.save_decisions(2026, decs)
 ys = settle.year_summary(2026)
 june = ys["months"][5]
 # personal splits still count as family expenses (only equalization ignores them)
+# A year cost is absent from the monthly figures, so it must be absent from the
+# monthly count too — a count that answers a different question from the totals
+# beside it describes them as covering more than they do.
+_yc_month = settle.month_summary(2026, next(int(t["date"][5:7]) for t in store.effective_year(2026)
+                                            if t.get("year_cost")))
+_yc_contributing = len({e["txn"]["id"] for e in settle.entries(
+    [t for t in store.effective_year(2026)
+     if int(t["date"][5:7]) == next(int(x["date"][5:7]) for x in store.effective_year(2026)
+                                    if x.get("year_cost"))])
+    if not e["year_cost"]})
+check("the monthly count excludes year costs, like the monthly figures do",
+      _yc_month["transactions"] == _yc_contributing)
+
 check("year_cost excluded from month", june["year_costs_excluded"] == -120.0 and
       abs(june["expenses"] - (-393.49 + 120.0)) < 0.005, json.dumps(june))
 check("year_cost included annually", abs(ys["expenses"] - -393.49) < 0.005, str(ys["expenses"]))
@@ -1411,7 +1424,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 229
+MIN_CHECKS = 230
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 
