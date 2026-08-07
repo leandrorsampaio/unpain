@@ -42,7 +42,42 @@ const cents = x => Math.round(Number(x) * 100);
 /* Currency dropdown options from config (via /api/meta). EUR is the base and always present. */
 const currencyOptions = () => (state.meta.currencies || ['EUR']).map(c => [c, c]);
 
-async function api(path, body) {
+/* Writes confirm themselves. Feedback lived at the call sites, so whether an edit said
+   anything depended on which screen you happened to be on — most of them said nothing. It
+   belongs here instead: every POST is a write, so every POST reports, and a page added later
+   cannot forget. Endpoints that already show their own result opt out through API_QUIET, and
+   a caller can pass {silent:true} when it wants to word the confirmation itself. */
+const API_QUIET = new Set([
+  '/api/settings',            // autosaves into the #save-status flag
+  '/api/anchor', '/api/anchor-delete',   // the balances dialog counts what it wrote
+  '/api/decisions-bulk', '/api/decisions-clear-bulk',   // bulk reports how many it touched
+  '/api/doctor', '/api/category-usage', '/api/ingest/staging', '/api/ingest/uploads',
+  '/api/rule-apply',          // shows a preview, not a write
+  '/api/unlock', '/api/lock', '/api/setup',   // the screen itself changes
+  '/api/restore', '/api/delete-year', '/api/feedback',  // bespoke messages, some with a reload
+  '/api/security/set', '/api/security/change', '/api/security/remove', '/api/security/settings',
+]);
+const API_MESSAGES = {
+  '/api/decision': 'Transaction updated.',
+  '/api/decision-clear': 'Back to its rule.',
+  '/api/transaction-edit': 'Entry corrected.',
+  '/api/transfer-confirm': 'Transfer answered.',
+  '/api/close': 'Month updated.',
+  '/api/close-year': 'Year updated.',
+  '/api/closing-accept': 'New figures adopted.',
+  '/api/rule-update': 'Rule saved.',
+  '/api/rule': 'Rule saved.',
+  '/api/rule-delete': 'Rule deleted.',
+  '/api/category-add': 'Category added.',
+  '/api/category-rename': 'Category renamed.',
+  '/api/category-delete': 'Category archived.',
+  '/api/account-add': 'Account added.',
+  '/api/account-update': 'Account saved.',
+  '/api/account-delete': 'Account deleted.',
+  '/api/ratio-override': 'Ratio updated.',
+};
+
+async function api(path, body, { silent = false } = {}) {
   const res = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
   if (!res.ok) {
     const t = await res.text();
@@ -50,7 +85,11 @@ async function api(path, body) {
     showError(T('Request failed: ') + t); throw new Error(t);
   }
   const result = await res.json();
-  if (body) invalidateYearCache();
+  if (body) {
+    invalidateYearCache();
+    const route = path.split('?')[0];
+    if (!silent && !API_QUIET.has(route)) showMessage(T(API_MESSAGES[route] || 'Saved.'));
+  }
   return result;
 }
 
@@ -1004,15 +1043,55 @@ function openModal({ title, body, actions = '', width = '', onMount, onClose }) 
   return dialog;
 }
 
-function showMessage(message, { title = T('Done'), icon = 'check_circle' } = {}) {
-  return openModal({
-    title,
-    body: `<div class="flex items-center gap-3"><md-icon style="color:var(--primary)">${esc(icon)}</md-icon><span>${esc(message)}</span></div>`,
-    actions: `<md-filled-button class="msg-ok">${T('OK')}</md-filled-button>`,
-    onMount: root => { root.querySelector('.msg-ok').onclick = () => root._close(); },
-  });
+/* ---- toast ---- : the ONE transient confirmation. Feedback used to be a modal with an OK
+   button, which made every saved edit cost a click and taught people to dismiss without
+   reading. A toast says the same thing in the corner and leaves. It lives on <body>, not in
+   #main, so it survives the re-render that usually follows the action it is reporting.
+   Errors get longer on screen and a close button: a message you may need to act on must not
+   be able to vanish before you have read it. */
+const TOAST_MS = { good: 4000, info: 5000, bad: 9000 };
+
+function toastHost() {
+  let host = $('#toast-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'toast-host';
+    // polite: announced after whatever the user is doing, never interrupting it
+    host.setAttribute('aria-live', 'polite');
+    host.setAttribute('aria-atomic', 'false');
+    document.body.appendChild(host);
+  }
+  return host;
 }
-function showError(message) { return showMessage(message, { title: T('Check this'), icon: 'error' }); }
+
+function toast(message, { kind = 'good', icon = '', timeout = 0 } = {}) {
+  const marks = { good: 'check_circle', bad: 'error', info: 'info' };
+  const el = document.createElement('div');
+  el.className = `toast toast-${kind}`;
+  el.setAttribute('role', kind === 'bad' ? 'alert' : 'status');
+  el.innerHTML = `<md-icon class="toast-icon">${esc(icon || marks[kind] || marks.good)}</md-icon>
+    <span class="toast-text type-body-small">${esc(message)}</span>
+    <md-icon-button class="toast-close" aria-label="${T('Dismiss')}"><md-icon>close</md-icon></md-icon-button>`;
+  const close = () => {
+    if (el.dataset.closing) return;
+    el.dataset.closing = '1';
+    el.classList.add('toast-out');
+    setTimeout(() => el.remove(), 180);
+  };
+  el.querySelector('.toast-close').onclick = close;
+  toastHost().appendChild(el);
+  // Oldest first: a burst of saves must not push the newest message off the screen.
+  const host = toastHost();
+  while (host.children.length > 4) host.firstElementChild.remove();
+  const ms = timeout || TOAST_MS[kind] || TOAST_MS.good;
+  const timer = setTimeout(close, ms);
+  el.addEventListener('mouseenter', () => clearTimeout(timer));   // reading time is not a race
+  el.addEventListener('mouseleave', () => setTimeout(close, 1500));
+  return { close };
+}
+
+function showMessage(message, { kind = 'good', icon = '' } = {}) { return toast(message, { kind, icon }); }
+function showError(message) { return toast(message, { kind: 'bad' }); }
 
 function confirmAction({ title, body, confirmLabel = T('Confirm'), danger = false, onConfirm }) {
   return openModal({
@@ -2024,7 +2103,7 @@ async function closeWithChecks({ title, confirmLabel, gapsHtml, apply }) {
   const findings = result.findings || [];
   if (!gapsHtml && !findings.length) {
     await apply();
-    return showMessage(T('Closed. The integrity check found nothing.'), { title: T('Done') });
+    return showMessage(T('Closed. The integrity check found nothing.'));
   }
   return confirmAction({
     title,
@@ -3221,19 +3300,15 @@ function openBulkEdit() {
       root.querySelector('.b-cancel').onclick = () => root._close();
       root.querySelector('.b-reset').onclick = () => bulkRun(root, ids, null);
       root.querySelector('.b-oos').onclick = () => {
-        if (!splitRows.length) return bulkRun(root, ids, { sharing: 'out-of-scope' });
-        // Excluding a split parent silently drops its counted parts too, so this
-        // one asks first and says what it would cost.
+        // Excluding a split parent silently drops its counted parts too. That warning rides
+        // along in the one confirmation rather than opening a second dialog on top of it.
         const counted = splitRows.reduce((sum, t) => sum + (t.splits || [])
           .filter(p => (p.sharing || t.sharing) !== 'out-of-scope')
           .reduce((s, p) => s + p.amount, 0), 0);
-        confirmAction({
-          title: T('Mark {n} transactions out of scope?', { n: chosen.length }),
-          danger: true, confirmLabel: T('Mark out of scope'),
-          body: T('{n} of them are split. Excluding a split removes the whole transaction, including parts worth {amount} that are counted today.',
-            { n: splitRows.length, amount: fmt(counted) }),
-          onConfirm: () => bulkRun(root, ids, { sharing: 'out-of-scope' }),
-        });
+        bulkRun(root, ids, { sharing: 'out-of-scope' }, splitRows.length
+          ? T('{n} of them are split. Excluding a split removes the whole transaction, including parts worth {amount} that are counted today.',
+            { n: splitRows.length, amount: fmt(counted) })
+          : '');
       };
       root.querySelector('.b-review').onclick = () => bulkRun(root, ids, { force_review: true });
       apply.onclick = () => {
@@ -3253,10 +3328,42 @@ function openBulkEdit() {
   });
 }
 
-/* Runs one bulk operation. `fields` null means "clear the decisions". Errors keep
-   the modal open — a batch touching a closed month is rejected whole, and losing
-   the chosen values to a closed-month message would be its own small disaster. */
-async function bulkRun(root, ids, fields) {
+/* What a bulk operation is about to do, in words, for the confirmation. Reads the same
+   `fields` object that is sent, so it can never describe something other than what happens. */
+function bulkChangeList(fields) {
+  if (fields === null) return [T('Remove the manual decision — each transaction falls back to its rule, or to review')];
+  const out = [];
+  if ('category' in fields) out.push(fields.category ? T('Category → {value}', { value: catName(fields.category) }) : T('Category → cleared'));
+  if ('sharing' in fields) out.push(T('Sharing → {value}', { value: shareInfo(fields.sharing).label }));
+  if ('income_owner' in fields) out.push(T('Income earned by → {value}', { value: personLabelRaw(fields.income_owner) }));
+  if ('tax_bucket' in fields) out.push(fields.tax_bucket ? T('Tax bucket → {value}', { value: fields.tax_bucket }) : T('Tax bucket → cleared'));
+  if ('year_cost' in fields) out.push(fields.year_cost ? T('Marked as a year cost') : T('No longer a year cost'));
+  if ('force_review' in fields && fields.force_review) out.push(T('Sent back to the review queue'));
+  return out;
+}
+
+/* Runs one bulk operation. `fields` null means "clear the decisions".
+
+   Every path goes through the confirmation here rather than at each button, so a bulk action
+   added later cannot forget to ask. One wrong click can rewrite hundreds of transactions, and
+   the only thing standing between that and a long evening is this dialog. Errors keep the
+   editor open — a batch touching a closed month is rejected whole, and losing the chosen
+   values to a closed-month message would be its own small disaster. */
+async function bulkRun(root, ids, fields, extraWarning = '') {
+  const changes = bulkChangeList(fields);
+  const body = `${T('This rewrites {n} transactions at once. It cannot be undone in one step.', { n: ids.length })}
+    <ul class="bulk-confirm-list">${changes.map(c => `<li>${esc(c)}</li>`).join('')}</ul>
+    ${extraWarning ? `<div class="bulk-confirm-warn">${esc(extraWarning)}</div>` : ''}`;
+  confirmAction({
+    title: T('Apply to {n} transactions?', { n: ids.length }),
+    body,
+    danger: fields === null || fields?.sharing === 'out-of-scope',
+    confirmLabel: T('Apply to {n}', { n: ids.length }),
+    onConfirm: () => bulkCommit(root, ids, fields),
+  });
+}
+
+async function bulkCommit(root, ids, fields) {
   try {
     if (fields === null) {
       await api('/api/decisions-clear-bulk', { year: state.year, ids });
@@ -3268,6 +3375,9 @@ async function bulkRun(root, ids, fields) {
   }
   root._close();
   clearTxnSelection();
+  showMessage(fields === null
+    ? T('{n} transactions reset to their rules.', { n: ids.length })
+    : T('{n} transactions updated.', { n: ids.length }));
   render();
 }
 
@@ -3930,7 +4040,15 @@ async function applyGroup(gi) {
     if (owner) fields.income_owner = owner;
     items.push({ id: t.id, fields });
   }
-  if (items.length) await api('/api/decisions-bulk', { year: state.year, items });
+  if (items.length) {
+    await api('/api/decisions-bulk', { year: state.year, items });
+    // The bulk endpoint is quiet by default because callers know more than it does: here we
+    // can name what was booked and where, which is the difference between "something
+    // happened" and being able to spot the wrong category before the queue scrolls away.
+    showMessage(category
+      ? T('{n} booked to {category}.', { n: items.length, category: catName(category) })
+      : T('{n} marked out of scope.', { n: items.length }));
+  }
   render();
 }
 

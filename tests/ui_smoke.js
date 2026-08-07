@@ -186,7 +186,12 @@ async function main() {
       await anchorDialog.waitFor({ state: 'detached', timeout: 5000 });
       const savedAnchor = await page.evaluate(async () => (await (await fetch('/api/coverage?year=2026')).json()).anchors['card1-person1']);
       if (!savedAnchor || savedAnchor.status !== 'none') throw new Error('manual anchor was not recorded as the account’s first anchor');
-      await page.locator('md-dialog.app-dialog .msg-ok').click();
+      // Saving used to raise a modal you had to acknowledge; it is a toast now. Same
+      // contract — the write is confirmed on screen — asserted on the toast instead.
+      const savedToast = page.locator('#toast-host .toast', { hasText: 'Balance anchor recorded' });
+      await savedToast.waitFor({ state: 'visible', timeout: 5000 });
+      await savedToast.locator('.toast-close').click();
+      await savedToast.waitFor({ state: 'detached', timeout: 5000 });
 
       // Restore a genuinely clean store for the first doctor run: reopen June
       // and replace the deliberately mismatched screenshot anchor with its real balance.

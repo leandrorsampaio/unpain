@@ -600,6 +600,47 @@ I18N.register('de', {
   'manual override': 'manuelle Übersteuerung',
   'reference ratio': 'Referenzverhältnis',
 
+  /* ---- write confirmations (toasts) ----
+     These reach T() through the API_MESSAGES lookup, so tests/test_i18n.js cannot see them
+     in the source. They have to be kept here by hand. */
+  'Saved.': 'Gespeichert.',
+  'Transaction updated.': 'Transaktion aktualisiert.',
+  'Back to its rule.': 'Zurück zu ihrer Regel.',
+  'Entry corrected.': 'Eintrag korrigiert.',
+  'Transfer answered.': 'Übertrag beantwortet.',
+  'Month updated.': 'Monat aktualisiert.',
+  'Year updated.': 'Jahr aktualisiert.',
+  'New figures adopted.': 'Neue Werte übernommen.',
+  'Rule saved.': 'Regel gespeichert.',
+  'Rule deleted.': 'Regel gelöscht.',
+  'Category added.': 'Kategorie hinzugefügt.',
+  'Category renamed.': 'Kategorie umbenannt.',
+  'Category archived.': 'Kategorie archiviert.',
+  'Account added.': 'Konto hinzugefügt.',
+  'Account saved.': 'Konto gespeichert.',
+  'Account deleted.': 'Konto gelöscht.',
+  'Ratio updated.': 'Verhältnis aktualisiert.',
+
+  /* ---- bulk confirmation ---- */
+  'Apply to {n} transactions?': 'Auf {n} Transaktionen anwenden?',
+  'This rewrites {n} transactions at once. It cannot be undone in one step.':
+    'Das überschreibt {n} Transaktionen auf einmal. Es lässt sich nicht in einem Schritt rückgängig machen.',
+  'Remove the manual decision — each transaction falls back to its rule, or to review':
+    'Manuelle Entscheidung entfernen — jede Transaktion fällt auf ihre Regel oder in die Prüfung zurück',
+  'Category → {value}': 'Kategorie → {value}',
+  'Category → cleared': 'Kategorie → geleert',
+  'Sharing → {value}': 'Aufteilung → {value}',
+  'Income earned by → {value}': 'Einnahme verdient von → {value}',
+  'Tax bucket → {value}': 'Steuertopf → {value}',
+  'Tax bucket → cleared': 'Steuertopf → geleert',
+  'Marked as a year cost': 'Als Jahreskosten markiert',
+  'No longer a year cost': 'Keine Jahreskosten mehr',
+  'Sent back to the review queue': 'Zurück in die Prüfliste geschickt',
+  '{n} transactions updated.': '{n} Transaktionen aktualisiert.',
+  '{n} transactions reset to their rules.': '{n} Transaktionen auf ihre Regeln zurückgesetzt.',
+  '{n} booked to {category}.': '{n} auf {category} gebucht.',
+  '{n} marked out of scope.': '{n} als außerhalb markiert.',
+
   /* ---- Settings › Balances (the year grid) ----
      Note: the settings rail translates its label through a variable, so 'Balances'
      is invisible to tests/test_i18n.js — it has to be kept here by hand. */
