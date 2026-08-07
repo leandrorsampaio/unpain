@@ -14,12 +14,31 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   verdict) or the figure the ledger computes, shown so you can check it against your bank. Entry is a
   per-account-year dialog: type a balance, press Enter, move to the next month. Correcting a recorded
   figure now needs an explicit `replace` (`POST /api/anchor`), so a contradiction still conflicts by default.
+- **Bulk actions ask before they write.** The confirmation lists the fields it is about to change,
+  built from the same object that gets sent, and lives inside `bulkRun` so a bulk action added later
+  cannot skip it.
+- **Year costs can be spread across the months** in the dashboard's income-vs-expenses chart, with a
+  switch that defaults on. Without it the twelve months summed to less than the year totals printed
+  above them and nothing said so. The caption always names which of the two views is on screen, and the
+  divisor is the months that have happened, so a running year is not amortized into its own future.
 
 ### Changed
 
 - The dashboard net-worth chart shows the selected year only (January to December) instead of the whole
   history, and is renamed **Liquid net worth** — it charts recorded account balances, not total wealth.
   Outside the running year the heading reads "End of &lt;year&gt;" rather than "Now".
+- **Writes confirm themselves with a toast.** `showMessage` was a modal with an OK button, so every
+  saved edit cost a click; it is now a transient message in the corner. Confirmation moved into `api()`
+  — every POST reports — so feedback no longer depends on which screen you are on. Errors stay up
+  longer and keep a close button.
+- Settings spans the full app width like every other page. Content keeps a readable measure; sections
+  holding a data grid opt out of it.
+
+### Fixed
+
+- The app shell stamps its own asset versions from each file's mtime and size, instead of hand-written
+  `?v=` strings in `index.html`. A forgotten bump shipped new JS with the previously cached stylesheet,
+  which looks exactly like a broken page.
 
 ## [1.0.0] - 2026-07-22
 
