@@ -52,6 +52,7 @@ small queue in the browser. You are done. Nobody types the same merchant-to-cate
 
 | Decision | Detail | Why |
 |---|---|---|
+| **What this ledger measures** | **Consumption.** Money the household spent or received to live on. Deliberately outside it: investment activity (securities purchases, dividends, interest, Saveback), gifts received, and money that predates the tracked period. All are marked `out-of-scope` and are invisible to every total. | The question being answered is "what did we spend, and is the split fair" — not "how much richer did we get". Consequence to state plainly: **the savings figure is cash not consumed, not wealth growth.** Actual net worth grows by more. |
 | Settlement ratio | Income-proportional, **salary only** (`ratio_income: true` subcategories). Monthly = estimate; **binding true-up after Dec 31** on actual annual income. | Fairness is a year-level property, not per-expense. |
 | Income owner | `person1 \| person2 \| couple` (couple = 50/50, e.g. tax refunds). Capital gains/dividends/gifts **never** count toward the ratio. | An explicit definition of income. |
 | Sharing | Per transaction: `shared` (default) \| `personal:<person>` \| `out-of-scope`. Personal is excluded from equalization but still a household expense; `out-of-scope` is invisible to ALL math. | |
