@@ -93,10 +93,17 @@ main { width: 100%; max-width: 1800px; margin: 0 auto; padding: 24px; flex: 1; }
 }
 /* Settings page: roomy, sectioned layout with dividers between groups. */
 .settings-page { max-width: 1080px; }
+/* Settings spans the app width like every other page. The *content* is what needs a limit,
+   not the shell: a form field stretched to 1800px is unreadable, while a data grid squeezed
+   into 1080px is unusable. So sections cap themselves at a comfortable measure and opt out
+   with .wide when they hold a table. */
+.settings-section { max-width: 1080px; }
+.settings-section.wide { max-width: none; }
+.settings-section.wide > :first-child { max-width: 980px; }   /* heading + description stay readable */
 .settings-section:not(:first-child) { border-top: 1px solid var(--line); padding-top: 24px; }
 
 /* Settings: left navigation rail + content panel (scales to new sub-pages). */
-.settings-shell { display: flex; gap: 24px; align-items: flex-start; max-width: 1280px; }
+.settings-shell { display: flex; gap: 24px; align-items: flex-start; max-width: 1800px; }
 .settings-rail { flex: 0 0 220px; display: flex; flex-direction: column; gap: 2px; position: sticky; top: var(--appbar-h, 104px); }
 .settings-rail-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 16px; border: none; background: none; border-radius: 999px; cursor: pointer; text-align: left; color: var(--ink2); font: inherit; font-size: var(--type-body-size); line-height: var(--type-body-line); }
 .settings-rail-item:hover { background: var(--md-sys-color-surface-container-high); }
@@ -588,11 +595,11 @@ md-outlined-text-field, md-outlined-select { min-width: 160px; }
    its balance agrees). */
 .bal-grid {
   display: grid;
-  grid-template-columns: 92px minmax(118px, auto) repeat(var(--bal-cols, 4), minmax(112px, 1fr));
+  grid-template-columns: 76px minmax(150px, auto) repeat(var(--bal-cols, 4), minmax(120px, 1fr));
   gap: 4px;
   align-items: stretch;
   /* Grows with the number of accounts; .scroll-x takes over past the panel width. */
-  min-width: calc(210px + var(--bal-cols, 4) * 116px);
+  min-width: calc(238px + var(--bal-cols, 4) * 124px);
 }
 .bal-head {
   display: flex; flex-direction: column; align-items: flex-end; justify-content: flex-end;
@@ -627,7 +634,7 @@ md-outlined-text-field, md-outlined-select { min-width: 160px; }
 .bal-value { white-space: nowrap; }
 .bal-flag { opacity: .75; }
 .bal-icon { font-size: 14px; width: 14px; height: 14px; }
-.bal-total { display: flex; align-items: center; justify-content: flex-end; padding: 4px 8px; color: var(--ink); }
+.bal-total { display: flex; align-items: center; justify-content: flex-end; padding: 4px 8px; color: var(--ink); white-space: nowrap; }
 .bal-total-col { border-right: 1px solid var(--line); padding-right: 12px; margin-right: 4px; }
 .bal-total.partial { color: var(--ink2); gap: 4px; }
 .bal-partial { opacity: .8; }

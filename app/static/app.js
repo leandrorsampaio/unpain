@@ -2831,7 +2831,8 @@ function balancesAreaHtml(data, years) {
        <span class="bal-chip bal-rec"></span>${T('recorded, nothing to check against')}
        <span class="bal-chip bal-derived"></span>${T('computed by the ledger')}
        <span class="bal-chip bal-unknown"></span>${T('unknown')}
-     </div>`);
+     </div>`,
+    'wide');
 }
 
 /* Enter a whole year for one account: the shape a statement actually arrives in. */
@@ -4845,8 +4846,10 @@ const SETTINGS_AREAS = [
   ['security', 'lock', 'Security'],
 ];
 
-function settingsSection(title, desc, body) {
-  return `<section class="settings-section flex flex-col gap-4">
+/* `className` is for sections that must escape the readable-measure cap — a data grid needs
+   the panel's full width, a form field does not. */
+function settingsSection(title, desc, body, className = '') {
+  return `<section class="settings-section flex flex-col gap-4 ${className}">
       <div><div class="type-title">${title}</div>${desc ? `<div class="type-body-small mt-1" style="color:var(--ink2)">${desc}</div>` : ''}</div>
       ${body}
     </section>`;
