@@ -1,7 +1,8 @@
 /* Family Accountability UI — vanilla JS, talks to the FastAPI endpoints. */
 'use strict';
 
-const state = { meta: null, year: null, tab: 'dashboard', renderId: 0, yearCache: new Map(), lastRendered: null, reviewBatches: 1 };
+const state = { meta: null, year: null, tab: 'dashboard', renderId: 0, yearCache: new Map(), lastRendered: null, reviewBatches: 1,
+  spreadYearCosts: (() => { try { return localStorage.getItem('fa-spread-year-costs') !== '0'; } catch (_) { return true; } })() };
 const $ = sel => document.querySelector(sel);
 const fmt = v => (v == null ? '–' : (v === 0 ? 0 : v).toLocaleString('en-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'); // v===0 normalizes -0 -> 0
 /* Format an amount in its ORIGINAL (foreign) currency; falls back to "<number> <CODE>"
@@ -21,6 +22,9 @@ function fmtDate(iso, withYear = false) {
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const YEAR_SELECTION_KEY = 'fa-year-selection';
+/* Whether the by-month chart amortizes year costs. Defaults ON so that chart agrees with the
+   year totals printed above it; a client-only preference, like the theme. */
+const SPREAD_KEY = 'fa-spread-year-costs';
 const YEAR_SELECTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /* Escape user-supplied text before it goes into innerHTML. Every merchant name,
@@ -1378,8 +1382,9 @@ async function renderDashboard(renderId = state.renderId) {
   let yoyData = null;            // cached /api/yoy response for the chart/table toggle
 
   /* ---- small builders reused across views ---- */
-  const chartCard = (title, canvasId, { tall = false, header = '' } = {}) =>
-    `<div class="card p-5"><div class="flex items-center justify-between mb-3"><h2 class="font-medium">${title}</h2>${header}</div>
+  const chartCard = (title, canvasId, { tall = false, header = '', note = '' } = {}) =>
+    `<div class="card p-5"><div class="flex items-center justify-between gap-3 flex-wrap mb-3"><h2 class="font-medium">${title}</h2>${header}</div>
+      ${note ? `<div class="type-caption mb-3" style="color:var(--ink2)">${note}</div>` : ''}
       <div class="chart-box${tall ? ' tall' : ''}"><canvas id="${canvasId}"></canvas></div></div>`;
 
   const tilesHtml = (view, data) => {
@@ -1462,18 +1467,57 @@ async function renderDashboard(renderId = state.renderId) {
         tooltip: { callbacks: { label: ctx => `${groupName(mains[ctx.dataIndex][0])}: ${pct(ctx.parsed)} %` } } } },
     });
   };
+  /* Year costs (the e-bike effect) are kept out of every monthly figure on purpose, so the
+     twelve months here summed to less than the year tiles above them — 28% less on a year
+     with a big one-off — and nothing on screen said so. Spreading shares the year-cost slice
+     evenly across the months and makes the chart reconcile with the tiles. It is a model, not
+     a record: no month really paid a twelfth of an e-bike, which is why it is a switch and why
+     the caption always states which of the two you are looking at.
+     The divisor is the months that have actually happened — dividing a running year by twelve
+     would push cost into months that do not exist yet. */
+  const spreadWindow = () => {
+    const now = new Date();
+    return year === now.getFullYear() ? now.getMonth() + 1 : 12;
+  };
+  const spreadShare = () => {
+    const yc = s.year_costs || { income: 0, expenses: 0 };
+    const n = spreadWindow();
+    return { n, income: (yc.income || 0) / n, expenses: (yc.expenses || 0) / n };
+  };
+  const spreadNote = () => {
+    const yc = s.year_costs || { income: 0, expenses: 0 };
+    const total = (yc.income || 0) + (yc.expenses || 0);
+    if (!cents(total)) return T('No year costs in {year}, so spreading changes nothing.', { year });
+    const { n, income, expenses } = spreadShare();
+    return state.spreadYearCosts
+      ? T('{total} of year costs spread over {n} months ({each} each). The months add up to the year totals above.',
+        { total: fmt(-total), n, each: fmt(-(income + expenses)) })
+      : T('Excludes {total} of year costs, which the totals above do include. See the Year costs tab.', { total: fmt(-total) });
+  };
   const drawByMonth = () => {
     const c = $('#bymonth-canvas'); if (!c) return;
     const t = CHART_COLORS();
+    const { n, income: incShare, expenses: expShare } = spreadShare();
+    // Only months that have happened carry a share, so the line never rises into the future.
+    const share = (index, value) => (state.spreadYearCosts && index < n ? value : 0);
+    const inc = s.months.map((m, i) => m.income + share(i, incShare));
+    const exp = s.months.map((m, i) => -(m.expenses + share(i, expShare)));
+    const sav = s.months.map((m, i) => m.savings + share(i, incShare + expShare));
     mkChart(c, {
       type: 'line',
       data: { labels: MONTHS.map(T), datasets: [
-        { label: T('Income'), data: s.months.map(m => m.income), borderColor: t.c1, backgroundColor: t.c1, tension: .3, pointRadius: 3 },
-        { label: T('Expenses'), data: s.months.map(m => -m.expenses), borderColor: t.c2, backgroundColor: t.c2, tension: .3, pointRadius: 3 },
-        { label: T('Surplus'), data: s.months.map(m => m.savings), borderColor: t.good, backgroundColor: t.good, tension: .3, pointRadius: 3, borderDash: [5, 4] },
+        { label: T('Income'), data: inc, borderColor: t.c1, backgroundColor: t.c1, tension: .3, pointRadius: 3 },
+        { label: T('Expenses'), data: exp, borderColor: t.c2, backgroundColor: t.c2, tension: .3, pointRadius: 3 },
+        { label: T('Surplus'), data: sav, borderColor: t.good, backgroundColor: t.good, tension: .3, pointRadius: 3, borderDash: [5, 4] },
       ] },
       options: { plugins: { legend: { position: 'top' } } },
     });
+  };
+  const toggleSpread = on => {
+    state.spreadYearCosts = on;
+    try { localStorage.setItem(SPREAD_KEY, on ? '1' : '0'); } catch (_) { /* private mode */ }
+    const note = $('#bymonth-note'); if (note) note.innerHTML = spreadNote();
+    drawByMonth();
   };
   const lastMonthWithData = () => {
     for (let m = 12; m >= 1; m--) { const d = s.months[m - 1]; if (d.income || d.expenses) return m; }
@@ -1799,7 +1843,11 @@ async function renderDashboard(renderId = state.renderId) {
       parts.push(`<div class="card p-5 mb-6" id="yc-list"><h2 class="font-medium mb-3">${T('Year-cost transactions')}</h2><div class="type-body-small" style="color:var(--ink2)">${T('Loading…')}</div></div>`);
     } else {
       // income vs expenses by month (year tab only)
-      if (view === 0) parts.push(`<div class="mb-6">${chartCard(T('Income vs expenses by month'), 'bymonth-canvas', { tall: true })}</div>`);
+      if (view === 0) parts.push(`<div class="mb-6">${chartCard(T('Income vs expenses by month'), 'bymonth-canvas', {
+        tall: true,
+        header: switchField({ id: 'spread-yc', label: T('Spread year costs'), on: state.spreadYearCosts }),
+        note: `<span id="bymonth-note">${spreadNote()}</span>`,
+      })}</div>`);
       parts.push(topCostsCardHtml(view));
       parts.push(allSubcatsCardHtml(view));
       // watched costs: bar (by cost) + share of total expenses — above the trend row
@@ -1830,7 +1878,11 @@ async function renderDashboard(renderId = state.renderId) {
     drawFlow(data); drawPie(data);
     if (view === 'yc') { fillYcList(token); }
     else {
-      if (view === 0) drawByMonth();
+      if (view === 0) {
+        drawByMonth();
+        const spread = $('#spread-yc');
+        if (spread) spread.addEventListener('change', e => toggleSpread(!!e.target.selected));
+      }
       drawTopCosts(data); drawAllSubcats(data);
       drawWatchBar(data); drawWatchPie(data);
       fillTopBuys(view, token); drawTrend(view, token);

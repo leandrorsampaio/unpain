@@ -96,6 +96,12 @@ I18N.register('de', {
   'closed': 'geschlossen',
   'Year {y}': 'Jahr {y}',
   'Year costs': 'Jahreskosten',
+  'Spread year costs': 'Jahreskosten verteilen',
+  '{total} of year costs spread over {n} months ({each} each). The months add up to the year totals above.':
+    '{total} Jahreskosten auf {n} Monate verteilt (je {each}). Die Monate ergeben zusammen die Jahreswerte oben.',
+  'Excludes {total} of year costs, which the totals above do include. See the Year costs tab.':
+    'Ohne {total} Jahreskosten, die in den Werten oben enthalten sind. Siehe den Tab Jahreskosten.',
+  'No year costs in {year}, so spreading changes nothing.': 'Keine Jahreskosten in {year} — Verteilen ändert nichts.',
   'Whose money': 'Wessen Geld',
   'Year cost total': 'Jahreskosten gesamt',
   'Offsets': 'Ausgleiche',
