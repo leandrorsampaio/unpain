@@ -889,6 +889,39 @@ store.rewrite_year(2026, renamed)
 check("renaming a counterparty in a settled month is reported",
       any(closing_key in f["message"] for f in _checks_named("closed-month-drift", 2026)))
 
+# Detecting drift and never mentioning it is most of the way to not detecting it. The
+# dashboard reads /api/summary, so that is where a settled period says it has moved —
+# not only in an integrity check somebody has to remember to run.
+closings.rebaseline(2026, closing_month)
+check("a settled period reports no drift to the dashboard",
+      not server.summary(year=2026).get("drift"))
+store.save_decisions(2026, {closing_txn_id: {"sharing": "personal:person1",
+                                             "category": "core-living/groceries"}})
+surfaced = server.summary(year=2026).get("drift") or {}
+check("a moved period is surfaced where a person looks at the figures",
+      closing_key in surfaced)
+check("and it says what moved, not merely that something did",
+      any("settlement" in line for line in surfaced[closing_key]))
+
+# Without a way to accept a correction, the complaint is permanent — and a check that
+# cannot be cleared is one people learn to look past.
+server.closing_accept(server.ClosingAccept(year=2026, period=closing_key))
+check("accepting adopts the new figures and clears the report",
+      not server.summary(year=2026).get("drift")
+      and not _checks_named("closed-month-drift", 2026))
+try:
+    server.closing_accept(server.ClosingAccept(year=2026, period="2026-%02d" % (closing_month % 12 + 1)))
+    check("accepting an open month is refused", False)
+except HTTPException as exc:
+    check("accepting an open month is refused", exc.status_code == 409)
+try:
+    server.closing_accept(server.ClosingAccept(year=2026, period="nonsense"))
+    check("a malformed period is refused", False)
+except HTTPException as exc:
+    check("a malformed period is refused", exc.status_code == 400)
+store.save_decisions(2026, {})
+closings.rebaseline(2026, closing_month)
+
 server.close_month(server.MonthState(year=2026, month=closing_month, state="open"))
 check("reopening withdraws the baseline along with the claim",
       closing_key not in closings.load(2026))
@@ -1378,7 +1411,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 223
+MIN_CHECKS = 229
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

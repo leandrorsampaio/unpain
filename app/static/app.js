@@ -1320,8 +1320,35 @@ async function renderDashboard(renderId = state.renderId) {
 
   const monthClosed = m => s.months_state[`${year}-${String(m).padStart(2, '0')}`] === 'closed';
   const allMonthsClosed = () => [1,2,3,4,5,6,7,8,9,10,11,12].every(monthClosed);
-  // month/year tab label with an inline (side) lock when the period is closed
-  const tabLabel = (text, closed) => `<span class="tab-label">${text}${closed ? `<md-icon class="dash-lock" title="${T('closed')}">lock</md-icon>` : ''}</span>`;
+  // A period is settled only while its figures still match what was settled. Drift is
+  // the app disagreeing with its own record, so it replaces the lock rather than
+  // sitting beside it: a period that has moved should not read as closed.
+  const drift = s.drift || {};
+  const monthKey = m => `${year}-${String(m).padStart(2, '0')}`;
+  const monthDrifted = m => Array.isArray(drift[monthKey(m)]);
+  const yearDrifted = () => Array.isArray(drift.annual)
+    || [1,2,3,4,5,6,7,8,9,10,11,12].some(monthDrifted);
+  const tabLabel = (text, closed, drifted) => `<span class="tab-label">${text}${
+    drifted ? `<md-icon class="dash-lock" style="color:var(--bad)" title="${T('No longer matches what was settled')}">error</md-icon>`
+    : closed ? `<md-icon class="dash-lock" title="${T('closed')}">lock</md-icon>` : ''}</span>`;
+
+  function driftBannerHtml(view) {
+    const isYear = (view === 0 || view === 'yc');
+    const keys = isYear
+      ? Object.keys(drift)
+      : (monthDrifted(view) ? [monthKey(view)] : []);
+    if (!keys.length) return '';
+    const rows = keys.sort().map(key => `<li class="mb-1"><b>${esc(key === 'annual' ? T('Annual settlement') : key)}</b> — ${esc((drift[key] || []).join('; '))}</li>`).join('');
+    return `<div class="card p-4 mb-6" style="border-left:4px solid var(--bad)">
+        <h2 class="type-title-small mb-1" style="color:var(--bad)">${T('This period no longer matches what was settled')}</h2>
+        <p class="type-body-small mb-2" style="color:var(--ink2)">${T('Closing a period records its figures. Something has changed them since — often a correction, sometimes not. Check it is what you intended, then accept it or put it back.')}</p>
+        <ul class="type-body-small mb-3" style="margin-left:1.1rem;list-style:disc">${rows}</ul>
+        <div class="flex gap-2 flex-wrap">
+          ${keys.map(key => `<md-filled-button onclick="acceptClosing('${esc(key)}')">
+            <md-icon slot="icon">check</md-icon>${T('Accept {period}', { period: key === 'annual' ? T('the year') : key })}</md-filled-button>`).join('')}
+        </div>
+      </div>`;
+  }
 
   // perspective selector: Together | Shared | <each person> — a clean partition
   const cap = w => w[0].toUpperCase() + w.slice(1);
@@ -1331,9 +1358,9 @@ async function renderDashboard(renderId = state.renderId) {
   $('#main').innerHTML = `
     <div class="page-sticky">
       <md-tabs id="dash-tabs" class="mb-2">
-        <md-primary-tab data-v="0">${tabLabel(T('Year {y}', { y: year }), allMonthsClosed())}</md-primary-tab>
-        <md-primary-tab data-v="yc">${tabLabel(T('Year costs'), allMonthsClosed())}</md-primary-tab>
-        ${MONTHS.map((mn, i) => `<md-primary-tab data-v="${i + 1}">${tabLabel(`${String(i + 1).padStart(2, '0')} ${T(mn)}`, monthClosed(i + 1))}</md-primary-tab>`).join('')}
+        <md-primary-tab data-v="0">${tabLabel(T('Year {y}', { y: year }), allMonthsClosed(), yearDrifted())}</md-primary-tab>
+        <md-primary-tab data-v="yc">${tabLabel(T('Year costs'), allMonthsClosed(), yearDrifted())}</md-primary-tab>
+        ${MONTHS.map((mn, i) => `<md-primary-tab data-v="${i + 1}">${tabLabel(`${String(i + 1).padStart(2, '0')} ${T(mn)}`, monthClosed(i + 1), monthDrifted(i + 1))}</md-primary-tab>`).join('')}
       </md-tabs>
       <div class="flex items-center gap-3 flex-wrap">
         <span class="type-label" style="color:var(--ink2)">${T('Whose money')}</span>
@@ -1743,6 +1770,8 @@ async function renderDashboard(renderId = state.renderId) {
     const sankeyCardHtml = `<div class="card p-5 mb-6"><h2 class="font-medium mb-3">${T('Money flow — income to categories')}</h2>
       <div class="chart-box" id="sankey-box" style="height:420px"><canvas id="sankey-canvas"></canvas></div></div>`;
     const coverageCardHtml = `<div class="card p-5 mb-6" id="coverage-card"><h2 class="font-medium">${T('Statement coverage')}</h2><div class="mt-3 type-body-small" style="color:var(--ink2)">${T('Loading…')}</div></div>`;
+    // Above the figures, because it is a statement about the figures below it.
+    parts.push(driftBannerHtml(view));
     parts.push(`<div class="flex gap-4 flex-wrap mb-6">${tilesHtml(view, data)}</div>`);
     if (view === 0) parts.push(`<div class="card p-5 mb-6" id="networth-card">
       <div class="flex items-center justify-between mb-1 flex-wrap gap-2"><h2 class="font-medium">${T('Net worth')}</h2><span id="nw-total" class="type-title"></span></div>
@@ -1874,6 +1903,25 @@ async function setMonthState(month, stateStr) {
 async function setYearState(stateStr) {
   await api('/api/close-year', { year: state.year, state: stateStr });
   render();
+}
+
+function acceptClosing(period) {
+  const label = period === 'annual' ? T('the year') : period;
+  confirmAction({
+    title: T('Accept the new figures?'),
+    body: T('This records what {period} contains now as the settled figures. The change stays — you are agreeing to it.', { period: label }),
+    confirmLabel: T('Accept'),
+    onConfirm: async () => {
+      try {
+        await api('/api/closing-accept', { year: state.year, period });
+      } catch (err) {
+        showError(err.message || String(err));
+        return;
+      }
+      invalidateYearCache();
+      render();
+    },
+  });
 }
 
 async function toggleMonth(month, stateStr) {

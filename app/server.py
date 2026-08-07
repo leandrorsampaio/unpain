@@ -643,7 +643,41 @@ def _check_scope(scope):
 def summary(year: int, scope: str = "all"):
     s = settle.year_summary(year, scope=_check_scope(scope))
     s["months_state"] = store.months_state(year)
+    # A period whose figures have moved since it was settled is no longer settled, and
+    # saying so belongs where a person looks at it — not only in an integrity check
+    # they have to remember to run. Detecting drift and never mentioning it is most of
+    # the way to not detecting it.
+    s["drift"] = {row["month"]: row.get("changes") or []
+                  for row in closings.verify(year) if row["status"] == "drifted"}
     return s
+
+
+class ClosingAccept(BaseModel):
+    year: int
+    period: str          # "YYYY-MM" or "annual"
+
+
+@app.post("/api/closing-accept")
+def closing_accept(a: ClosingAccept):
+    """Adopt a drifted period's current figures as the settled ones.
+
+    The alternative to accepting is reopening, changing things back and closing again.
+    Without this, a legitimate correction leaves a permanent complaint, and a check
+    that cannot be cleared is one people learn to ignore.
+    """
+    if a.period == "annual":
+        closings.record_year(a.year)
+    else:
+        try:
+            month = int(str(a.period).split("-")[1])
+            if not 1 <= month <= 12:
+                raise ValueError(a.period)
+        except (IndexError, ValueError):
+            raise HTTPException(400, "period must be YYYY-MM or 'annual'")
+        if store.months_state(a.year).get(a.period) != "closed":
+            raise HTTPException(409, "Month %s is not closed." % a.period)
+        closings.record(a.year, month)
+    return {"ok": True}
 
 
 @app.get("/api/coverage")

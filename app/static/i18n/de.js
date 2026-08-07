@@ -931,4 +931,18 @@ I18N.register('de', {
   'No, count it': 'Nein, mitzählen',
   'Month is closed — confirming is fine, rejecting needs it reopened.':
     'Monat ist abgeschlossen — bestätigen geht, ablehnen erst nach dem Öffnen.',
+
+  /* A settled period whose figures have moved since */
+  'No longer matches what was settled': 'Stimmt nicht mehr mit dem Abschluss überein',
+  'This period no longer matches what was settled':
+    'Dieser Zeitraum stimmt nicht mehr mit dem Abschluss überein',
+  'Closing a period records its figures. Something has changed them since — often a correction, sometimes not. Check it is what you intended, then accept it or put it back.':
+    'Beim Abschließen werden die Zahlen festgehalten. Seitdem hat sich etwas daran geändert — oft eine Korrektur, manchmal nicht. Prüfe, ob es so gewollt war, und übernimm es dann oder mach es rückgängig.',
+  'Annual settlement': 'Jahresabrechnung',
+  'Accept {period}': '{period} übernehmen',
+  'the year': 'das Jahr',
+  'Accept the new figures?': 'Neue Zahlen übernehmen?',
+  'This records what {period} contains now as the settled figures. The change stays — you are agreeing to it.':
+    'Damit gilt der aktuelle Stand von {period} als abgeschlossen. Die Änderung bleibt — du stimmst ihr zu.',
+  'Accept': 'Übernehmen',
 });
