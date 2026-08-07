@@ -71,5 +71,5 @@ header-to-field mapping). To add yours:
 - Keep PRs focused. Conventional-Commit-style messages are appreciated (`feat:`, `fix:`, `docs:`).
 - The full test suite must pass. It includes the `test_oracle.py` accounting-math checker. CI runs
   it on every push and PR.
-- When you contribute, you agree to license your contributions under the project's [MIT](LICENSE)
-  license.
+- When you contribute, you agree to license your contributions under the project's
+  [PolyForm Noncommercial 1.0.0](LICENSE) license.

@@ -72,6 +72,12 @@ add/save/delete buttons.
   It reports rather than prevents: a change to a closed month is often a correction, and refusing
   those would preserve a known error. Reopening drops the baseline; `cli close-baseline` adopts
   current figures for months closed before this existed. Nothing ever *computes* from a snapshot.
+  A snapshot that predates a field carries `digest_version`; a version mismatch means **reduced
+  cover to upgrade, never drift** — widening the digest must not accuse every watched period at
+  once. What such a snapshot *does* hold is still compared, so partial cover beats none.
+  Drift is surfaced where a person looks: `/api/summary` carries it, the dashboard marks the tab
+  red instead of locked and explains what moved, and `/api/closing-accept` adopts the new figures
+  without reopening. Detecting drift and never mentioning it is most of the way to not detecting it.
 - Categories: never delete, set `archived: true`. Slugs are stable ids.
 - Rule scope: `family` (default) applies everywhere; `<person>` scope applies only to that
   person's accounts and beats family rules. Couple-owned accounts match family rules only.
