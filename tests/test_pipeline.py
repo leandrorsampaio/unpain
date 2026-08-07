@@ -775,7 +775,8 @@ transfers.mark_internal(2026)
 # later change is visible. It is reported, not prevented: such a change is often a
 # correction, and refusing those preserves a known error to protect a wrong figure.
 closing_months = store.months_state(2026)
-closing_txn = next(t for t in store.load_year_raw(2026) if t.get("kind") != "internal-transfer")
+closing_txn = next(t for t in store.load_year_raw(2026)
+                   if t.get("kind") != "internal-transfer" and t["amount_eur"] < 0)
 closing_month = int(closing_txn["date"][5:7])
 closing_key = "2026-%02d" % closing_month
 store.save_months_state(2026, {})
@@ -790,10 +791,12 @@ check("and nothing has drifted yet",
 # Move it through a merchant rule: the path a decisions-only view is blind to, and the
 # one that actually moved a closed month in production.
 closing_rules = read_json(tmp / "rules" / "merchant-rules.json")
-write_json(tmp / "rules" / "merchant-rules.json", {"rules": closing_rules["rules"] + [
+# Prepended, not appended: the first matching rule wins, and this counterparty may
+# already have one.
+write_json(tmp / "rules" / "merchant-rules.json", {"rules": [
     {"id": "closing-drift-probe", "scope": "family",
      "match": {"field": "counterparty", "contains": closing_txn["counterparty"]},
-     "category": "out-of-scope/out-of-scope", "sharing": "out-of-scope"}]})
+     "category": "out-of-scope/out-of-scope", "sharing": "out-of-scope"}] + closing_rules["rules"]})
 store._EFFECTIVE_CACHE.clear()
 check("a closed month whose figures moved is reported",
       any(closing_key in f["message"] for f in _checks_named("closed-month-drift", 2026)))
@@ -801,6 +804,48 @@ write_json(tmp / "rules" / "merchant-rules.json", closing_rules)
 store._EFFECTIVE_CACHE.clear()
 check("and the report clears once the figures match again",
       not _checks_named("closed-month-drift", 2026))
+
+# Totals are not what settlement depends on. Sharing, the paying account, the income
+# owner and the ratio all move the amount one person owes the other while income,
+# expenses and the count sit still — a real settlement moved by 50 EUR under a snapshot
+# that reported no drift at all.
+closing_txn_id = closing_txn["id"]
+closings.rebaseline(2026, closing_month)
+check("a fresh baseline reports no drift", not _checks_named("closed-month-drift", 2026))
+scope_before = store.decisions(2026).get(closing_txn_id, {})
+store.save_decisions(2026, {closing_txn_id: dict(scope_before, sharing="personal:person1",
+                                                 category="core-living/groceries")})
+moved = _checks_named("closed-month-drift", 2026)
+check("a sharing change that leaves every total identical is still reported",
+      any(closing_key in f["message"] for f in moved))
+check("and the report names the settlement figure that moved",
+      any("settlement" in f["message"] for f in moved))
+store.save_decisions(2026, {})
+closings.rebaseline(2026, closing_month)
+
+# A category reallocation nets to the same expense and the same settlement. Only a
+# fingerprint of the lines themselves can tell that the month is no longer what was
+# agreed, which is why one is stored rather than a list of fields somebody predicted.
+store.save_decisions(2026, {closing_txn_id: {"category": "recreation/restaurants",
+                                             "sharing": "shared"}})
+check("a compensating change no total would reveal is caught by the digest",
+      any(closing_key in f["message"] for f in _checks_named("closed-month-drift", 2026)))
+store.save_decisions(2026, {})
+closings.rebaseline(2026, closing_month)
+
+# A baseline written before settlement was watched cannot detect the changes that
+# matter, and comparing it against a richer snapshot would invent drift that never
+# happened. It is reported as needing an upgrade instead.
+legacy = closings.load(2026)
+legacy[closing_key] = {"income": 0.0, "expenses": 0.0, "transactions": 0,
+                       "closed_at": "2026-01-01T00:00:00+00:00"}
+closings.save(2026, legacy)
+check("a baseline predating settlement is reported as stale, not as drift",
+      not _checks_named("closed-month-drift", 2026)
+      and bool(_checks_named("closed-month-stale-baseline", 2026)))
+check("and close-baseline upgrades it in place",
+      closing_key in closings.baseline(2026)
+      and not _checks_named("closed-month-stale-baseline", 2026))
 
 server.close_month(server.MonthState(year=2026, month=closing_month, state="open"))
 check("reopening withdraws the baseline along with the claim",
@@ -1291,7 +1336,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 211
+MIN_CHECKS = 217
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

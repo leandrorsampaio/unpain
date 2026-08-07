@@ -121,6 +121,14 @@ def effective(txn, decision, rules, owner=None, config=None, tax_buckets=None):
     if t.get("kind") == "internal-transfer":
         t["sharing"] = "out-of-scope"
         t["status"] = "auto"
+        # An account correction is a statement about the raw row, not about how it is
+        # categorised, so it survives here where category and sharing would be
+        # meaningless. Returning without it meant a corrected account was ignored for
+        # exactly the transactions whose accounts decide whether a pair is possible at
+        # all — two legs could be moved onto one account and still call themselves a
+        # transfer between two.
+        if decision and decision.get("account"):
+            t["account"] = decision["account"]
         return t
 
     # A decision can force a transaction back into the review queue (UI "Send to review"),

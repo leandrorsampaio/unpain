@@ -62,8 +62,13 @@ add/save/delete buttons.
   `couple` counts half to each. Monthly = estimate; annual = binding.
 - Closed months (`data/<year>/months.json`) reject decisions (HTTP 409). That lock covers
   decisions and nothing else — a merchant rule, transfer detection and a re-ingest all rewrite a
-  closed month freely. So closing also records the month's figures (`pipeline/closings.py` →
-  `data/<year>/closings.json`) and `doctor` reports `closed-month-drift` when they no longer match.
+  closed month freely, and a ratio override moves settlement without touching a transaction at all
+  (that endpoint now respects the lock). So closing records the month's totals, **the settlement it
+  produces, and a digest of every effective money line** (`pipeline/closings.py` →
+  `data/<year>/closings.json`); closing a whole year also records the binding annual settlement under
+  `annual`. Totals alone are not enough — sharing, payer, income owner and ratio all move who owes
+  whom while income/expenses/count sit still. `doctor` reports `closed-month-drift` when any of it
+  moves, `closed-month-stale-baseline` for snapshots predating the settlement fields.
   It reports rather than prevents: a change to a closed month is often a correction, and refusing
   those would preserve a known error. Reopening drops the baseline; `cli close-baseline` adopts
   current figures for months closed before this existed. Nothing ever *computes* from a snapshot.

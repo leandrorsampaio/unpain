@@ -425,6 +425,33 @@ def _out_of_scope_drift(ctx):
     return out
 
 
+def _contradictory_split_scope(ctx):
+    """A split marked out of scope as a whole, holding a part that still counts.
+
+    Both readings are defensible — the parent means all of it, or the part states the
+    more specific intention — so the code cannot pick one without guessing at what a
+    person meant. The part wins, because that is how every other field on a part
+    behaves, and the disagreement is reported so it is settled deliberately rather
+    than by whichever piece of code happened to look first.
+    """
+    out = []
+    for year in ctx["years"]:
+        conflicted = []
+        for txn in ctx["effective"].get(year, []):
+            if txn.get("sharing") != "out-of-scope" or not txn.get("splits"):
+                continue
+            if any(settle.part_view(txn, part)["sharing"] != "out-of-scope"
+                   for _, part in settle.money_lines(txn)):
+                conflicted.append(txn["id"])
+        if conflicted:
+            out.append(_finding("warning", "contradictory-split-scope", year,
+                                "%d split transactions are marked out of scope while holding a "
+                                "part that is not. The part counts. Set the part out of scope "
+                                "too, or take the flag off the transaction."
+                                % len(conflicted), sorted(conflicted)))
+    return out
+
+
 def _closed_month_drift(ctx):
     """A month called settled whose figures have moved since.
 
@@ -440,20 +467,24 @@ def _closed_month_drift(ctx):
         drifted = [r for r in rows if r["status"] == "drifted"]
         unwatched = [r["month"] for r in rows if r["status"] == "unwatched"]
         for row in drifted:
-            moved = ", ".join(
-                "%s %s -> %s" % (name, row["stored"].get(name), row["current"].get(name))
-                for name in closings.FIELDS
-                if str(row["stored"].get(name)) != str(row["current"].get(name)))
+            period = ("The %d annual settlement" % year if row["month"] == "annual"
+                      else "Month %s" % row["month"])
             out.append(_finding("error", "closed-month-drift", year,
-                                "Month %s was closed on %s but its figures have changed since "
-                                "(%s). Reopen it, check the change is intended, and close it "
-                                "again to accept the new figures."
-                                % (row["month"], (row["closed_at"] or "?")[:10], moved), []))
+                                "%s was settled on %s but has changed since: %s. Reopen it, check "
+                                "the change is intended, and close it again to accept it."
+                                % (period, (row["closed_at"] or "?")[:10],
+                                   "; ".join(row.get("changes") or ["unspecified"])), []))
+        stale = [r["month"] for r in rows if r["status"] == "stale-baseline"]
         if unwatched:
             out.append(_finding("info", "closed-month-unwatched", year,
-                                "%d closed months have no recorded figures, so a later change to "
+                                "%d closed periods have no recorded figures, so a later change to "
                                 "them cannot be detected. Run 'close-baseline' to adopt their "
                                 "current figures as the baseline." % len(unwatched), []))
+        if stale:
+            out.append(_finding("warning", "closed-month-stale-baseline", year,
+                                "%d closed periods were recorded before settlement was watched, so "
+                                "a change to who owes whom would not be detected. Run "
+                                "'close-baseline' to upgrade them." % len(stale), []))
     return out
 
 
@@ -503,7 +534,7 @@ CHECKS = (
     _duplicate_ids, _unknown_sharing_and_owner, _anchor_findings, _cash_desync,
     _review_in_closed_month, _unpaired_markers, _orphan_budgets, _stale_upload_refs,
     _account_currency_mismatch, _anchor_currency_drift, _fx_cache_sanity, _out_of_scope_drift,
-    _orphan_transfer_marks, _closed_month_drift,
+    _orphan_transfer_marks, _closed_month_drift, _contradictory_split_scope,
 )
 
 

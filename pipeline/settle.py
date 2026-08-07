@@ -84,8 +84,11 @@ def entries(txns):
     """Expand splits; drop out-of-scope."""
     out = []
     for t in txns:
-        if t.get("sharing") == "out-of-scope":
-            continue
+        # No parent-level shortcut. Skipping an out-of-scope parent before looking at
+        # its parts threw away a part that said shared — while the spreadsheet, which
+        # resolves each part properly, counted it. One split had to be two different
+        # numbers depending on who asked. A part states the more specific intention,
+        # so it decides; doctor reports the contradiction so a human settles it.
         for _, part in money_lines(t):
             view = part_view(t, part)
             if view["sharing"] == "out-of-scope":

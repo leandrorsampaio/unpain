@@ -57,9 +57,9 @@ def _countable_amount(t, scope):
     100 EUR bill split 60 shared / 40 out of scope look like a 100 EUR fixed cost, so
     the planner overstated the household's committed spending.
     """
-    if t.get("sharing") == "out-of-scope":
-        return 0.0
     total = 0.0
+    # Each line decides for itself, with no parent-level shortcut: an out-of-scope
+    # parent can still hold a part that counts, and the totals now read it that way.
     for _, part in settle.money_lines(t):
         view = settle.part_view(t, part)
         if view["sharing"] == "out-of-scope" or not _sharing_in_scope(view["sharing"], scope):

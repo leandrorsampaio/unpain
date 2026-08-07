@@ -942,6 +942,17 @@ class RatioOverride(BaseModel):
 @app.post("/api/ratio-override")
 def set_ratio_override(o: RatioOverride):
     people = _people()
+    # The ratio decides how a shared cost is divided, so changing it moves the amount
+    # one person owes the other without touching a single transaction. That made it a
+    # way to rewrite a settled period in silence: no transaction changed, no total
+    # changed, and the month lock never saw it.
+    months = store.months_state(o.year)
+    locked = ([key for key, state in months.items() if state == "closed"]
+              if o.key in (None, "", "annual") else
+              [o.key] if months.get(o.key) == "closed" else [])
+    if locked:
+        raise HTTPException(409, "Month %s is closed. Reopen it first."
+                            % (o.key if o.key not in (None, "", "annual") else sorted(locked)[0]))
     path = DATA / str(o.year) / "ratio-overrides.json"
     data = read_json(path, default={})
     if o.ratio is None:
@@ -2564,8 +2575,11 @@ def close_month(m: MonthState):
     # of silent. Reopening withdraws the claim, so the baseline goes with it.
     if m.state == "closed":
         closings.record(m.year, m.month)
+        if all(states.get("%d-%02d" % (m.year, month)) == "closed" for month in range(1, 13)):
+            closings.record_year(m.year)   # this month completed the year
     else:
         closings.drop(m.year, m.month)
+        closings.drop_year(m.year)         # the year is no longer fully settled
     return {"ok": True}
 
 
@@ -2586,6 +2600,9 @@ def close_year(y: YearState):
     store.save_months_state(y.year, states)
     for month in range(1, 13):
         closings.record(y.year, month) if y.state == "closed" else closings.drop(y.year, month)
+    # The annual settlement is the binding figure and does not follow from the twelve
+    # months: a ratio override applied to the year moves it while every month stays put.
+    closings.record_year(y.year) if y.state == "closed" else closings.drop_year(y.year)
     return {"ok": True}
 
 

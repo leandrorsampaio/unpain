@@ -26,7 +26,7 @@ FX_MATCH_MIN_CENTS = 2500     # below 25 EUR, match on the proportional rule alo
 FX_MATCH_FLOOR_CENTS = 100    # and never allow more than this in absolute terms
 
 
-def evidence_holds(a, b, accounts, owner_names, window):
+def evidence_holds(a, b, accounts, owner_names, window, account_of=None):
     """Do these two rows still look like one movement of money seen twice?
 
     Pairing rests entirely on the rows themselves: opposite amounts, on two of our own
@@ -34,15 +34,20 @@ def evidence_holds(a, b, accounts, owner_names, window):
     evidence, and nothing re-asked the question — a pair corrected from 100 to 80 EUR
     stayed excluded, with both sides invisible to every total.
     """
-    if a["id"] == b["id"] or a["account"] == b["account"]:
+    # The effective account, so a corrected one counts. Two legs moved onto a single
+    # account cannot be a transfer between two, and reading the raw rows let that
+    # pairing survive its own correction.
+    account_of = account_of or (lambda t: t["account"])
+    account_a, account_b = account_of(a), account_of(b)
+    if a["id"] == b["id"] or account_a == account_b:
         return False
     ac, bc = cents(a["amount_eur"]), cents(b["amount_eur"])
     if (ac < 0) == (bc < 0):
         return False    # both the same direction: not two sides of one movement
     if abs((_d(a["date"]) - _d(b["date"])).days) > window:
         return False
-    owner_a = accounts.get(a["account"], {}).get("owner")
-    owner_b = accounts.get(b["account"], {}).get("owner")
+    owner_a = accounts.get(account_a, {}).get("owner")
+    owner_b = accounts.get(account_b, {}).get("owner")
     text = " ".join(filter(None, [a.get("counterparty"), a.get("purpose"),
                                   b.get("counterparty"), b.get("purpose")])).lower()
     if not ((owner_a is not None and owner_a == owner_b)
@@ -73,6 +78,10 @@ def mark_internal(year):
 
     def decision_for(t):
         return decisions.get(int(t["date"][:4]), {}).get(t["id"], {})
+
+    def account_of(t):
+        """The account after any manual correction, which is what the totals use."""
+        return decision_for(t).get("account") or t["account"]
 
     def pair_context(n, p):
         if p["account"] == n["account"] or abs((_d(p["date"]) - _d(n["date"])).days) > window:
@@ -193,7 +202,8 @@ def mark_internal(year):
             # look like one movement. An edit to either side can leave the pairing
             # arithmetically impossible while both halves stay quietly excluded.
             if (partner is not None and still_paired(partner)
-                    and evidence_holds(t, partner, accounts, owner_names, window)):
+                    and evidence_holds(t, partner, accounts, owner_names, window,
+                                       account_of=account_of)):
                 continue
             if partner is not None and still_paired(partner) \
                     and decision_for(partner).get("kind") != "internal-transfer":
