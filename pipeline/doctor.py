@@ -474,17 +474,19 @@ def _closed_month_drift(ctx):
                                 "the change is intended, and close it again to accept it."
                                 % (period, (row["closed_at"] or "?")[:10],
                                    "; ".join(row.get("changes") or ["unspecified"])), []))
-        stale = [r["month"] for r in rows if r["status"] == "stale-baseline"]
+        partial = [r["month"] for r in rows
+                   if r["status"] != "unwatched" and r.get("coverage") == "partial"]
         if unwatched:
             out.append(_finding("info", "closed-month-unwatched", year,
                                 "%d closed periods have no recorded figures, so a later change to "
                                 "them cannot be detected. Run 'close-baseline' to adopt their "
                                 "current figures as the baseline." % len(unwatched), []))
-        if stale:
+        if partial:
             out.append(_finding("warning", "closed-month-stale-baseline", year,
-                                "%d closed periods were recorded before settlement was watched, so "
-                                "a change to who owes whom would not be detected. Run "
-                                "'close-baseline' to upgrade them." % len(stale), []))
+                                "%d closed periods were recorded before settlement was watched. "
+                                "Their totals are still checked, but a change to who owes whom "
+                                "would not be. Run 'close-baseline' to upgrade them."
+                                % len(partial), []))
     return out
 
 

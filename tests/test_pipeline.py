@@ -837,15 +837,57 @@ closings.rebaseline(2026, closing_month)
 # matter, and comparing it against a richer snapshot would invent drift that never
 # happened. It is reported as needing an upgrade instead.
 legacy = closings.load(2026)
-legacy[closing_key] = {"income": 0.0, "expenses": 0.0, "transactions": 0,
-                       "closed_at": "2026-01-01T00:00:00+00:00"}
+# The month's real totals, without the settlement and digest a modern snapshot holds:
+# exactly what a snapshot written by the previous version looks like.
+legacy[closing_key] = dict({name: closings.figures(2026, closing_month)[name]
+                            for name in closings.FIELDS},
+                           closed_at="2026-01-01T00:00:00+00:00")
 closings.save(2026, legacy)
+legacy_snapshot = dict(legacy[closing_key])
 check("a baseline predating settlement is reported as stale, not as drift",
       not _checks_named("closed-month-drift", 2026)
       and bool(_checks_named("closed-month-stale-baseline", 2026)))
+check("and it is described as partial cover, not as no cover",
+      closings.coverage(legacy_snapshot) == "partial")
+
+# Partial is not nothing. Skipping such a period wholesale left it with no protection
+# at all while doctor still exited zero — a settlement moved 50 EUR behind a warning.
+# What the thin snapshot does hold is compared, so a change it can see is an error.
+store.save_decisions(2026, {closing_txn_id: {"sharing": "out-of-scope", "category": None}})
+partial_drift = _checks_named("closed-month-drift", 2026)
+check("a change a thin baseline CAN see is still reported",
+      any(closing_key in f["message"] for f in partial_drift))
+check("and it is an error, so an exit code carries it",
+      all(f["severity"] == "error" for f in partial_drift))
+store.save_decisions(2026, {})
+closings.save(2026, legacy)
+
 check("and close-baseline upgrades it in place",
       closing_key in closings.baseline(2026)
       and not _checks_named("closed-month-stale-baseline", 2026))
+
+# Widening the digest must not accuse every watched period at once. A digest from
+# another version is not comparable to this one and means reduced cover, never drift.
+versioned = closings.load(2026)
+versioned[closing_key] = dict(versioned[closing_key], digest_version=0, digest="deadbeef")
+closings.save(2026, versioned)
+check("a digest from an older version is reduced cover, not drift",
+      not _checks_named("closed-month-drift", 2026)
+      and bool(_checks_named("closed-month-stale-baseline", 2026)))
+closings.baseline(2026)
+check("and upgrading clears it",
+      not _checks_named("closed-month-stale-baseline", 2026))
+
+# The digest's claim is that the month still reads as it did. A renamed counterparty
+# moves no figure, but it does change what a person sees.
+renamed = store.load_year_by_file(2026)
+for rows_in_file in renamed.values():
+    for row in rows_in_file:
+        if row["id"] == closing_txn_id:
+            row["counterparty"] = (row.get("counterparty") or "") + " (renamed)"
+store.rewrite_year(2026, renamed)
+check("renaming a counterparty in a settled month is reported",
+      any(closing_key in f["message"] for f in _checks_named("closed-month-drift", 2026)))
 
 server.close_month(server.MonthState(year=2026, month=closing_month, state="open"))
 check("reopening withdraws the baseline along with the claim",
@@ -1336,7 +1378,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 217
+MIN_CHECKS = 223
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

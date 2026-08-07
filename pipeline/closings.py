@@ -33,6 +33,13 @@ FIELDS = ("income", "expenses", "transactions")
 # The settlement outputs themselves, so a moved figure names itself in the report.
 SETTLEMENT_FIELDS = ("ratio", "total_shared_expenses", "paid", "balances", "transfer")
 
+# Bumped whenever the digest covers different fields. A digest computed under one
+# version says nothing about one computed under another, so a mismatch means reduced
+# coverage to be upgraded — never drift. Without this, widening the digest would
+# accuse every watched period at once, and an alarm that fires on everything is one
+# nobody reads.
+DIGEST_VERSION = 2
+
 
 def _line_digest(year, month=None):
     """A fingerprint of every money line the month contains, as the totals see them.
@@ -54,7 +61,11 @@ def _line_digest(year, month=None):
                 txn.get("id"), index, txn.get("date"), txn.get("account"),
                 txn.get("kind") or "normal", cents(amount or 0),
                 view["category"] or "", view["sharing"] or "", view["year_cost"],
-                view["tax_bucket"] or "", txn.get("income_owner") or "")))
+                view["tax_bucket"] or "", txn.get("income_owner") or "",
+                # No figure depends on the description once the category is fixed, but
+                # the digest's claim is that the month is still what was agreed, and a
+                # renamed counterparty means it reads differently to a person.
+                txn.get("counterparty") or "")))
     return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()[:16]
 
 
@@ -82,6 +93,7 @@ def figures(year, month):
     out = {name: summary[name] for name in FIELDS}
     out["settlement"] = _settlement_snapshot(year, month)
     out["digest"] = _line_digest(year, month)
+    out["digest_version"] = DIGEST_VERSION
     return out
 
 
@@ -89,7 +101,8 @@ def year_figures(year):
     """The annual settlement, which is the binding one. A ratio override applied to
     the year changes it without changing any month's contents, so it is watched in
     its own right rather than inferred from the twelve months."""
-    return {"settlement": _settlement_snapshot(year, None), "digest": _line_digest(year, None)}
+    return {"settlement": _settlement_snapshot(year, None), "digest": _line_digest(year, None),
+            "digest_version": DIGEST_VERSION}
 
 
 def record(year, month, when=None):
@@ -126,8 +139,28 @@ def drop(year, month):
         save(year, rows)
 
 
+def coverage(stored):
+    """How much of a stored snapshot can still be checked.
+
+    'full' watches settlement and every money line. 'partial' is an older snapshot that
+    holds only totals: it cannot see a sharing flip or a ratio change, but it can still
+    see the totals move. Comparing what it does hold is strictly better than skipping
+    it — skipping meant a period silently had no protection at all.
+    """
+    if not stored:
+        return "none"
+    if "settlement" not in stored or stored.get("digest_version") != DIGEST_VERSION:
+        return "partial"
+    return "full"
+
+
 def changes(stored, current):
-    """What moved, in words a person can act on. Empty means nothing moved."""
+    """What moved, in words a person can act on. Empty means nothing moved.
+
+    Only fields the stored snapshot actually carries are compared. A thin snapshot
+    judged against a rich one would report drift that never happened, which is how an
+    upgrade turns into a false alarm on every watched period at once.
+    """
     out = []
     for name in FIELDS:
         left, right = stored.get(name), current.get(name)
@@ -135,13 +168,16 @@ def changes(stored, current):
                 else cents(left or 0) == cents(right or 0))
         if not same:
             out.append("%s %s -> %s" % (name, left, right))
-    left, right = stored.get("settlement") or {}, current.get("settlement") or {}
-    for name in SETTLEMENT_FIELDS:
-        if left.get(name) != right.get(name):
-            out.append("settlement %s %s -> %s" % (name, left.get(name), right.get(name)))
+    if "settlement" in stored:
+        left, right = stored.get("settlement") or {}, current.get("settlement") or {}
+        for name in SETTLEMENT_FIELDS:
+            if left.get(name) != right.get(name):
+                out.append("settlement %s %s -> %s" % (name, left.get(name), right.get(name)))
     # Last, and only if nothing above named itself: the digest proves something in the
     # month changed even when every figure it produces happens to land the same way.
-    if not out and stored.get("digest") and stored.get("digest") != current.get("digest"):
+    # A digest from another version is not comparable and says nothing either way.
+    if (not out and stored.get("digest_version") == DIGEST_VERSION
+            and stored.get("digest") != current.get("digest")):
         out.append("the transactions changed, though the totals it produces did not")
     return out
 
@@ -166,32 +202,25 @@ def verify(year):
             continue
         stored = rows.get(key)
         if not stored:
-            out.append({"month": key, "status": "unwatched"})
-            continue
-        if "digest" not in stored:
-            # Recorded before this file watched settlement. It cannot detect the
-            # changes that matter most, and comparing what it does hold against a
-            # richer snapshot would manufacture drift that never happened.
-            out.append({"month": key, "status": "stale-baseline"})
+            out.append({"month": key, "status": "unwatched", "coverage": "none"})
             continue
         current = figures(year, month)
         moved = changes(stored, current)
         out.append({"month": key, "status": "drifted" if moved else "ok", "changes": moved,
-                    "stored": stored, "current": current, "closed_at": stored.get("closed_at")})
+                    "coverage": coverage(stored), "stored": stored, "current": current,
+                    "closed_at": stored.get("closed_at")})
     # The annual settlement is the binding figure and does not follow from the months:
     # a ratio override applied to the year moves it while every month stays put.
     if all(states.get("%d-%02d" % (int(year), m)) == "closed" for m in range(1, 13)):
         stored = rows.get("annual")
         if not stored:
-            out.append({"month": "annual", "status": "unwatched"})
-        elif "digest" not in stored:
-            out.append({"month": "annual", "status": "stale-baseline"})
+            out.append({"month": "annual", "status": "unwatched", "coverage": "none"})
         else:
             current = year_figures(year)
             moved = changes(stored, current)
             out.append({"month": "annual", "status": "drifted" if moved else "ok",
-                        "changes": moved, "stored": stored, "current": current,
-                        "closed_at": stored.get("closed_at")})
+                        "changes": moved, "coverage": coverage(stored), "stored": stored,
+                        "current": current, "closed_at": stored.get("closed_at")})
     return out
 
 
@@ -207,11 +236,11 @@ def baseline(year):
     adopted = []
     for month in range(1, 13):
         key = "%d-%02d" % (int(year), month)
-        if states.get(key) == "closed" and "digest" not in rows.get(key, {}):
+        if states.get(key) == "closed" and coverage(rows.get(key)) != "full":
             record(year, month)
             adopted.append(key)
     if (all(states.get("%d-%02d" % (int(year), m)) == "closed" for m in range(1, 13))
-            and "digest" not in load(year).get("annual", {})):
+            and coverage(load(year).get("annual")) != "full"):
         record_year(year)
         adopted.append("annual")
     return adopted
