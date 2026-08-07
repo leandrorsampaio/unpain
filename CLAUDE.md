@@ -26,8 +26,18 @@ dictionary — a missing key falls back to the English source. UI language lives
 `localStorage` for flash-free boot). Add a language = ship `i18n/<code>.js` + one line in `I18N.names` +
 add the code to `SUPPORTED_LANGUAGES` in `server.py`. Static chrome (index.html) uses `data-i18n[-title|-label|-aria]`
 attributes, retranslated by `translateChrome()`.
-**Settings** is a left-rail of sub-pages (`SETTINGS_AREAS`: Household · Accounts · Preferences · Accounting ·
-Data) rendered by `fillSettingsArea()`; state lives in `state.settingsArea`. Accounts moved here from a
+**Settings** is a left-rail of sub-pages (`SETTINGS_AREAS`: Household · Accounts · Balances · Preferences ·
+Accounting · Data · Security) rendered by `fillSettingsArea()`; state lives in `state.settingsArea`.
+**Balances** (`pipeline/balances.py` → `/api/balances?year=`) is the year grid of recorded balances:
+months down, accounts across, one cell per account-month holding either a **recorded** balance (an anchor
+from a bank statement, carrying the reconciliation verdict of the span that ends at it) or a **derived**
+one (what the ledger computes from the last recorded balance). The two must never blur — there is
+deliberately no control that adopts a derived figure as recorded, because that would turn every cell green
+while proving nothing. A cell owns a calendar month and shows an anchor dated inside it even when that
+date is not the month end. The opening column is the previous December: a year opens where the last one
+closed, one number, not two. Writing goes through the existing `/api/anchor` (`replace: true` to correct a
+figure) and `/api/anchor-delete`, from a per-account-year dialog, because a statement covers one account
+for one year. Accounts moved here from a
 top-level tab; backup download + data health check moved here from the app bar (Data area). The config
 knobs **autosave** — every field is debounced ~400ms into `commitSettingsSave()` (optimistic, latest-wins
 via `state.settingsSaveSeq`, plain `fetch` so failures land in the `#save-status` flag instead of a dialog),

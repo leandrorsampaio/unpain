@@ -7,6 +7,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Settings › Balances**: a year grid of recorded account balances — months down, accounts across, with
+  a per-month total. Each cell is either a balance recorded from a statement (carrying its reconciliation
+  verdict) or the figure the ledger computes, shown so you can check it against your bank. Entry is a
+  per-account-year dialog: type a balance, press Enter, move to the next month. Correcting a recorded
+  figure now needs an explicit `replace` (`POST /api/anchor`), so a contradiction still conflicts by default.
+
+### Changed
+
+- The dashboard net-worth chart shows the selected year only (January to December) instead of the whole
+  history, and is renamed **Liquid net worth** — it charts recorded account balances, not total wealth.
+  Outside the running year the heading reads "End of &lt;year&gt;" rather than "Now".
+
 ## [1.0.0] - 2026-07-22
 
 ### Added

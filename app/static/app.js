@@ -1692,7 +1692,7 @@ async function renderDashboard(renderId = state.renderId) {
     if (sh.startsWith('personal:')) return T('Personal') + ' · ' + personLabelRaw(sh.split(':')[1]);
     return sh;
   };
-  /* Net worth over time (cross-year). Reconstructed from recorded balances + the raw ledger;
+  /* Liquid net worth over the selected year. Reconstructed from recorded balances + the raw ledger;
      cash & credit-card accounts excluded. Untrusted spans (transactions don't reconcile with
      the anchors) are drawn dashed/red. */
   const nwNote = id => esc(accountLabel(id));
@@ -1716,17 +1716,25 @@ async function renderDashboard(renderId = state.renderId) {
   };
   const fillNetworth = token => {
     const card = $('#networth-card'); if (!card) return;
-    api('/api/networth').then(nw => {
+    api(`/api/networth?year=${year}`).then(nw => {
       if (token !== drawSeq || !renderIsCurrent(renderId, tab, year)) return;
       const totalEl = $('#nw-total'), noteEl = $('#nw-note'), emptyEl = $('#nw-empty'), box = card.querySelector('.chart-box');
       if (!nw.points.length) {
         totalEl.textContent = ''; noteEl.textContent = ''; box.style.display = 'none';
-        emptyEl.innerHTML = T('Record a balance for your bank accounts (Settings › Accounts → “Record balance”) to chart your money over time. Cash and credit-card accounts are not included.');
+        // Anchors exist but none of them reach this year — a different problem from having none at all.
+        emptyEl.innerHTML = nw.accounts.length
+          ? T('No recorded balance covers {year}. Net worth starts at your first recorded balance.', { year })
+          : T('Record a balance for your bank accounts (Settings › Accounts → “Record balance”) to chart your money over time. Cash and credit-card accounts are not included.');
         return;
       }
       box.style.display = ''; emptyEl.textContent = '';
-      totalEl.innerHTML = T('Now: {amount}', { amount: `<b>${fmt(nw.current.total_eur)}</b>` });
-      const notes = [];
+      // The chart stops at Dec of the shown year, so "Now" is only true for the running year.
+      const last = nw.points[nw.points.length - 1];
+      totalEl.innerHTML = last.date === nw.as_of
+        ? T('Now: {amount}', { amount: `<b>${fmt(nw.current.total_eur)}</b>` })
+        : T('End of {year}: {amount}', { year, amount: `<b>${fmt(last.total_eur)}</b>` });
+      // Name the scope where the line is read: this is spendable money, not total wealth.
+      const notes = [T('Recorded account balances. Cash and credit cards are not included.')];
       if (nw.uncovered.length) notes.push(T('Not yet included (no balance recorded): {list}', { list: nw.uncovered.map(nwNote).join(', ') }));
       if (nw.accounts.some(a => a.spans.some(s => s.ok === false && s.has_txns))) notes.push(T('Dashed red = periods where transactions don’t reconcile with the recorded balances.'));
       noteEl.innerHTML = notes.join(' · ');   // list labels already esc()-d via nwNote
@@ -1778,7 +1786,7 @@ async function renderDashboard(renderId = state.renderId) {
     parts.push(driftBannerHtml(view));
     parts.push(`<div class="flex gap-4 flex-wrap mb-6">${tilesHtml(view, data)}</div>`);
     if (view === 0) parts.push(`<div class="card p-5 mb-6" id="networth-card">
-      <div class="flex items-center justify-between mb-1 flex-wrap gap-2"><h2 class="font-medium">${T('Net worth')}</h2><span id="nw-total" class="type-title"></span></div>
+      <div class="flex items-center justify-between mb-1 flex-wrap gap-2"><h2 class="font-medium">${T('Liquid net worth')}</h2><span id="nw-total" class="type-title"></span></div>
       <div id="nw-note" class="type-caption mb-3" style="color:var(--ink2)"></div>
       <div class="chart-box tall"><canvas id="nw-canvas"></canvas></div>
       <div id="nw-empty" class="type-body-small" style="color:var(--ink2)"></div></div>`);
@@ -2690,6 +2698,206 @@ function deleteAccount(id) {
     },
   });
 }
+
+/* ---- Settings › Balances -------------------------------------------------
+   The year grid of recorded balances. Two kinds of number live here and the UI
+   must never blur them: a RECORDED balance came from the bank and can prove the
+   ledger right or wrong; a DERIVED one is only what the ledger computed from the
+   last recorded balance. Derived values are shown to compare against your banking
+   app — there is deliberately no button that adopts one as recorded, because that
+   would turn every cell green while proving nothing.
+   The grid reads; the per-account dialog writes, because a statement covers one
+   account for one year and that is how the numbers arrive. */
+
+const BAL_STATUS = {
+  ok: { cls: 'bal-ok', icon: 'check' },
+  mismatch: { cls: 'bal-bad', icon: 'priority_high' },
+  recorded: { cls: 'bal-rec', icon: '' },
+  derived: { cls: 'bal-derived', icon: '' },
+  unknown: { cls: 'bal-unknown', icon: '' },
+  future: { cls: 'bal-future', icon: '' },
+};
+
+function balancesYears() {
+  const years = (state.meta.years || []).slice();
+  const now = new Date().getFullYear();
+  if (!years.includes(now)) years.push(now);
+  return years.sort((a, b) => a - b);
+}
+
+async function fillBalancesArea() {
+  const host = $('#settings-area'); if (!host) return;
+  const years = balancesYears();
+  if (!years.includes(state.balancesYear)) state.balancesYear = years.includes(state.year) ? state.year : years[years.length - 1];
+  const data = await api(`/api/balances?year=${state.balancesYear}`);
+  if (state.settingsArea !== 'balances') return;      // navigated away while loading
+  state.balancesData = data;
+  const current = $('#settings-area'); if (!current) return;
+  current.innerHTML = balancesAreaHtml(data, years);
+  attachTooltips();
+}
+
+function setBalancesYear(year) { state.balancesYear = Number(year); fillBalancesArea(); }
+
+/* EUR uses the app-wide format; only genuinely foreign accounts get a currency code. */
+const balMoney = (v, currency) => (currency === 'EUR' ? fmt(v) : fmtCur(v, currency));
+
+function balanceCellHtml(row, cell) {
+  const meta = BAL_STATUS[cell.status] || BAL_STATUS.unknown;
+  const shown = cell.balance != null ? cell.balance : cell.derived;
+  const label = accountLabel(row.id);
+  const fmtC = v => balMoney(v, row.currency);
+  const when = fmtDate(cell.date, true);
+  let tip;
+  if (cell.status === 'ok') {
+    tip = T('{label} · {date}: {amount} recorded. Transactions since {from} add up to the cent.',
+      { label, date: when, amount: fmtC(cell.balance), from: fmtDate(cell.span_from, true) });
+  } else if (cell.status === 'mismatch') {
+    tip = T('{label} · {date}: {amount} recorded, but the transactions since {from} are off by {diff}.',
+      { label, date: when, amount: fmtC(cell.balance), from: fmtDate(cell.span_from, true),
+        diff: fmtC(cell.diff_cents / 100) });
+  } else if (cell.status === 'recorded') {
+    tip = T('{label} · {date}: {amount} recorded. No earlier balance to check it against yet.',
+      { label, date: when, amount: fmtC(cell.balance) });
+  } else if (cell.status === 'derived') {
+    tip = T('{label} · {date}: not recorded. The ledger computes {amount}. Check it against your bank and enter the real figure.',
+      { label, date: when, amount: fmtC(cell.derived) });
+  } else if (cell.status === 'future') {
+    tip = T('{label} · {date}: still to come.', { label, date: when });
+  } else {
+    tip = T('{label} · {date}: nothing recorded and nothing to compute from. Enter a balance to start this account.', { label, date: when });
+  }
+  // An anchor dated off the month end (a statement cut on the 29th) is still that month's
+  // balance — show it, and mark the real date so it is never mistaken for a month-end figure.
+  const offDate = cell.anchor_date && cell.anchor_date !== cell.date;
+  const text = shown == null ? (cell.status === 'future' ? '' : '—') : fmtC(shown);
+  return `<button type="button" class="bal-cell ${meta.cls}" data-bal-account="${esc(row.id)}" data-bal-key="${esc(cell.key)}"
+    ${tooltip(esc(tip))} aria-label="${esc(tip)}">
+    <span class="bal-value">${esc(text)}</span>
+    ${offDate ? `<span class="bal-flag type-caption">${esc(fmtDate(cell.anchor_date))}</span>` : ''}
+    ${meta.icon ? `<md-icon class="bal-icon">${meta.icon}</md-icon>` : ''}
+  </button>`;
+}
+
+/* A month's total across the EUR accounts that count toward net worth. When some account has
+   no figure the sum is still worth seeing, but it is marked partial and says how many accounts
+   it could read — an unmarked partial total is the kind of number people plan around. */
+function balTotalHtml(total) {
+  if (total.total == null) {
+    return `<div class="bal-total bal-total-col type-body-small" ${tooltip(T('No balance is known for any account this month.'))}><span style="color:var(--ink2)">—</span></div>`;
+  }
+  if (total.complete) return `<div class="bal-total bal-total-col type-body-small">${esc(fmt(total.total))}</div>`;
+  return `<div class="bal-total bal-total-col type-body-small partial"
+    ${tooltip(T('Partial: {covered} of {accounts} accounts have a figure for this month. The rest are missing, not zero.', { covered: total.covered, accounts: total.accounts }))}>
+    ${esc(fmt(total.total))}<span class="bal-partial type-caption">${total.covered}/${total.accounts}</span></div>`;
+}
+
+/* Months run down the page and accounts across it: a column is one account's year, which is
+   the shape a bank statement arrives in, and a row is one month across the household — the
+   net-worth line itemized. */
+function balancesAreaHtml(data, years) {
+  const yearTabs = years.map(y => {
+    const kind = y === data.year ? 'filled' : 'outlined';
+    return `<md-${kind}-button onclick="setBalancesYear(${y})">${y}</md-${kind}-button>`;
+  }).join('');
+  // Total sits next to the month, not after the accounts: it is the headline and the columns
+  // to its right are the breakdown. Pushed to the end it scrolls out of sight on a narrow panel.
+  const head = `<div class="bal-head type-label">${T('Month')}</div>
+    <div class="bal-head bal-total-col type-label" ${tooltip(T('Only EUR accounts that count toward net worth, and only when every one of them has a figure for that month. A total that quietly drops what it could not read is not a total.'))}>${T('Total')}</div>
+    ${data.accounts.map(row => {
+      const marks = [row.currency !== 'EUR' ? esc(row.currency) : '', row.in_networth ? '' : T('not in net worth')].filter(Boolean).join(' · ');
+      return `<div class="bal-head">
+        <button type="button" class="bal-account-btn type-label" data-bal-account="${esc(row.id)}" data-bal-key="opening"
+          ${tooltip(T('Enter a year of balances for {account}', { account: esc(accountLabel(row.id)) }))}>${esc(accountLabel(row.id))}</button>
+        ${marks ? `<span class="bal-mark type-caption">${marks}</span>` : ''}
+      </div>`;
+    }).join('')}`;
+  const rows = data.periods.map((period, index) => {
+    const name = index === 0 ? T('Opening') : T(MONTHS[index - 1]);
+    const total = data.totals[index];
+    return `<div class="bal-period type-body-small ${index === 0 ? 'opening' : ''}"
+        ${index === 0 ? tooltip(T('The closing balance of the year before. A year opens where the last one closed — one number, not two.')) : tooltip(fmtDate(period.date, true))}>${name}</div>
+      ${balTotalHtml(total)}
+      ${data.accounts.map(row => balanceCellHtml(row, row.cells[index])).join('')}`;
+  }).join('');
+  return settingsSection(
+    T('Balances per month'),
+    T('What each account was really worth, month by month. Recorded balances come from your bank and prove the ledger right or wrong; grey figures are only what the ledger computes. Click any cell to enter a year of balances for that account.'),
+    `<div class="flex gap-2 flex-wrap items-center mb-1">${yearTabs}</div>
+     <div class="scroll-x"><div class="bal-grid" style="--bal-cols:${data.accounts.length}">${head}${rows}</div></div>
+     <div class="bal-legend type-caption" style="color:var(--ink2)">
+       <span class="bal-chip bal-ok"></span>${T('recorded, reconciles')}
+       <span class="bal-chip bal-bad"></span>${T('recorded, does not add up')}
+       <span class="bal-chip bal-rec"></span>${T('recorded, nothing to check against')}
+       <span class="bal-chip bal-derived"></span>${T('computed by the ledger')}
+       <span class="bal-chip bal-unknown"></span>${T('unknown')}
+     </div>`);
+}
+
+/* Enter a whole year for one account: the shape a statement actually arrives in. */
+function openBalanceYear(accountId, focusKey) {
+  const data = state.balancesData;
+  const row = (data.accounts || []).find(a => a.id === accountId);
+  if (!row) return;
+  const fields = row.cells.map((cell, index) => {
+    const period = data.periods[index];
+    const name = index === 0 ? T('Opening ({date})', { date: fmtDate(period.date, true) })
+      : `${T(MONTH_NAMES[index - 1])} ${fmtDate(period.date, true)}`;
+    const hint = cell.status === 'mismatch'
+      ? T('ledger: {amount} — off by {diff}', { amount: balMoney(cell.derived, row.currency), diff: balMoney(cell.diff_cents / 100, row.currency) })
+      : cell.derived != null && cell.balance == null ? T('ledger: {amount}', { amount: balMoney(cell.derived, row.currency) })
+        : cell.status === 'ok' ? T('reconciles') : '';
+    const hintClass = cell.status === 'mismatch' ? 'bad' : cell.status === 'ok' ? 'good' : 'muted';
+    return `<div class="bal-row ${cell.key === focusKey ? 'focus' : ''}">
+      <label class="type-body-small" for="bal-f-${index}">${esc(name)}</label>
+      ${textField({ id: `bal-f-${index}`, label: '', type: 'number', className: 'bal-in',
+        value: cell.balance == null ? '' : cell.balance,
+        attrs: `step="0.01" data-index="${index}" data-date="${esc(cell.anchor_date || cell.date)}" data-original="${cell.balance == null ? '' : cell.balance}"` })}
+      <span class="bal-hint type-caption ${hintClass}">${esc(hint)}</span>
+    </div>`;
+  }).join('');
+  openModal({
+    title: T('Balances — {account} · {year}', { account: accountLabel(accountId), year: data.year }),
+    width: '620px',   // three columns: month, the figure, and what the ledger says about it
+    body: `<div class="type-caption mb-3" style="color:var(--ink2)">${T('Enter the balance your bank shows at each month end, in {currency}. Leave a month empty if you do not have its statement — an empty month is honest, a guess is not. Clearing a figure deletes the recorded balance.', { currency: esc(row.currency) })}</div>
+      <div class="bal-form">${fields}</div>`,
+    actions: `<md-text-button class="bal-cancel">${T('Cancel')}</md-text-button><md-filled-button class="bal-save">${T('Save balances')}</md-filled-button>`,
+    onMount: root => {
+      root.querySelector('.bal-cancel').onclick = () => root._close();
+      const inputs = [...root.querySelectorAll('.bal-in')];
+      // Enter moves down the column: a year of balances is typed, not clicked.
+      inputs.forEach((el, i) => el.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); (inputs[i + 1] || root.querySelector('.bal-save')).focus(); }
+      }));
+      const focused = root.querySelector('.bal-row.focus .bal-in') || inputs[0];
+      if (focused) setTimeout(() => focused.focus(), 50);
+      root.querySelector('.bal-save').onclick = async () => {
+        const changes = [];
+        for (const el of inputs) {
+          const original = el.dataset.original;
+          const typed = el.value.trim();
+          if (typed === original) continue;
+          if (typed === '') changes.push({ kind: 'delete', date: el.dataset.date });
+          else if (Number.isFinite(Number(typed))) changes.push({ kind: 'set', date: el.dataset.date, balance: cents(Number(typed)) / 100, replace: original !== '' });
+        }
+        if (!changes.length) { root._close(); return; }
+        root._close();
+        let saved = 0, removed = 0;
+        for (const change of changes) {
+          if (change.kind === 'delete') { await api('/api/anchor-delete', { account: accountId, date: change.date }); removed++; }
+          else { await api('/api/anchor', { account: accountId, date: change.date, balance: change.balance, replace: change.replace }); saved++; }
+        }
+        showMessage(T('{saved} balances recorded, {removed} removed.', { saved, removed }));
+        fillBalancesArea();
+      };
+    },
+  });
+}
+
+document.addEventListener('click', e => {
+  const hit = e.target.closest('[data-bal-account]');
+  if (hit) openBalanceYear(hit.dataset.balAccount, hit.dataset.balKey);
+});
 
 async function ingestUploadFiles(fileList) {
   const results = [];
@@ -4630,6 +4838,7 @@ function refreshSharePreview() {
 const SETTINGS_AREAS = [
   ['household', 'home', 'Household'],
   ['accounts', 'account_balance', 'Accounts'],
+  ['balances', 'grid_on', 'Balances'],
   ['preferences', 'tune', 'Preferences'],
   ['accounting', 'calculate', 'Accounting'],
   ['data', 'inventory_2', 'Data'],
@@ -4725,6 +4934,10 @@ async function fillSettingsArea() {
     host.innerHTML = `<div class="type-body-small py-6" style="color:var(--ink2)">${T('Loading…')}</div>`;
     host.innerHTML = await accountsAreaHtml();
     attachTooltips();   // wire the [data-tip] tooltips in the account rows (help, delete, in-use)
+
+  } else if (area === 'balances') {
+    host.innerHTML = `<div class="type-body-small py-6" style="color:var(--ink2)">${T('Loading…')}</div>`;
+    await fillBalancesArea();
 
   } else if (area === 'preferences') {
     const langOptions = I18N.codes().map(code =>

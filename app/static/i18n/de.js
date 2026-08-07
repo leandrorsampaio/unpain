@@ -594,9 +594,59 @@ I18N.register('de', {
   'manual override': 'manuelle Übersteuerung',
   'reference ratio': 'Referenzverhältnis',
 
+  /* ---- Settings › Balances (the year grid) ----
+     Note: the settings rail translates its label through a variable, so 'Balances'
+     is invisible to tests/test_i18n.js — it has to be kept here by hand. */
+  'Balances': 'Salden',
+  'Balances per month': 'Salden pro Monat',
+  'What each account was really worth, month by month. Recorded balances come from your bank and prove the ledger right or wrong; grey figures are only what the ledger computes. Click any cell to enter a year of balances for that account.':
+    'Was jedes Konto Monat für Monat wirklich wert war. Erfasste Salden kommen von deiner Bank und belegen, ob das Buch stimmt; graue Zahlen sind nur das, was das Buch errechnet. Klicke eine Zelle an, um ein ganzes Jahr für dieses Konto einzugeben.',
+  'Month': 'Monat',
+  'Enter a year of balances for {account}': 'Ein Jahr Salden für {account} eingeben',
+  'Opening': 'Anfang',
+  'Opening ({date})': 'Anfang ({date})',
+  'The closing balance of the year before. A year opens where the last one closed — one number, not two.':
+    'Der Schlusssaldo des Vorjahres. Ein Jahr beginnt dort, wo das letzte endete — eine Zahl, nicht zwei.',
+  'Total (EUR accounts)': 'Summe (EUR-Konten)',
+  'No balance is known for any account this month.': 'Für diesen Monat ist von keinem Konto ein Saldo bekannt.',
+  'Partial: {covered} of {accounts} accounts have a figure for this month. The rest are missing, not zero.':
+    'Unvollständig: {covered} von {accounts} Konten haben für diesen Monat einen Wert. Der Rest fehlt, ist aber nicht null.',
+  'Only EUR accounts that count toward net worth, and only when every one of them has a figure for that month. A total that quietly drops what it could not read is not a total.':
+    'Nur EUR-Konten, die zum Vermögen zählen, und nur wenn für den Monat jedes davon einen Wert hat. Eine Summe, die stillschweigend weglässt, was sie nicht lesen konnte, ist keine Summe.',
+  'not in net worth': 'nicht im Vermögen',
+  'recorded, reconciles': 'erfasst, stimmt überein',
+  'recorded, does not add up': 'erfasst, geht nicht auf',
+  'recorded, nothing to check against': 'erfasst, noch kein Vergleich möglich',
+  'computed by the ledger': 'vom Buch errechnet',
+  'unknown': 'unbekannt',
+  'reconciles': 'stimmt überein',
+  'ledger: {amount}': 'Buch: {amount}',
+  'ledger: {amount} — off by {diff}': 'Buch: {amount} — Abweichung {diff}',
+  'Balances — {account} · {year}': 'Salden — {account} · {year}',
+  'Enter the balance your bank shows at each month end, in {currency}. Leave a month empty if you do not have its statement — an empty month is honest, a guess is not. Clearing a figure deletes the recorded balance.':
+    'Gib den Saldo ein, den deine Bank zum Monatsende zeigt, in {currency}. Lass einen Monat leer, wenn du seinen Auszug nicht hast — ein leerer Monat ist ehrlich, eine Schätzung nicht. Ein geleertes Feld löscht den erfassten Saldo.',
+  'Save balances': 'Salden speichern',
+  '{saved} balances recorded, {removed} removed.': '{saved} Salden erfasst, {removed} entfernt.',
+  '{label} · {date}: {amount} recorded. Transactions since {from} add up to the cent.':
+    '{label} · {date}: {amount} erfasst. Die Transaktionen seit {from} gehen auf den Cent auf.',
+  '{label} · {date}: {amount} recorded, but the transactions since {from} are off by {diff}.':
+    '{label} · {date}: {amount} erfasst, aber die Transaktionen seit {from} weichen um {diff} ab.',
+  '{label} · {date}: {amount} recorded. No earlier balance to check it against yet.':
+    '{label} · {date}: {amount} erfasst. Noch kein früherer Saldo zum Abgleich vorhanden.',
+  '{label} · {date}: not recorded. The ledger computes {amount}. Check it against your bank and enter the real figure.':
+    '{label} · {date}: nicht erfasst. Das Buch errechnet {amount}. Vergleiche mit deiner Bank und trag den echten Wert ein.',
+  '{label} · {date}: still to come.': '{label} · {date}: steht noch aus.',
+  '{label} · {date}: nothing recorded and nothing to compute from. Enter a balance to start this account.':
+    '{label} · {date}: nichts erfasst und nichts zum Rechnen. Trag einen Saldo ein, um dieses Konto zu starten.',
+
   /* ---- Net worth ---- */
-  'Net worth': 'Vermögen',
+  'Liquid net worth': 'Liquides Vermögen',
+  'Recorded account balances. Cash and credit cards are not included.':
+    'Erfasste Kontosalden. Bargeld und Kreditkarten sind nicht enthalten.',
   'Now: {amount}': 'Jetzt: {amount}',
+  'End of {year}: {amount}': 'Ende {year}: {amount}',
+  'No recorded balance covers {year}. Net worth starts at your first recorded balance.':
+    'Kein erfasster Saldo deckt {year} ab. Das Vermögen beginnt beim ersten erfassten Saldo.',
   'Not yet included (no balance recorded): {list}': 'Noch nicht enthalten (kein Saldo erfasst): {list}',
   'Dashed red = periods where transactions don’t reconcile with the recorded balances.':
     'Rot gestrichelt = Zeiträume, in denen die Transaktionen nicht mit den erfassten Salden übereinstimmen.',

@@ -1,4 +1,4 @@
-"""Net worth over time, reconstructed from balance anchors + the raw ledger.
+"""Liquid net worth over time, reconstructed from balance anchors + the raw ledger.
 
 Unlike every other view in this app, net worth works with *levels*, not accountability
 flows — so it uses the RAW ledger (all transaction kinds, incl. internal transfers and
@@ -64,8 +64,13 @@ def _eur_at(native, currency, day):
     return round(native / rate, 2)
 
 
-def series(today=None):
-    """Cross-year net-worth timeline for the household (all non-cash, non-credit-card accounts)."""
+def series(today=None, year=None):
+    """Net-worth timeline for the household (all non-cash, non-credit-card accounts).
+
+    Levels are always reconstructed across the whole history (an account's balance carries
+    over from the year before). `year` only narrows the *sampled* dates to Jan–Dec of that
+    year, so the chart shows one year at a time; `current` stays "as of today" regardless.
+    """
     accounts, _ = load_accounts()
     included = {aid: a for aid, a in accounts.items()
                 if (a.get("type") or "").lower() not in EXCLUDED_TYPES}
@@ -93,6 +98,10 @@ def series(today=None):
     sample_dates = [d for d in _month_ends(earliest, today) if d <= today]
     if not sample_dates or sample_dates[-1] != today:
         sample_dates.append(today)             # always include "now"
+    if year is not None:
+        # One year at a time: Jan–Dec of `year`, cut off at today in the running year. Months
+        # before the first recorded balance stay out — an unknown level is not a zero one.
+        sample_dates = [d for d in sample_dates if d[:4] == str(int(year))]
 
     acct_points = {aid: [] for aid in covered}
     points = []

@@ -23,7 +23,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline import anchors, closings, coverage, doctor, fx, ingest, networth, recurring, rules_engine, settle, store, transfers  # noqa: E402
+from pipeline import anchors, balances, closings, coverage, doctor, fx, ingest, networth, recurring, rules_engine, settle, store, transfers  # noqa: E402
 from pipeline.util import DATA, INBOX, ROOT, RULES, cents, load_config, read_json, write_json, load_accounts  # noqa: E402
 
 app = FastAPI(title="FamilyAccountability")
@@ -695,6 +695,9 @@ class AnchorAdd(BaseModel):
     account: str
     date: str
     balance: float
+    # Correcting a typo has to be possible, but only when the caller says so: recording a
+    # different balance for a date that already has one is a contradiction by default (409).
+    replace: bool = False
 
 
 @app.post("/api/anchor")
@@ -708,6 +711,8 @@ def anchor_add(item: AnchorAdd):
         raise HTTPException(400, "date must be YYYY-MM-DD")
     if parsed.isoformat() != item.date:
         raise HTTPException(400, "date must be YYYY-MM-DD")
+    if item.replace:
+        anchors.remove(item.account, item.date)
     try:
         result = anchors.add_manual(item.account, item.date, item.balance)
     except ValueError as exc:
@@ -743,9 +748,15 @@ def anchor_delete(item: AnchorDelete):
     return {"ok": True, "result": result}
 
 
+@app.get("/api/balances")
+def balances_view(year: int):
+    """The Settings › Balances grid: every account × every month end of one year."""
+    return balances.grid(year)
+
+
 @app.get("/api/networth")
-def networth_view():
-    return networth.series()
+def networth_view(year: int | None = None):
+    return networth.series(year=year)
 
 
 BUDGETS_FILE = RULES / "budgets.json"

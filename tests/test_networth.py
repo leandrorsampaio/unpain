@@ -113,6 +113,25 @@ giro_series = next(a for a in s["accounts"] if a["id"] == "giro")["points"]
 jan_native = next(p for p in giro_series if p["date"] == "2024-01-31")["native"]
 assert jan_native == 1150.0, jan_native
 
+# ---- Year window: only Jan–Dec of the asked year is sampled, levels still carry over.
+y24 = networth.series(today="2025-06-30", year=2024)
+assert {p["date"][:4] for p in y24["points"]} == {"2024"}, y24["points"]
+assert y24["points"][0]["date"] == "2024-01-31" and y24["points"][-1]["date"] == "2024-12-31"
+assert len(y24["points"]) == 12, len(y24["points"])
+# The Jan point is the same level as in the cross-year series — a window, not a reset.
+full_jan = next(p for p in s["points"] if p["date"] == "2024-01-31")["total_eur"]
+assert y24["points"][0]["total_eur"] == full_jan
+# 2024 ends above where it started, and 2025 opens from that level (nothing resets at Jan 1).
+y25 = networth.series(today="2025-06-30", year=2025)
+assert y25["points"][-1]["date"] == "2025-06-30", y25["points"]     # running year stops at today
+assert len(y25["points"]) == 6, y25["points"]
+assert y25["points"][0]["total_eur"] == next(p for p in s["points"] if p["date"] == "2025-01-31")["total_eur"]
+# `current` is always "as of today", never the window's end.
+assert y24["current"]["total_eur"] == s["current"]["total_eur"]
+# A year before the first recorded balance charts nothing rather than a fake zero.
+y23 = networth.series(today="2025-06-30", year=2023)
+assert y23["points"] == [] and y23["accounts"], "pre-anchor year: no points, accounts still reported"
+
 # ---- Anchor delete round-trips.
 before = len(anchors.list_for("giro"))
 assert server.anchor_delete(server.AnchorDelete(account="giro", date="2024-01-01"))["ok"]
@@ -124,4 +143,4 @@ except server.HTTPException as e:
     assert e.status_code == 404
 
 shutil.rmtree(root, ignore_errors=True)
-print("Net worth passed: exclusions, uncovered, EUR+BRL reconstruction, cross-year carry, anchor delete")
+print("Net worth passed: exclusions, uncovered, EUR+BRL reconstruction, cross-year carry, year window, anchor delete")

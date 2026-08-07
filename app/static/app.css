@@ -582,6 +582,69 @@ md-outlined-text-field, md-outlined-select { min-width: 160px; }
   box-shadow: inset 0 0 0 1px var(--md-sys-color-outline);
   color: var(--ink2);
 }
+/* ---- Settings › Balances: the year grid of recorded vs computed balances.
+   Reads as a sibling of the statement coverage map above — same cell language,
+   one level deeper (coverage asks whether a statement arrived, this asks whether
+   its balance agrees). */
+.bal-grid {
+  display: grid;
+  grid-template-columns: 92px minmax(118px, auto) repeat(var(--bal-cols, 4), minmax(112px, 1fr));
+  gap: 4px;
+  align-items: stretch;
+  /* Grows with the number of accounts; .scroll-x takes over past the panel width. */
+  min-width: calc(210px + var(--bal-cols, 4) * 116px);
+}
+.bal-head {
+  display: flex; flex-direction: column; align-items: flex-end; justify-content: flex-end;
+  gap: 2px; padding: 4px; text-align: right; color: var(--ink2);
+  border-bottom: 1px solid var(--line);
+}
+.bal-head:first-child, .bal-period { text-align: left; align-items: flex-start; }
+.bal-period { display: flex; align-items: center; padding: 4px; color: var(--ink); }
+.bal-period.opening { color: var(--ink2); font-style: italic; }
+.bal-mark { color: var(--ink2); }
+.bal-account-btn {
+  background: none; border: 0; padding: 0; font: inherit; color: var(--primary);
+  cursor: pointer; text-align: right; text-decoration: underline dotted;
+  text-underline-offset: 3px; overflow-wrap: anywhere;
+}
+.bal-cell {
+  display: flex; flex-direction: column; align-items: flex-end; justify-content: center;
+  gap: 2px; min-height: 40px; padding: 4px 8px;
+  border: 0; border-radius: 8px; cursor: pointer;
+  font: inherit; font-size: var(--type-body-small-size, 0.875rem);
+  color: var(--ink2); background: var(--md-sys-color-surface-container-high);
+}
+.bal-cell:hover { outline: 2px solid var(--md-sys-color-outline); }
+.bal-cell.bal-ok { background: var(--good-container); color: var(--on-good-container); }
+.bal-cell.bal-bad { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
+.bal-cell.bal-rec { background: var(--md-sys-color-surface-container-high); color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline); }
+.bal-cell.bal-derived { background: transparent; color: var(--ink2); font-style: italic;
+  box-shadow: inset 0 0 0 1px var(--line); }
+.bal-cell.bal-unknown { background: var(--md-sys-color-surface-container); color: var(--ink2); }
+.bal-cell.bal-future { background: transparent; cursor: default; }
+.bal-value { white-space: nowrap; }
+.bal-flag { opacity: .75; }
+.bal-icon { font-size: 14px; width: 14px; height: 14px; }
+.bal-total { display: flex; align-items: center; justify-content: flex-end; padding: 4px 8px; color: var(--ink); }
+.bal-total-col { border-right: 1px solid var(--line); padding-right: 12px; margin-right: 4px; }
+.bal-total.partial { color: var(--ink2); gap: 4px; }
+.bal-partial { opacity: .8; }
+.bal-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin-top: 12px; }
+.bal-chip { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+.bal-chip.bal-ok { background: var(--good-container); }
+.bal-chip.bal-bad { background: var(--md-sys-color-error-container); }
+.bal-chip.bal-rec { background: var(--md-sys-color-surface-container-high); box-shadow: inset 0 0 0 1px var(--md-sys-color-outline); }
+.bal-chip.bal-derived { box-shadow: inset 0 0 0 1px var(--line); }
+.bal-chip.bal-unknown { background: var(--md-sys-color-surface-container); }
+/* The entry dialog: one account, one year, typed straight down the column. */
+.bal-form { display: flex; flex-direction: column; gap: 8px; }
+.bal-row { display: grid; grid-template-columns: 150px minmax(120px, 1fr) minmax(140px, 1fr); gap: 12px; align-items: center; }
+.bal-row.focus { background: var(--md-sys-color-surface-container-high); border-radius: 8px; }
+.bal-hint.good { color: var(--good); }
+.bal-hint.bad { color: var(--bad); }
+.bal-hint.muted { color: var(--ink2); }
 .coverage-anchor { justify-self: center; gap: 4px; }
 .coverage-anchor md-icon { font-size: 18px; width: 18px; height: 18px; }
 .coverage-gap-list { padding-left: 24px; color: var(--ink); }
