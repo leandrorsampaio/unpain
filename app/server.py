@@ -686,8 +686,9 @@ def statement_coverage(year: int):
 
 
 @app.get("/api/doctor")
-def data_doctor():
-    return doctor.run()
+def data_doctor(year: int = None):
+    """The whole store, or one year when a period is being checked on its own."""
+    return doctor.run(year)
 
 
 class AnchorAdd(BaseModel):

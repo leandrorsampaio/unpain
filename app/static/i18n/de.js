@@ -945,4 +945,18 @@ I18N.register('de', {
   'This records what {period} contains now as the settled figures. The change stays — you are agreeing to it.':
     'Damit gilt der aktuelle Stand von {period} als abgeschlossen. Die Änderung bleibt — du stimmst ihr zu.',
   'Accept': 'Übernehmen',
+
+  /* Integrity check when closing a period */
+  'Run check': 'Prüfen',
+  'Integrity check — {year}': 'Datenprüfung — {year}',
+  'Integrity check': 'Datenprüfung',
+  'Integrity check: all clear': 'Datenprüfung: alles in Ordnung',
+  '{errors} errors, {warnings} warnings, {info} info':
+    '{errors} Fehler, {warnings} Warnungen, {info} Hinweise',
+  'Closed. The integrity check found nothing.':
+    'Abgeschlossen. Die Datenprüfung hat nichts gefunden.',
+  'Close {month}?': '{month} abschließen?',
+  'Close year {year}?': 'Jahr {year} abschließen?',
+  'No statement was ingested for these accounts:':
+    'Für diese Konten wurde kein Kontoauszug eingelesen:',
 });

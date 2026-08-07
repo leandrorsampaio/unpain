@@ -144,17 +144,29 @@ async function main() {
       await page.evaluate(() => { toggleMonth(6, 'closed'); });
       const gate = page.locator('md-dialog.app-dialog');
       await gate.waitFor({ state: 'visible', timeout: 5000 });
-      await gate.locator('[slot="headline"]').filter({ hasText: 'Close June with missing statements?' }).waitFor();
+      await gate.locator('[slot="headline"]').filter({ hasText: 'Close June?' }).waitFor();
+      // One dialog, both answers to "is this safe to call settled": what has no
+      // statement, and what the integrity check found.
+      await gate.locator('.coverage-gap-list').waitFor({ timeout: 5000 });
+      await gate.getByText(/Integrity check/).waitFor({ timeout: 5000 });
       await page.screenshot({ path: path.join(SCREENSHOTS, 'coverage-gate.png'), fullPage: true, animations: 'disabled' });
       await gate.locator('.confirm-cancel').click();
       await gate.waitFor({ state: 'detached', timeout: 5000 });
       const juneAfterCancel = await page.evaluate(async () => (await (await fetch('/api/summary?year=2026')).json()).months_state['2026-06']);
       if (juneAfterCancel === 'closed') throw new Error('cancelled coverage gate closed June');
 
-      // May is outside the active range, so it closes without a confirmation.
+      // May is outside the active range, so it has no coverage gap — but the integrity
+      // check still runs, and this fixture carries a balance mismatch. The gate appears
+      // on the strength of the check alone, with no statement list.
       await page.evaluate(() => { toggleMonth(5, 'closed'); });
+      const mayGate = page.locator('md-dialog.app-dialog');
+      await mayGate.waitFor({ state: 'visible', timeout: 5000 });
+      await mayGate.getByText(/Integrity check/).waitFor({ timeout: 5000 });
+      if (await mayGate.locator('.coverage-gap-list').count()) {
+        throw new Error('a month with no coverage gap listed missing statements');
+      }
+      await mayGate.locator('.confirm-go').click();
       await page.waitForFunction(async () => (await (await fetch('/api/summary?year=2026')).json()).months_state['2026-05'] === 'closed');
-      if (await page.locator('md-dialog.app-dialog').count()) throw new Error('gapless month unexpectedly opened a gate');
       await page.evaluate(() => { toggleMonth(5, 'open'); });
       await page.waitForFunction(async () => (await (await fetch('/api/summary?year=2026')).json()).months_state['2026-05'] === 'open');
 

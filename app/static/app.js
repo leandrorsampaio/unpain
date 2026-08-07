@@ -1403,9 +1403,13 @@ async function renderDashboard(renderId = state.renderId) {
     const isYear = (view === 0 || view === 'yc');
     const closed = isYear ? allMonthsClosed() : monthClosed(view);
     const action = isYear ? `toggleYear('${closed ? 'open' : 'closed'}')` : `toggleMonth(${view}, '${closed ? 'open' : 'closed'}')`;
-    return closed
+    // Available beside close/reopen so the check can be run on its own, without
+    // having to open and reclose a period to see what it would say.
+    const check = `<md-text-button class="close-btn" onclick="openPeriodCheck()">
+      <md-icon slot="icon">health_and_safety</md-icon>${T('Run check')}</md-text-button>`;
+    return check + (closed
       ? `<md-filled-button class="close-btn" onclick="${action}"><md-icon slot="icon">lock</md-icon>${T(isYear ? 'Reopen year' : 'Reopen month')}</md-filled-button>`
-      : `<md-outlined-button class="close-btn" onclick="${action}"><md-icon slot="icon">lock_open</md-icon>${T(isYear ? 'Close year' : 'Close month')}</md-outlined-button>`;
+      : `<md-outlined-button class="close-btn" onclick="${action}"><md-icon slot="icon">lock_open</md-icon>${T(isYear ? 'Close year' : 'Close month')}</md-outlined-button>`);
   };
 
   // The 15 biggest single costs, travel and rent set aside so the everyday
@@ -1895,6 +1899,82 @@ async function dismissFinding(month, index) {
   render();
 }
 
+/* ---------- the integrity check, run where a period is settled ----------
+   Closing a period is the moment its figures stop being provisional, so it is the
+   moment worth knowing whether they are sound. The check and the missing-statement
+   warning answer the same question — is this safe to call settled — so they are one
+   dialog rather than two: two in a row means the first is clicked through unread. */
+function checkDigestHtml(result) {
+  const counts = { error: 0, warning: 0, info: 0 };
+  (result.findings || []).forEach(item => { counts[item.severity] += 1; });
+  const line = T('{errors} errors, {warnings} warnings, {info} info',
+                 { errors: counts.error, warnings: counts.warning, info: counts.info });
+  if (!result.findings.length) {
+    return `<p style="color:var(--good)"><b>${T('Integrity check: all clear')}</b> — ${esc(line)}</p>`;
+  }
+  // A flat list, without the action buttons the health panel wires up: a button that
+  // does nothing because nothing is listening is worse than no button.
+  const rows = result.findings.map(item => {
+    const meta = DOCTOR_CHECKS[item.check] || {};
+    const colour = item.severity === 'error' ? 'var(--bad)'
+      : item.severity === 'warning' ? 'var(--on-warn-container)' : 'var(--ink2)';
+    return `<li class="mb-1"><span style="color:${colour}">●</span>
+      <b>${esc(meta.label ? T(meta.label) : item.check)}</b>${item.year ? ` · ${esc(item.year)}` : ''}
+      <div class="type-caption" style="color:var(--ink2)">${esc(item.message)}</div></li>`;
+  }).join('');
+  return `<p><b>${T('Integrity check')}</b> — ${esc(line)}</p>
+    <ul style="margin-left:1.1rem;list-style:none">${rows}</ul>`;
+}
+
+async function runPeriodCheck(year = state.year) {
+  return api(`/api/doctor?year=${year}`);
+}
+
+function openPeriodCheck(year = state.year) {
+  const dialog = openModal({
+    title: T('Integrity check — {year}', { year }),
+    body: '<div class="flex justify-center p-8"><md-circular-progress indeterminate></md-circular-progress></div>',
+    actions: `<md-text-button class="check-close">${T('Close')}</md-text-button>`,
+    onMount: async root => {
+      root.querySelector('.check-close').onclick = () => root._close();
+      let html;
+      try {
+        html = checkDigestHtml(await runPeriodCheck(year));
+      } catch (err) {
+        html = `<p style="color:var(--bad)">${esc(err.message || String(err))}</p>`;
+      }
+      const body = root.querySelector('.generic-modal-body');
+      if (body) body.innerHTML = `<div class="type-body-small">${html}</div>`;
+    },
+  });
+  return dialog;
+}
+
+/* Close a period, having first said what the check found and what has no statement.
+   The check runs every time; the dialog only appears when there is something to say,
+   so a clean close is not an extra click that teaches you to click without reading. */
+async function closeWithChecks({ title, confirmLabel, gapsHtml, apply }) {
+  let result = null;
+  try {
+    result = await runPeriodCheck();
+  } catch (err) {
+    showError(err.message || String(err));
+    return;
+  }
+  const findings = result.findings || [];
+  if (!gapsHtml && !findings.length) {
+    await apply();
+    return showMessage(T('Closed. The integrity check found nothing.'), { title: T('Done') });
+  }
+  return confirmAction({
+    title,
+    body: `${gapsHtml || ''}${checkDigestHtml(result)}`,
+    confirmLabel,
+    danger: findings.some(item => item.severity === 'error'),
+    onConfirm: apply,
+  });
+}
+
 async function setMonthState(month, stateStr) {
   await api('/api/close', { year: state.year, month, state: stateStr });
   render();
@@ -1928,13 +2008,14 @@ async function toggleMonth(month, stateStr) {
   if (stateStr !== 'closed') return setMonthState(month, stateStr);
   const data = await api(`/api/coverage?year=${state.year}`);
   const gaps = coverageGapsFor(data, month);
-  if (!gaps.length) return setMonthState(month, stateStr);
-  return confirmAction({
-    title: T('Close {month} with missing statements?', { month: T(MONTH_NAMES[month - 1]) }),
-    body: `<ul class="coverage-gap-list">${gaps.map(gap => `<li>${esc(gap.label)}</li>`).join('')}</ul>
-      <p class="mt-3">${T('No statement was ingested for these accounts. Close anyway if you are aware.')}</p>`,
+  return closeWithChecks({
+    title: T('Close {month}?', { month: T(MONTH_NAMES[month - 1]) }),
     confirmLabel: T("I'm aware — close month"),
-    onConfirm: () => setMonthState(month, stateStr),
+    gapsHtml: gaps.length
+      ? `<p>${T('No statement was ingested for these accounts:')}</p>
+         <ul class="coverage-gap-list">${gaps.map(gap => `<li>${esc(gap.label)}</li>`).join('')}</ul>`
+      : '',
+    apply: () => setMonthState(month, stateStr),
   });
 }
 
@@ -1951,13 +2032,14 @@ async function toggleYear(stateStr) {
     }
     return { label: accountLabel(account.id), months };
   }).filter(account => account.months.length);
-  if (!gaps.length) return setYearState(stateStr);
-  return confirmAction({
-    title: T('Close year with missing statements?'),
-    body: `<ul class="coverage-gap-list">${gaps.map(gap => `<li><b>${esc(gap.label)}</b>: ${gap.months.map(m => T(m)).join(', ')}</li>`).join('')}</ul>
-      <p class="mt-3">${T('No statement was ingested for these accounts. Close anyway if you are aware.')}</p>`,
+  return closeWithChecks({
+    title: T('Close year {year}?', { year: state.year }),
     confirmLabel: T("I'm aware — close year"),
-    onConfirm: () => setYearState(stateStr),
+    gapsHtml: gaps.length
+      ? `<p>${T('No statement was ingested for these accounts:')}</p>
+         <ul class="coverage-gap-list">${gaps.map(gap => `<li><b>${esc(gap.label)}</b>: ${gap.months.map(m => T(m)).join(', ')}</li>`).join('')}</ul>`
+      : '',
+    apply: () => setYearState(stateStr),
   });
 }
 
