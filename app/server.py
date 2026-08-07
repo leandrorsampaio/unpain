@@ -17,7 +17,7 @@ from typing import Optional
 import re
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -201,9 +201,32 @@ def set_auto_lock(req: AutoLockRequest):
     return {"ok": True}
 
 
+# The app shell links its own CSS and JS with a ?v= query so browsers refetch them after a
+# change. Hand-written version strings are a footgun: forget one and the user gets new JS with
+# the previous stylesheet, which looks exactly like a broken page. Stamp them from the files
+# themselves instead, so shipping a change is the only thing anyone has to remember.
+# Everything the shell links that this repo edits. Third-party bundles pinned to a real release
+# (chart.umd.js?v=4.4.9) are left alone — their version string is already the truth.
+VERSIONED_ASSETS = ("app.css", "app.js", "i18n.js", "i18n/de.js",
+                    "vendor/theme.css", "vendor/material.js", "favicon.svg")
+
+
+def _asset_version(name):
+    stat = (STATIC / name).stat()
+    return hashlib.sha256(f"{stat.st_mtime_ns}:{stat.st_size}".encode()).hexdigest()[:10]
+
+
+def _index_html():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    for name in VERSIONED_ASSETS:
+        html = re.sub(r"/static/%s(\?v=[^\"']*)?" % re.escape(name),
+                      "/static/%s?v=%s" % (name, _asset_version(name)), html)
+    return html
+
+
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
+    return HTMLResponse(_index_html(), headers={"Cache-Control": "no-cache"})
 
 
 # ---- product feedback (deliberately separate from accountability data) ----
