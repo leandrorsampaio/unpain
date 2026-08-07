@@ -232,7 +232,7 @@ across = {t["id"]: t["kind"] for t in store.effective_year(2025) + store.effecti
 assert across["cross-out#1"] == across["cross-in#1"] == "internal-transfer", across
 
 cross_group = next(g for g in server.transfers_list(year=2025)["items"]
-                   if g["id"] == "cross-out#1" or any(l["id"] == "cross-out#1" for l in g["legs"]))
+                   if g["id"] == "cross-out#1" or any(leg["id"] == "cross-out#1" for leg in g["legs"]))
 assert {leg["id"] for leg in cross_group["legs"]} == {"cross-out#1", "cross-in#1"}, \
     "the review screen shows one movement, not two unrelated single-leg decisions"
 

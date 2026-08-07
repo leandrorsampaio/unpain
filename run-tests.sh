@@ -12,6 +12,19 @@ node --check tests/ui_smoke.js
 # same-size source edit (observed in practice); hash validation always can.
 "$PY" -m compileall -q --invalidation-mode checked-hash pipeline app tests
 
+# Ruff, the same check CI gates on. Without it here, a lint-only failure passes locally and
+# turns the branch red after the push — which is exactly how E741 reached main.
+# Not a hard dependency: a clone that has not installed it still runs the suite, and is told
+# that CI will enforce what was skipped.
+RUFF=""
+if [ -x .venv/bin/ruff ]; then RUFF=".venv/bin/ruff"; elif command -v ruff >/dev/null 2>&1; then RUFF="ruff"; fi
+if [ -n "$RUFF" ]; then
+  "$RUFF" check .
+else
+  echo "   ruff not installed — skipping lint (CI still enforces it)."
+  echo "   install with: .venv/bin/pip install 'ruff==0.15.22'"
+fi
+
 # Real-data tripwire: snapshot the real tree, verify it on exit (even after a
 # failure), never mask the tests' own exit code, never leave files behind.
 TRIP_SNAPSHOT=$(mktemp "${TMPDIR:-/tmp}/fa-tripwire.XXXXXX")

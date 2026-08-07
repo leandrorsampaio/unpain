@@ -49,8 +49,9 @@ header-to-field mapping). To add yours:
 - **Match the surrounding code.** Use no new frameworks and no build step. The frontend is vanilla
   JS and native ES modules. The backend is plain Python 3.12.
 - **Linting.** [Ruff](https://docs.astral.sh/ruff/) checks Python style (config in `ruff.toml`; a
-  deliberately light default rule set). Run `ruff check` before a PR — for example `uvx ruff check`
-  or `pipx run ruff check`. An `.editorconfig` keeps indentation consistent (4-space Python, 2-space
+  deliberately light default rule set). `./run-tests.sh` runs it when it is installed
+  (`.venv/bin/pip install 'ruff==0.15.22'`, the version CI pins) and tells you when it is not.
+  You can also run it directly — for example `uvx ruff check` or `pipx run ruff check`. An `.editorconfig` keeps indentation consistent (4-space Python, 2-space
   everything else).
 - **Money** uses integer cents (`pipeline/util.cents()` or the JS `cents()` mirror). Never compare
   money with float equality.
