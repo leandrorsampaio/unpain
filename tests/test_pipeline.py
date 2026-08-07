@@ -749,10 +749,22 @@ live = next(t for t in store.load_year_raw(2026)
 store.save_decisions(2026, {live["transfer_partner"]: {"kind": "normal"}})
 sides = {t["id"]: t["kind"] for t in store.effective_year(2026)
          if t["id"] in (live["id"], live["transfer_partner"])}
-check("a kind=normal decision releases one leg while the other stays excluded",
+check("a decision alone leaves the stored pair untouched until reconciliation runs",
       sorted(sides.values()) == ["internal-transfer", "normal"])
-check("doctor reports the pair left one-sided by that decision",
+check("which doctor reports, so the window is never silent",
       any(live["id"] in f["ids"] for f in _checks_named("orphan-transfer-mark", 2026)))
+# Reconciliation is what closes it, and every production write path runs it.
+transfers.mark_internal(2026)
+sides = {t["id"]: t["kind"] for t in store.effective_year(2026)
+         if t["id"] in (live["id"], live["transfer_partner"])}
+check("reconciling releases both legs in one pass, never just one",
+      sorted(sides.values()) == ["normal", "normal"])
+check("so no orphan is left for doctor to report",
+      not _checks_named("orphan-transfer-mark", 2026))
+transfers.mark_internal(2026)
+sides_again = {t["id"]: t["kind"] for t in store.effective_year(2026)
+               if t["id"] in (live["id"], live["transfer_partner"])}
+check("and a second pass changes nothing", sides_again == sides)
 store.save_decisions(2026, {})
 transfers.mark_internal(2026)
 
@@ -1279,7 +1291,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 208
+MIN_CHECKS = 211
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

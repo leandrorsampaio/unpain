@@ -188,5 +188,77 @@ drift = [f for f in doctor.run(2025)["findings"] if f["check"] == "closed-month-
 assert any("2025-10" in f["message"] for f in drift), \
     "and the closed month it moved is reported rather than changed in silence"
 
+
+# A kind=normal verdict says this row is not money moving between our own accounts.
+# The pairing was the only evidence the other row was either, so both go — leaving one
+# excluded and one counted is the single state the data cannot mean. Driven through the
+# endpoint, because the production write path is what has to reconcile.
+for rejected_leg in ("out", "in"):
+    store.save_decisions(2025, {})
+    out_id, in_id = seed_pair("verdict-" + rejected_leg, 250.00, "2025-06-04", "2025-06-05")
+    assert kinds(out_id, in_id) == ["internal-transfer"] * 2
+    server.transfer_confirm(server.TransferVerdict(
+        year=2025, id=out_id if rejected_leg == "out" else in_id, confirmed=False))
+    assert kinds(out_id, in_id) == ["normal", "normal"], \
+        "rejecting the %s leg must release both" % rejected_leg
+    counted = {e["txn"]["id"] for e in settle.entries(store.effective_year(2025))}
+    assert {out_id, in_id} <= counted, "and both must enter the totals"
+    assert not [f for f in doctor.run(2025)["findings"]
+                if f["check"] == "orphan-transfer-mark"], "with no orphan left behind"
+
+# An explicit confirmation still outranks the evidence; detection cannot overturn it.
+store.save_decisions(2025, {})
+out_id, in_id = seed_pair("authority", 275.00, "2025-06-10", "2025-06-11")
+server.transfer_confirm(server.TransferVerdict(year=2025, id=out_id, confirmed=True))
+server.transaction_edit(server.TxnEdit(year=2025, id=out_id, date="2025-06-10",
+                                       counterparty="Own transfer", amount_eur=-99.00))
+assert kinds(out_id, in_id) == ["internal-transfer"] * 2, \
+    "a confirmed pair survives evidence that no longer supports it — the human decided"
+
+# A pair booked across New Year is one movement in two files. Detection already matches
+# across the boundary; the verdict and the listing have to as well, or the far leg stays
+# excluded while the near one is counted.
+(root / "data" / "2026" / "transactions").mkdir(parents=True, exist_ok=True)
+(root / "data" / "2025" / "transactions" / "cross.jsonl").write_text(
+    json.dumps(txn("cross-out#1", ACCOUNT_A, -520.00, "2025-12-30", "Own transfer")) + "\n",
+    encoding="utf-8")
+(root / "data" / "2026" / "transactions" / "cross.jsonl").write_text(
+    json.dumps(txn("cross-in#1", ACCOUNT_B, 520.00, "2026-01-02", "Own transfer")) + "\n",
+    encoding="utf-8")
+store.save_decisions(2025, {})
+store.save_decisions(2026, {})
+transfers.mark_internal(2025)
+across = {t["id"]: t["kind"] for t in store.effective_year(2025) + store.effective_year(2026)}
+assert across["cross-out#1"] == across["cross-in#1"] == "internal-transfer", across
+
+cross_group = next(g for g in server.transfers_list(year=2025)["items"]
+                   if g["id"] == "cross-out#1" or any(l["id"] == "cross-out#1" for l in g["legs"]))
+assert {leg["id"] for leg in cross_group["legs"]} == {"cross-out#1", "cross-in#1"}, \
+    "the review screen shows one movement, not two unrelated single-leg decisions"
+
+verdict = server.transfer_confirm(server.TransferVerdict(year=2025, id="cross-out#1", confirmed=False))
+assert sorted(verdict["updated"]) == ["cross-in#1", "cross-out#1"], verdict
+assert store.decisions(2025)["cross-out#1"]["kind"] == "normal"
+assert store.decisions(2026)["cross-in#1"]["kind"] == "normal", \
+    "the far year's decision file must be written too"
+across = {t["id"]: t["kind"] for t in store.effective_year(2025) + store.effective_year(2026)}
+assert across["cross-out#1"] == across["cross-in#1"] == "normal", across
+
+server.transfer_confirm(server.TransferVerdict(year=2025, id="cross-in#1", confirmed=True))
+assert store.decisions(2026)["cross-in#1"]["kind"] == "internal-transfer"
+assert store.decisions(2025)["cross-out#1"]["kind"] == "internal-transfer", \
+    "confirming from either side moves both years back"
+
+# A locked month on either leg refuses the whole verdict, so a pair is never half-answered.
+store.save_months_state(2026, {"2026-01": "closed"})
+try:
+    server.transfer_confirm(server.TransferVerdict(year=2025, id="cross-out#1", confirmed=False))
+    raise AssertionError("a closed month on the far leg must block the verdict")
+except HTTPException as exc:
+    assert exc.status_code == 409 and "2026-01" in exc.detail, exc.detail
+assert store.decisions(2025)["cross-out#1"]["kind"] == "internal-transfer", \
+    "and must leave the near year untouched"
+store.save_months_state(2026, {})
+
 shutil.rmtree(root, ignore_errors=True)
 print("Transfer review endpoints passed")

@@ -11,7 +11,7 @@ Detection, conservative by design:
 """
 from datetime import date
 
-from . import store
+from . import rules_engine, store
 from .util import cents, load_accounts, load_config
 
 
@@ -143,8 +143,12 @@ def mark_internal(year):
         by_id = {t["id"]: t for t in all_txns}
 
         def still_paired(t):
-            return (t.get("kind") == "internal-transfer"
-                    or decision_for(t).get("kind") == "internal-transfer")
+            # The effective kind, through the one definition of that precedence — not
+            # the stored row. A kind=normal decision releases a leg the instant it is
+            # saved, but the stored value is not rewritten until a later pass in this
+            # same function, so reading it here saw the pair as intact and left the
+            # partner excluded for one whole run: one leg counted, one not.
+            return rules_engine.effective_kind(t, decision_for(t)) == "internal-transfer"
 
         # Marks written before partners were recorded carry no id to check, so the
         # partner is re-identified the same way it was chosen: an opposite amount
@@ -180,7 +184,7 @@ def mark_internal(year):
         for t in all_txns:
             if decision_for(t).get("kind") == "internal-transfer":
                 continue  # the user said so; detection does not get a vote
-            if t.get("kind") != "internal-transfer":
+            if not still_paired(t):
                 continue
             if not str(t.get("transfer_reason", "")).startswith("pair:"):
                 continue
@@ -341,8 +345,12 @@ def detected(year):
     carry a decision, which already outranks detection everywhere else.
     """
     raw = store.load_year_raw(year)
-    decisions = store.decisions(year)
-    by_id = {t["id"]: t for t in raw}
+    # Partners are resolved across adjacent years, matching detection's own scope: a
+    # transfer booked on 30 December and landing on 2 January is one movement, and
+    # looking only inside one year showed it as two unrelated single-leg decisions.
+    neighbours = [y for y in (year - 1, year, year + 1) if y in store.years()]
+    by_id = {t["id"]: t for y in neighbours for t in store.load_year_raw(y)}
+    decisions = store.decisions(year)   # only this year's rows carry a status here
     out = []
     for t in raw:
         decided = decisions.get(t["id"], {}).get("kind")

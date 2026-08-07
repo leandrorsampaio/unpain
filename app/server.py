@@ -776,11 +776,20 @@ def transfers_list(year: int):
             continue
         legs = [row]
         partner = by_id.get(row.get("partner_id") or "")
+        if partner is None and row.get("partner"):
+            # The far leg of a pair booked across New Year lives in another year's
+            # file, so it is not among this year's rows. Showing the movement as two
+            # unrelated single-leg decisions would invite two different answers to
+            # one question — detection already matches across the boundary.
+            partner = dict(row["partner"], reason=row["reason"], status=row["status"],
+                           partner_id=row["id"], partner=None)
         if partner is not None and partner["id"] != row["id"]:
             legs.append(partner)
         seen.update(leg["id"] for leg in legs)
         for leg in legs:
-            leg["month_closed"] = months.get(leg["date"][:7]) == "closed"
+            leg["month_closed"] = (store.months_state(int(leg["date"][:4]))
+                                   if leg["date"][:4] != str(year) else months
+                                   ).get(leg["date"][:7]) == "closed"
         groups.append({
             "id": row["id"], "reason": row["reason"], "status": row["status"],
             "amount_eur": abs(row["amount_eur"]),
@@ -818,32 +827,47 @@ def transfer_confirm(v: TransferVerdict):
     confirming what is already excluded changes no figure at all, and blocking that
     would make a closed year impossible to audit, which is the opposite of the point.
     """
-    raw = {t["id"]: t for t in store.load_year_raw(v.year)}
-    target = raw.get(v.id)
-    if target is None:
+    # A pair can straddle a year boundary — booked 30 December, landing 2 January —
+    # and detection already matches across adjacent years. Writing only the requested
+    # year left the far leg excluded while the near one was counted.
+    neighbours = [y for y in (v.year - 1, v.year, v.year + 1) if y in store.years()]
+    raw = {t["id"]: (y, t) for y in neighbours for t in store.load_year_raw(y)}
+    if v.id not in raw:
         raise HTTPException(404, "unknown transaction")
-    decs = store.decisions(v.year)
-    months = store.months_state(v.year)
+    target_year, target = raw[v.id]
     kind = "internal-transfer" if v.confirmed else "normal"
 
-    legs = [target]
+    legs = [(target_year, target)]
     partner = raw.get(target.get("transfer_partner") or "")
-    if partner is not None and partner["id"] != target["id"]:
+    if partner is not None and partner[1]["id"] != target["id"]:
         legs.append(partner)
 
-    for leg in legs:
-        excluded_now = (decs.get(leg["id"], {}).get("kind") or leg.get("kind")) == "internal-transfer"
+    years = sorted({year for year, _ in legs})
+    decisions = {year: store.decisions(year) for year in years}
+    months = {year: store.months_state(year) for year in years}
+
+    # Validate every leg before writing any of them, so a locked month on one side
+    # cannot leave the pair half-answered.
+    for year, leg in legs:
+        excluded_now = (decisions[year].get(leg["id"], {}).get("kind")
+                        or leg.get("kind")) == "internal-transfer"
         if excluded_now == v.confirmed:
             continue  # no figure moves, so the lock has nothing to protect
         key = leg["date"][:7]
-        if months.get(key) == "closed":
+        if months[year].get(key) == "closed":
             raise HTTPException(409, "Month %s is closed. Reopen it first." % key)
 
-    for leg in legs:
-        decs.setdefault(leg["id"], {})["kind"] = kind
-    store.save_decisions(v.year, decs)
-    transfers.mark_internal(v.year)
-    return {"ok": True, "updated": [leg["id"] for leg in legs]}
+    for year, leg in legs:
+        decisions[year].setdefault(leg["id"], {})["kind"] = kind
+    # Every decision is persisted before any reconciliation runs. Saving and
+    # reconciling one year at a time meant the first pass saw the far leg as still
+    # unanswered, released it as an orphan and dropped its pairing — after which a
+    # later verdict from that side could no longer find its partner.
+    for year in years:
+        store.save_decisions(year, decisions[year])
+    for year in years:
+        _reconcile_transfers(year)
+    return {"ok": True, "updated": [leg["id"] for _, leg in legs]}
 
 
 @app.get("/api/transactions")
