@@ -3,9 +3,47 @@ import argparse
 import json
 import sys
 
-from . import closings, doctor, format_lint, fx, ingest, settle, store
+from . import closings, doctor, export_meta, format_lint, fx, ingest, settle, store
 from .mutation_lock import mutation_lock
 from .util import ConfigError, load_config
+
+
+def _export_verify(path):
+    """Read a workbook's own Metadata sheet and re-check what it claims.
+
+    An export is a snapshot. This says whether the store still matches the snapshot it
+    was taken from — which is the difference between "this spreadsheet is out of date"
+    and "this spreadsheet is wrong", and nobody could tell them apart before.
+    """
+    from openpyxl import load_workbook
+    book = load_workbook(path, read_only=True, data_only=True)
+    if "Metadata" not in book.sheetnames:
+        print("%s carries no Metadata sheet: it predates export provenance and cannot be "
+              "verified." % path)
+        return 1
+    declared = {}
+    for row in book["Metadata"].iter_rows(values_only=True):
+        if row and row[0] and len(row) > 1 and row[1] is not None:
+            declared.setdefault(str(row[0]), str(row[1]))
+    year = declared.get("Reporting year")
+    print("%s" % path)
+    for label in ("Export type", "Reporting year", "Generated at", "App version",
+                  "Row count", "Row digest", "Source digest"):
+        if label in declared:
+            print("  %-16s %s" % (label, declared[label]))
+    if not year or not year.isdigit():
+        print("  the Metadata sheet does not name a reporting year")
+        return 1
+    current = export_meta.source_digest(int(year))
+    stated = declared.get("Source digest", "")
+    if stated == current:
+        print("  VERIFIED: the store still holds exactly the data this was built from.")
+        return 0
+    print("  STALE: the store has changed since this was exported.")
+    print("    exported from %s" % stated)
+    print("    store is now  %s" % current)
+    print("  The workbook is not wrong; it describes an earlier state. Re-export to refresh.")
+    return 1
 
 
 def main():
@@ -23,6 +61,8 @@ def main():
     sp.add_argument("year", type=int)
     sub.add_parser("fx-update", help="refresh ECB rates cache")
     sub.add_parser("formats-lint", help="check every bank format manifest")
+    sp = sub.add_parser("export-verify", help="check an exported workbook against the current store")
+    sp.add_argument("path")
     sp = sub.add_parser("doctor", help="read-only data integrity check")
     sp.add_argument("year", nargs="?", type=int)
     sp = sub.add_parser("close-baseline",
@@ -31,6 +71,8 @@ def main():
     args = p.parse_args()
     load_config()  # fail fast with a clear message if config.json is missing/invalid
 
+    if args.cmd == "export-verify":
+        return _export_verify(args.path)
     if args.cmd == "formats-lint":
         report = format_lint.lint()
         for problem in report["problems"]:

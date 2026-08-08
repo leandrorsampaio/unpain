@@ -9,6 +9,38 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Every export says where it came from, and can prove it** (IMP-12). A spreadsheet outlives the
+  app that made it. Someone opens `transactions-2025.xlsx` two years later and needs to know which
+  data it was built from, what was counted, what was left out, and whether the same inputs would
+  produce it again — and until now the file could answer none of that.
+
+  Both workbooks (transactions and the tax pack) now carry a **Metadata** sheet: the statements
+  behind the rows with the hash of each upload, the exchange-rate evidence behind any converted
+  amount, how much of the year was still in the review queue and how much was closed, the rounding
+  policy, a digest of the canonical inputs, a digest of the rows actually written — and the
+  definitions that decide what a total *means*, with the exclusions spelled out (internal transfers,
+  out-of-scope rows, splits contributing their parts and never their parent, year costs, and the
+  deliberate absence of a per-row fairness figure).
+
+  Two promises are kept apart because they are not the same promise. *Audit* reproducibility — the
+  metadata explains the figures — is always provided. *Binary* reproducibility — the same inputs
+  produce the same bytes — needs the generation timestamp supplied rather than read from the clock,
+  so both endpoints take an optional `as_of` and `SOURCE_DATE_EPOCH` is honoured. openpyxl's stamping
+  of the logged-in user and the current time into the document properties is normalised away: it is
+  not information about the household's money, and it made a byte comparison impossible.
+
+  New CLI: `doctor`-adjacent `export-verify <file>` reads a workbook's own Metadata sheet and
+  re-checks it against the store, which is the difference between "this spreadsheet is out of date"
+  and "this spreadsheet is wrong" — two things nobody could tell apart before.
+
+  The source digest hashes *parsed content re-serialised canonically*, never file bytes. Saving a
+  file back unchanged can still rewrite its key order, and a digest that called that a change would
+  cry stale at exports that are perfectly current, which is exactly how integrity warnings get
+  ignored. The test suite proves the file is byte-identical across two runs, that one cent on one
+  transaction moves both digests, that a decision or a merchant-rule edit moves the source digest
+  (categorisation is derived on read, so those are inputs too), and that nothing about the exporting
+  machine — home directory, username, temp path — reaches a file that gets emailed to an accountant.
+
 - **The doctor audits the arithmetic, not just the data** (IMP-06). New checks recompute the totals
   the long way — from the effective rows, in integer cents, deliberately *without* calling the
   functions being audited, because an auditor that calls what it audits can only ever agree with it.
@@ -27,6 +59,19 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   registered**, so it had never run. And a `format:best-guess` note was deliberately *removed* from
   the report — it is a fact about the installed software rather than this household's data, it never
   clears, and a finding that cannot be resolved teaches people to scroll past the ones that can.
+
+### Deliberately not done
+
+- **IMP-04 (transactional mutation bundle) and IMP-09 (mutation journal) were assessed and declined**
+  for now, by agreement, and are recorded here so the decision is not re-taken by accident. Both
+  would rewrite how all 56 write endpoints touch the disk, on a store that already holds a year of
+  real imported statements. IMP-04's own startup-recovery step is the risk: after an unclean shutdown
+  it would decide which half-written bundle to roll back, and a wrong answer discards *good* data —
+  a worse failure than the one it prevents. Every persisted write already publishes atomically
+  (unique tempfile, `fsync`, `os.replace`) under a cross-process `flock`, so the remaining exposure
+  is a multi-file operation interrupted mid-way, which the doctor detects and a backup fixes. The one
+  genuinely dangerous path — restore, which used to delete before validating — was fixed directly
+  (IMP-08) instead. Revisit if the app ever gains concurrent writers or a multi-user mode.
 
 ### Security
 

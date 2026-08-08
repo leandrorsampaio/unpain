@@ -58,6 +58,7 @@ add/save/delete buttons.
 - Run server: `.venv/bin/uvicorn app.server:app --port 8765`
 - CLI: `.venv/bin/python -m pipeline.cli ingest|status|summary|settle|tax|fx-update`
 - Read-only data audit: `.venv/bin/python -m pipeline.cli doctor [year]`
+- Check an exported workbook against the store: `.venv/bin/python -m pipeline.cli export-verify <file>`
 - Watch already-closed months: `.venv/bin/python -m pipeline.cli close-baseline [year]`
 - Tests: `./run-tests.sh` (all) / `./run-tests.sh --fast` (skip browser smoke only).
   The repository pre-commit hook chooses the full suite for UI changes and fast otherwise.
@@ -148,6 +149,10 @@ add/save/delete buttons.
   blocks against itself forever, with no error and no traceback, just a request that never returns.
   This has bitten three times (`ingest.run`, `/api/restore`); `tests/test_restore_safety.py` now fails
   the build on it. `/api/backup` is a GET that writes, so it *does* lock itself.
+- Exports carry a `Metadata` sheet (`pipeline/export_meta.py`) declaring sources, FX evidence,
+  review state and the digests of both the inputs and the written rows. It describes a snapshot and
+  is **never read back to compute one**. Both export endpoints take `as_of` so a workbook can be
+  rebuilt byte-for-byte; a file stamped with the current clock can never be compared against itself.
 - Categories: never delete, set `archived: true`. Slugs are stable ids.
 - Rule scope: `family` (default) applies everywhere; `<person>` scope applies only to that
   person's accounts and beats family rules. Couple-owned accounts match family rules only.

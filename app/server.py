@@ -29,7 +29,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline import anchors, anomalies, audit, balances, closings, coverage, doctor, extraction, format_lint, fx_audit, ingest, restore as restore_service, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
+from pipeline import anchors, anomalies, audit, balances, closings, coverage, doctor, export_meta, extraction, format_lint, fx_audit, ingest, restore as restore_service, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
 from pipeline.mutation_lock import async_mutation_lock, mutation_lock  # noqa: E402
 from pipeline.util import DATA, ICON_NAME, INBOX, ROOT, RULES, cents, load_config, read_json, write_json, load_accounts  # noqa: E402
 
@@ -1451,7 +1451,7 @@ def delete_year(req: DeleteYear):
 
 
 @app.get("/api/tax-export")
-def tax_export(year: int):
+def tax_export(year: int, as_of: str = ""):
     from openpyxl import Workbook
     from openpyxl.styles import Font
 
@@ -1487,6 +1487,17 @@ def tax_export(year: int):
         ws.cell(row=ws.max_row, column=4).font = bold
         for col, width in zip("ABCDEFGH", (12, 40, 60, 12, 18, 12, 16, 16)):
             ws.column_dimensions[col].width = width
+    # The tax pack is the workbook most likely to be read by somebody other than the
+    # household — an accountant, a year later — so it is the one that most needs to say
+    # what it was built from.
+    metadata = export_meta.build(year, export_type="Tax evidence",
+                                 rows=[item for bucket in report
+                                       for owner in sorted(bucket["owners"])
+                                       for item in bucket["owners"][owner]["items"]],
+                                 columns=["date", "amount", "counterparty", "id"],
+                                 as_of=as_of or None)
+    export_meta.write_sheet(wb, metadata, bold=bold)
+    export_meta.normalize(wb, metadata)
     out = DATA / str(year) / ("tax-evidence-%d.xlsx" % year)
     out.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out)
@@ -1685,8 +1696,12 @@ def _add_summary_sheet(wb, year, data_sheet, headers, row_count):
 
 
 @app.get("/api/transactions-export")
-def transactions_export(year: int):
-    """Every transaction of one year as a single flat table."""
+def transactions_export(year: int, as_of: str = ""):
+    """Every transaction of one year as a single flat table.
+
+    `as_of` exists so the workbook can be rebuilt byte-for-byte: a file stamped with the
+    current clock can never be compared against itself. Normal downloads leave it empty
+    and get the current UTC time."""
     from openpyxl import Workbook
     from openpyxl.styles import Font
     from openpyxl.utils import get_column_letter
@@ -1725,6 +1740,11 @@ def transactions_export(year: int):
                                "Settlement tab."])
     legend.column_dimensions["A"].width = 20
     legend.column_dimensions["B"].width = 100
+
+    metadata = export_meta.build(year, export_type="Transactions", rows=rows,
+                                 columns=headers, as_of=as_of or None)
+    export_meta.write_sheet(wb, metadata, bold=Font(bold=True))
+    export_meta.normalize(wb, metadata)
 
     out = DATA / str(year) / ("transactions-%d.xlsx" % year)
     out.parent.mkdir(parents=True, exist_ok=True)
