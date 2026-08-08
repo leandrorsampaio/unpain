@@ -30,6 +30,7 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pipeline import anchors, balances, closings, coverage, doctor, extraction, fx, ingest, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
+from pipeline.mutation_lock import async_mutation_lock  # noqa: E402
 from pipeline.util import DATA, ICON_NAME, INBOX, ROOT, RULES, cents, load_config, read_json, write_json, load_accounts  # noqa: E402
 
 app = FastAPI(title="FamilyAccountability")
@@ -129,7 +130,10 @@ async def serialize_writes(request: Request, call_next):
     if request.method in _CONCURRENT_METHODS:
         return await call_next(request)
     async with _WRITE_LOCK:
-        return await call_next(request)
+        # The in-process lock protects browser tabs. The file lock also protects this
+        # mutation from pipeline.cli and a second server process using the same store.
+        async with async_mutation_lock():
+            return await call_next(request)
 
 
 @app.middleware("http")
@@ -2281,6 +2285,16 @@ def _restore_tree(root, snapshot):
             directory.rmdir()
 
 
+def _snapshot_years(years):
+    """Snapshot only canonical year trees an import can mutate, never FX/accounts."""
+    return {int(year): _snapshot_tree(DATA / str(int(year))) for year in years}
+
+
+def _restore_years(snapshots):
+    for year, snapshot in snapshots.items():
+        _restore_tree(DATA / str(year), snapshot)
+
+
 def _write_cash_rows(header, body):
     """Publish cash.csv — the source of truth for every cash entry — atomically.
 
@@ -2462,7 +2476,8 @@ def cash_edit(e: CashEdit):
 
 @app.post("/api/ingest")
 def run_ingest():
-    return {"results": [{"file": n, "result": m} for n, m in ingest.run(verbose=False)]}
+    # The cross-process mutation lock is already held by serialize_writes.
+    return {"results": [{"file": n, "result": m} for n, m in ingest._run_locked(verbose=False)]}
 
 
 # ---- Ingest page: staging -> process -> tracked uploads ----
@@ -2679,7 +2694,7 @@ def ingest_process():
         # transfer marks, anchors and uploads metadata) and may move the source PDF.
         # Snapshot each attempt after prior successes, so any later exception restores
         # exactly this attempt without undoing another file processed in the same batch.
-        data_before = _snapshot_tree(DATA)
+        data_before = {}
         source_before = src.read_bytes() if src.is_file() else None
         staging_file = STAGING / "staging.json"
         staging_before = staging_file.read_bytes() if staging_file.exists() else None
@@ -2722,6 +2737,8 @@ def ingest_process():
                     e["error"] = "Extraction failed reconciliation: %s. No data was imported." % rejected
                     results.append({"file": e["original_name"], "status": "error", "detail": e["error"]})
                     continue
+                data_before = _snapshot_years(ingest.mutation_years(
+                    extracted, report.get("balance_anchors") or []))
                 source_stem = "%s__%s" % (acct, e["id"])
                 stats = ingest.ingest_upload(extracted, acct, source_stem,
                                              original_name=e["original_name"], admitted=True)
@@ -2765,6 +2782,7 @@ def ingest_process():
                                           (report["transactions_extracted"], stats["added"],
                                            "; " + stats["anchor_message"] if stats["anchor_message"] else "")})
             else:
+                data_before = _snapshot_years(ingest.mutation_years(src))
                 source_stem = "%s__%s" % (acct, e["id"])
                 stats = ingest.ingest_upload(src, acct, source_stem, original_name=e["original_name"])
                 src.unlink(missing_ok=True)
@@ -2794,7 +2812,7 @@ def ingest_process():
             _save_staging(remaining)
             _save_uploads(uploads)
         except Exception as ex:  # noqa: BLE001
-            _restore_tree(DATA, data_before)
+            _restore_years(data_before)
             uploads = uploads[:upload_count]
             remaining = remaining_before
             del results[result_count:]

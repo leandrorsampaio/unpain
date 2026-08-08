@@ -10,6 +10,7 @@ import shutil
 from collections import Counter
 
 from . import anchors, extraction, formats, fx, store, transfers
+from .mutation_lock import mutation_lock
 from .util import DATA, INBOX, load_accounts, read_json, txn_hash, year_dir
 
 # A normalized ``generic-extracted`` CSV is not a bank export: it is the output of an
@@ -24,6 +25,10 @@ REPORT_SUFFIX = ".report.json"
 def preview_file(path):
     """Validate a tabular upload without writing canonical data."""
     cfg = formats.detect(path)
+    # Preview and Process must make the same promise. In particular, do not show a
+    # green transaction count for normalized extractor output that Process will later
+    # refuse because the reconciliation sidecar is absent or invalid.
+    _admit_extracted(path, cfg)
     rows, stats = formats.parse(path, cfg, with_stats=True)
     # A recognised export with no rows is a real statement for a month with no
     # activity — credit cards issue these routinely. Only call it an error when the
@@ -40,7 +45,35 @@ def preview_file(path):
             "currencies": currencies}
 
 
+def mutation_years(path, anchor_rows=None):
+    """Years whose canonical files one upload may rewrite.
+
+    Transfer detection reads and may rewrite the imported year plus an existing
+    adjacent year for Dec/Jan pairs. Balance anchors can sit on the day before the
+    first transaction, which may be in another year. Returning this set before the
+    first write lets the web workflow roll back only relevant year directories.
+    """
+    cfg = formats.detect(path)
+    rows, stats = formats.parse(path, cfg, with_stats=True)
+    transaction_years = {int(row["date"][:4]) for row in rows}
+    existing = set(store.years())
+    affected = set(transaction_years)
+    for year in transaction_years:
+        affected.update(candidate for candidate in (year - 1, year + 1)
+                        if candidate in existing)
+    anchors_to_record = stats.get("anchors", []) if anchor_rows is None else anchor_rows
+    affected.update(int(row["date"][:4]) for row in anchors_to_record or []
+                    if isinstance(row.get("date"), str) and len(row["date"]) >= 4)
+    return sorted(affected)
+
+
 def run(verbose=True):
+    """Process the inbox while excluding web and other CLI mutations."""
+    with mutation_lock():
+        return _run_locked(verbose)
+
+
+def _run_locked(verbose=True):
     accounts, _ = load_accounts()
     results = []
     files = sorted(p for p in INBOX.iterdir() if p.is_file() and not p.name.startswith(".")

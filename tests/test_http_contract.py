@@ -40,6 +40,7 @@ build_sandbox(tmp)
 
 sys.path.insert(0, str(PROJECT))
 from pipeline import ingest, store  # noqa: E402
+from pipeline.mutation_lock import mutation_lock  # noqa: E402
 from pipeline.util import write_json  # noqa: E402
 from app import server  # noqa: E402
 
@@ -212,6 +213,13 @@ check("an empty upload is refused", empty_upload.status_code >= 400, empty_uploa
 wrong_type = client.post("/api/ingest/upload",
                          files={"file": ("notes.txt", b"hello", "text/plain")})
 check("an unsupported file type is refused", wrong_type.status_code >= 400, wrong_type.text[:120])
+normalized = (b"date,amount,currency,counterparty,purpose\n"
+              b"2026-03-04,-12.34,EUR,TEST,normalized extraction\n")
+ungated = client.post("/api/ingest/upload",
+                      files={"file": ("renamed.csv", normalized, "text/csv")})
+check("normalized extractor output is refused during preview, not later during Process",
+      ungated.status_code == 400 and "reconciliation report" in ungated.text,
+      "%s %s" % (ungated.status_code, ungated.text[:200]))
 
 
 print("== the lock middleware stands between a request and the data")
@@ -246,6 +254,23 @@ check("removing the password reopens the app",
 
 
 print("== concurrent writes: both survive, or one is told")
+# The async middleware must coordinate with a separate CLI process, not only other
+# requests inside this uvicorn. Hold the same file lock here and prove a write waits;
+# GETs remain outside the lock and can still answer while it does.
+with ThreadPoolExecutor(max_workers=1) as pool:
+    with mutation_lock():
+        waiting = pool.submit(client.post, "/api/rule", json_body={
+            "pattern": "CROSS PROCESS LOCK", "category": CATEGORY})
+        time.sleep(0.15)
+        check("an HTTP mutation waits for the cross-process writer lock", not waiting.done())
+        check("reads remain responsive while a mutation waits on another process",
+              client.get("/api/summary?year=%d" % YEAR).status_code == 200)
+    response = waiting.result(timeout=5)
+    check("the waiting mutation completes after the cross-process lock is released",
+          response.status_code == 200, response.text[:160])
+check("the HTTP inbox command reuses its middleware lock without deadlocking",
+      client.post("/api/ingest").status_code == 200)
+
 # Twenty decisions, ten at a time, each on a different transaction. Every one is a
 # read-modify-write of the same decisions.json. Before writes were serialized this lost
 # entries — not with an error, just with fewer decisions than requests.
@@ -332,7 +357,7 @@ check("a path outside the served tree is refused",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 40
+MIN_CHECKS = 45
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

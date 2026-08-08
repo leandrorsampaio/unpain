@@ -98,6 +98,8 @@ try:
         "label": "derived", "extract": make_extractor(opening_balance_source="derived")}
     result = stage("derived")
     assert result["results"][0]["status"] == "error", result
+    assert "100.00" in result["results"][0]["detail"], result
+    assert "2025-01-01" in result["results"][0]["detail"], result
     assert store.load_year_raw(2025) == []
     server._save_staging([])
     anchors.add_manual("bank1-person1", "2025-01-01", 100.00)
@@ -115,16 +117,25 @@ try:
     server.PDF_EXTRACTORS["post-write-failure"] = {
         "label": "post-write-failure", "extract": make_extractor()}
     original_record = server.anchors.record
+    original_snapshot = server._snapshot_tree
+    snapshotted = []
+    def record_snapshot(path):
+        snapshotted.append(Path(path))
+        return original_snapshot(path)
+    server._snapshot_tree = record_snapshot
     server.anchors.record = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("anchor disk failure"))
     try:
         result = stage("post-write-failure")
     finally:
         server.anchors.record = original_record
+        server._snapshot_tree = original_snapshot
     assert result["results"][0]["status"] == "error", result
     assert "No data was imported" in result["results"][0]["detail"]
     assert store.load_year_raw(2025) == [], "post-ingest failure left transactions behind"
     assert server._staging(), "failed source disappeared from staging"
     assert not [p for p in (server.INBOX / "processed").glob("*post-write-failure*")]
+    assert snapshotted and server.DATA not in snapshotted, snapshotted
+    assert all(path.parent == server.DATA and path.name.isdigit() for path in snapshotted), snapshotted
     server._save_staging([])
 
     # Metadata publication is part of the same transaction too.  Fail it once so the

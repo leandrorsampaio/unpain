@@ -113,15 +113,27 @@ def admit(report, csv_path, trusted_opening_cents=None):
     opening = _balance_cents(report.get("opening_balance"), "opening balance")
     closing = _balance_cents(report.get("closing_balance"), "closing balance")
     if report.get("opening_balance_source") == "derived":
+        report_anchors = report.get("balance_anchors") or []
+        opening_anchor = report_anchors[0] if report_anchors else {}
+        opening_date = opening_anchor.get("date")
+        instruction = (
+            "Record a manual balance of %.2f in the account's currency on %s, then retry"
+            % (opening / 100.0, opening_date)
+            if opening_date else
+            "Record that opening balance manually for this account, then retry"
+        )
         if trusted_opening_cents is None:
             raise ExtractionRejected(
                 "the extractor derived its opening balance from the first row instead of reading "
-                "a balance printed by the bank. Record that opening balance manually for this "
-                "account, then retry; otherwise a missing first row cannot be detected")
+                "a balance printed by the bank. %s; otherwise a missing first row cannot be detected"
+                % instruction)
         if int(trusted_opening_cents) != opening:
             raise ExtractionRejected(
                 "the derived opening balance %.2f disagrees with the independently recorded "
-                "opening balance %.2f" % (opening / 100.0, trusted_opening_cents / 100.0))
+                "opening balance %.2f on %s. Correct the manual balance to %.2f in the account's "
+                "currency, or select the correct statement/account, then retry" %
+                (opening / 100.0, trusted_opening_cents / 100.0, opening_date or "the required date",
+                 opening / 100.0))
     rows, total = read_rows(csv_path)
     if opening + total != closing:
         raise ExtractionRejected(

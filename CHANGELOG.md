@@ -9,6 +9,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed (review follow-up)
 
+- **Ingest preview could promise a normalized extraction that Process would refuse.** Preview now
+  applies the same reconciliation gate, so an extracted CSV without its sidecar fails immediately.
+- **PDF rollback copied the entire data tree and could overwrite a concurrent CLI import.** Web and
+  CLI mutations now share a cross-process lock, while rollback snapshots only transaction years,
+  adjacent transfer-matching years and anchor years that the statement can actually change.
+- Banco Rendimento's derived-opening rejection now names the exact prior-day date and balance the
+  user must record, including actionable guidance when an existing manual balance contradicts it.
 - **Normalized extracted CSVs could bypass reconciliation by being renamed.** Admission now keys
   on the detected format, not a filename suffix, and the financial oracle uses a real Nubank export
   shape instead of relying on the normalized extractor format.

@@ -4,6 +4,7 @@ import json
 import sys
 
 from . import closings, doctor, fx, ingest, settle, store
+from .mutation_lock import mutation_lock
 from .util import ConfigError, load_config
 
 
@@ -46,14 +47,16 @@ def main():
     elif args.cmd == "tax":
         json.dump(settle.tax_report(args.year), sys.stdout, indent=2, ensure_ascii=False)
     elif args.cmd == "fx-update":
-        fx._download()
+        with mutation_lock():
+            fx._download()
         print("ECB rates updated.")
     elif args.cmd == "close-baseline":
-        years = [args.year] if args.year else store.years()
-        for year in years:
-            adopted = closings.baseline(year)
-            print("%d: %d month(s) now watched%s" %
-                  (year, len(adopted), (": " + ", ".join(adopted)) if adopted else ""))
+        with mutation_lock():
+            years = [args.year] if args.year else store.years()
+            for year in years:
+                adopted = closings.baseline(year)
+                print("%d: %d month(s) now watched%s" %
+                      (year, len(adopted), (": " + ", ".join(adopted)) if adopted else ""))
         print("These figures are today's, not the figures at the time each month was "
               "closed — that evidence was never recorded. Changes are watched from now on.")
     elif args.cmd == "doctor":
