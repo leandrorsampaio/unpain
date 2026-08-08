@@ -138,6 +138,16 @@ add/save/delete buttons.
   It strips digits so a merchant groups across time, which is right for cadence and spikes and wrong
   for "is this the same charge twice" — duplicate detection compares the raw counterparty text
   instead, or instalments of one purchase read as duplicates of each other.
+- **Restore validates a complete candidate tree before touching live data** (`pipeline/restore.py`).
+  Nothing live is deleted or overwritten until `schemas.validate_graph()` has passed over the whole
+  staged candidate; "replace" is expressed as what the candidate *contains*, never as deleting the
+  live area first. An uploaded archive is untrusted input: traversal, absolute paths, symlinks,
+  case-collisions, CRC failures and decompression bombs are all refused before extraction.
+- **A POST handler must never take `mutation_lock()`.** `serialize_writes` already holds it for every
+  non-GET request, and flock is per open file description — a second acquisition in the same process
+  blocks against itself forever, with no error and no traceback, just a request that never returns.
+  This has bitten three times (`ingest.run`, `/api/restore`); `tests/test_restore_safety.py` now fails
+  the build on it. `/api/backup` is a GET that writes, so it *does* lock itself.
 - Categories: never delete, set `archived: true`. Slugs are stable ids.
 - Rule scope: `family` (default) applies everywhere; `<person>` scope applies only to that
   person's accounts and beats family rules. Couple-owned accounts match family rules only.

@@ -33,8 +33,15 @@ def call(data, mode="replace", parts=""):
     return asyncio.run(server.restore(file=mkupload(data), mode=mode, parts=parts))
 
 
+# A real transaction row, not a stub. Restore now validates the candidate against the
+# same schemas the app enforces everywhere else, so a fixture that could never exist in
+# a working store would be testing the wrong thing.
+ROW = ('{"id":"a","account":"bank1-person1","date":"2026-01-15","amount_original":-10.0,'
+       '"currency":"EUR","amount_eur":-10.0,"fx_rate":null,"fx_rate_date":null,'
+       '"fx_rate_source":null,"counterparty":"SHOP","purpose":"","counterparty_iban":"",'
+       '"force_review":false,"kind":"normal","source":{"file":"jan.csv","format":"test"}}')
 LEDGER = root / "data" / "2026" / "transactions" / "jan.jsonl"
-LEDGER.write_text('{"id":"a","amount_eur":-10}\n', encoding="utf-8")
+LEDGER.write_text(ROW + "\n", encoding="utf-8")
 
 # A backup of the good state (all parts).
 backup_path = server._write_backup("test-backup", list(server.BACKUP_PARTS))
@@ -45,7 +52,7 @@ LEDGER.write_text("CORRUPTED\n", encoding="utf-8")
 junk = root / "data" / "junk.txt"
 junk.write_text("stray", encoding="utf-8")
 result = call(good_zip, mode="replace", parts="data")
-assert LEDGER.read_text(encoding="utf-8") == '{"id":"a","amount_eur":-10}\n', "replace did not restore the ledger"
+assert LEDGER.read_text(encoding="utf-8") == ROW + "\n", "replace did not restore the ledger"
 assert not junk.exists(), "replace must wipe files not in the backup"
 assert result["restored"] >= 1 and "data" in result["parts"]
 

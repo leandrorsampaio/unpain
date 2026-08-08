@@ -7,6 +7,31 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- **Restore no longer deletes your data before deciding whether it can proceed** (IMP-08). It used to
+  write a safety backup, `shutil.rmtree` the live `data/`, `rules/` and `config.json`, and *then* copy
+  the archive in one plain file at a time. Everything after that delete was unprotected: restoring a
+  subtly corrupt backup replaced good data with bad, and a crash halfway left neither.
+
+  The order is now inverted. A complete candidate tree is assembled beside the live one, validated
+  against every schema and cross-reference the app has (`validate_graph`, built in the schema work
+  for exactly this), and only then are the finished directories swapped in — moving the live ones
+  aside rather than deleting them, so a failure part-way through can still be undone. **"Replace" now
+  means the candidate does not carry the old contents unless the archive supplies them**, not "delete
+  the live area first"; that reading is what made the operation destructive before it had decided
+  anything. The pre-restore safety backup is taken only once the candidate has passed — a safety copy
+  of a restore that was never going to happen is just clutter.
+
+  An uploaded zip is the only file in this app that comes from outside it, so it is now refused for:
+  traversal in either separator style, absolute and drive-letter paths, symlinks and device nodes,
+  duplicate or case-colliding entries, CRC failures, and decompression bombs by ratio, entry size,
+  total size or entry count. Every rejection is asserted to leave the live tree **byte-for-byte
+  identical**, with no staging folder left behind.
+
+  Restore logic moved to `pipeline/restore.py`; the endpoint is request parsing and response
+  formatting.
+
 ### Added
 
 - **One money representation** (IMP-01). `pipeline/money.py` is the only place a number becomes an

@@ -29,7 +29,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline import anchors, anomalies, audit, balances, closings, coverage, doctor, extraction, format_lint, fx_audit, ingest, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
+from pipeline import anchors, anomalies, audit, balances, closings, coverage, doctor, extraction, format_lint, fx_audit, ingest, restore as restore_service, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
 from pipeline.mutation_lock import async_mutation_lock, mutation_lock  # noqa: E402
 from pipeline.util import DATA, ICON_NAME, INBOX, ROOT, RULES, cents, load_config, read_json, write_json, load_accounts  # noqa: E402
 
@@ -1372,67 +1372,29 @@ def backup(parts: str = ""):
 
 @app.post("/api/restore")
 async def restore(file: UploadFile = File(...), mode: str = Form("replace"), parts: str = Form("")):
-    """Restore selected parts from an uploaded backup zip. A safety backup of the CURRENT
-    tree is written first (so the operation is undoable). 'replace' wipes each restored
-    folder before extracting; 'merge' overwrites in place and keeps files not in the zip."""
-    import io
-    import json as _json
-    import shutil
-    import zipfile
+    """Restore selected parts from a backup zip.
 
-    if mode not in ("replace", "merge"):
-        raise HTTPException(400, "mode must be 'replace' or 'merge'")
-    root = ROOT.resolve()
+    Request parsing and response formatting only — the decision about whether an archive
+    may be applied, and the order in which live data is touched, live in
+    pipeline/restore.py. This used to delete the live folders and *then* copy the archive
+    in file by file, so everything after that delete was unprotected: a subtly corrupt
+    backup replaced good data with bad, and a crash halfway left neither.
+    """
     selected = _selected_parts(parts)
-    allowed_tops = {entry.split("/")[0] for p in selected for entry in BACKUP_PARTS[p]}
-
     raw = await file.read()
     try:
-        zf = zipfile.ZipFile(io.BytesIO(raw))
-    except zipfile.BadZipFile:
-        raise HTTPException(400, "The uploaded file is not a valid zip archive.")
-
-    members = [m for m in zf.namelist() if not m.endswith("/")]
-    safe = []
-    for m in members:
-        parts_ = Path(m).parts
-        if Path(m).is_absolute() or ".." in parts_ or not parts_:
-            raise HTTPException(400, "Unsafe path in archive: %s" % m)          # zip-slip guard
-        if parts_[0] not in allowed_tops:
-            continue                                                            # outside selected parts
-        dest = (root / m).resolve()
-        if root != dest and root not in dest.parents:
-            raise HTTPException(400, "Archive entry escapes the project folder: %s" % m)
-        safe.append(m)
-    if not safe:
-        raise HTTPException(400, "The archive has nothing to restore for the selected parts.")
-
-    if "config.json" in safe:                                                   # do not brick the app
-        try:
-            cfg = _json.loads(zf.read("config.json"))
-        except ValueError:
-            raise HTTPException(400, "config.json in the archive is not valid JSON.")
-        if not (isinstance(cfg.get("people"), list) and len(cfg["people"]) == 2):
-            raise HTTPException(400, "config.json in the archive is missing a valid 'people' list.")
-
-    safety = _write_backup("pre-restore", list(BACKUP_PARTS))                   # undo point
-
-    present_tops = {Path(m).parts[0] for m in safe}
-    if mode == "replace":
-        for top in present_tops:
-            target = root / top
-            if target.is_dir():
-                shutil.rmtree(target)
-            elif target.is_file():
-                target.unlink()
-    for m in safe:
-        dest = root / m
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        with zf.open(m) as src, open(dest, "wb") as out:
-            shutil.copyfileobj(src, out)
-
-    return {"ok": True, "restored": len(safe), "mode": mode,
-            "parts": sorted(present_tops), "safety_backup": safety.name}
+        # No mutation_lock() here. serialize_writes already holds it for every non-GET
+        # request, and flock is per open file description: taking it again on a second
+        # handle in the same process blocks against itself, forever. Same reason
+        # run_ingest calls ingest._run_locked rather than ingest.run.
+        return restore_service.restore_archive(
+            raw, root=ROOT, mode=mode, selected_parts=selected,
+            backup_parts=BACKUP_PARTS,
+            safety_backup=lambda: _write_backup("pre-restore", list(BACKUP_PARTS)))
+    except restore_service.RestoreRejected as rejected:
+        raise HTTPException(400, str(rejected))
+    finally:
+        store._EFFECTIVE_CACHE.clear()      # only ever after the swap, success or not
 
 
 def _write_year_backup(year: int):
