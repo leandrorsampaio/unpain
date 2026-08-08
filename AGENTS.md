@@ -93,6 +93,14 @@ ad-hoc id.
 | Note editor | `openNote(id, cur)` (API) / `openLocalNote(btn)` (DOM `[data-note]`) | — |
 | Note indicator/popover | `notePopover(id, note)` | — |
 | Stat tile | `statTile(label, value, color)` | — |
+| Chart card (title + optional control + caption + canvas) | `chartCard(title, canvasId, {tall, header, note})` | — |
+| Period figures (income · expenses · savings · rate) | `moneyTiles(data)` | — |
+| "Whose money" perspective options | `scopeSegmentOptions()` | `readSeg(root)` |
+| Category doughnut ("Where the money goes") | `drawCategoryPie(canvasId, byCategory)` | — |
+| Subcategory doughnut (top N + Other) | `drawSubcategoryPie(canvasId, byCategory, {top})` | — |
+| Lighten/darken a colour | `shadeColor(color, amount)` | — |
+| Income · expenses · surplus over months | `drawIncomeExpenseLine(canvasId, labels, rows)` | — |
+| Liquid net worth card | `netWorthCardHtml(id)` + `fillNetWorthCard({id, year, isCurrent, labelFor})` | — |
 | Statement coverage map | `coverageCard(data)` | `coverageGapsFor(data, month)` |
 | Balance-anchor status | `anchorStatusChip(summary)` | — |
 | Data doctor modal | `openDoctor()` + `doctorResultHtml(result)` | — |
@@ -102,6 +110,10 @@ ad-hoc id.
 
 These were consolidated from earlier duplicates (tax picker was 3×, note editor 2×, owner 2×,
 year-cost 3×, modal ~6×). **Do not reintroduce a second copy** — extend the one component.
+
+The last six exist because the Dashboard (one year) and the Overview (all years) ask the same
+questions over different windows. Each takes its window as an argument and knows nothing about
+which page called it. A chart that appears on both pages goes here or it will drift.
 
 ---
 
@@ -121,7 +133,7 @@ year-cost 3×, modal ~6×). **Do not reintroduce a second copy** — extend the 
 - [ ] The concept touched exists as **one** component, used by every page that needs it (UI).
 - [ ] No new hand-built markup or id-based reads for a control that has a component (UI).
 - [ ] User text escaped; money via `cents()` (UI/Backend).
-- [ ] All 11 pages still load; the changed control looks/behaves identically everywhere (UI).
+- [ ] All 12 pages still load; the changed control looks/behaves identically everywhere (UI).
 - [ ] Pipeline/backend changes **must** pass `./run-tests.sh`.
 - [ ] UI changes **must** pass `./run-tests.sh` and `node tests/ui_smoke.js`, and be verified via screenshots in `tests/screenshots/`.
 - [ ] **Never change or delete an existing test assertion to make it pass.** A red test means

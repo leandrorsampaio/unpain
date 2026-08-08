@@ -26,6 +26,15 @@ dictionary — a missing key falls back to the English source. UI language lives
 `localStorage` for flash-free boot). Add a language = ship `i18n/<code>.js` + one line in `I18N.names` +
 add the code to `SUPPORTED_LANGUAGES` in `server.py`. Static chrome (index.html) uses `data-i18n[-title|-label|-aria]`
 attributes, retranslated by `translateChrome()`.
+**Overview** (`pipeline/overview.py` → `/api/overview?scope=`) is the landing page (`state.tab`
+defaults to `overview`; reachable from the home icon beside the year selector, not from the tab row,
+because it is the one page the year selector does not apply to). It is `settle.year_summary` per year
+added up — four figures, net worth over every month, income vs expenses by month, and where the money
+goes (by main category, and by subcategory with the tail past the top 15 collapsed into one `Other`). Two windows meet on it and are not the same: the ledger starts at the first transaction, liquid
+net worth at the first recorded balance, so each is labelled with its own span. Its charts are the
+Dashboard's charts: `chartCard`, `moneyTiles`, `drawCategoryPie`, `drawIncomeExpenseLine` and
+`netWorthCardHtml`/`fillNetWorthCard` are module-level in `app.js` and take their window as an
+argument — a chart shown on both pages lives there or the two will drift apart.
 **Settings** is a left-rail of sub-pages (`SETTINGS_AREAS`: Household · Accounts · Balances · Preferences ·
 Accounting · Data · Security) rendered by `fillSettingsArea()`; state lives in `state.settingsArea`.
 **Balances** (`pipeline/balances.py` → `/api/balances?year=`) is the year grid of recorded balances:

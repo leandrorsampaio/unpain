@@ -102,6 +102,22 @@ I18N.register('de', {
   'Excludes {total} of year costs, which the totals above do include. See the Year costs tab.':
     'Ohne {total} Jahreskosten, die in den Werten oben enthalten sind. Siehe den Tab Jahreskosten.',
   'No year costs in {year}, so spreading changes nothing.': 'Keine Jahreskosten in {year} — Verteilen ändert nichts.',
+
+  /* ---- Overview (all years) ---- */
+  'Where the money goes — by subcategory': 'Wohin das Geld geht — nach Unterkategorie',
+  'Other ({n} smaller)': 'Sonstiges ({n} kleinere)',
+  'The {n} biggest subcategories. Everything smaller is grouped into Other, so the chart stays readable — the total is unchanged.':
+    'Die {n} größten Unterkategorien. Alles Kleinere wird unter Sonstiges zusammengefasst, damit das Diagramm lesbar bleibt — die Summe bleibt gleich.',
+  'Everything on record, {span}, year costs included. {n} transactions.':
+    'Alles Erfasste, {span}, inklusive Jahreskosten. {n} Transaktionen.',
+  'Nothing to show yet. Drop a bank export in the inbox and ingest it, and this page fills itself in.':
+    'Noch nichts zu zeigen. Leg einen Bankexport in den Posteingang und importiere ihn — dann füllt sich diese Seite von selbst.',
+  'No year costs on record, so spreading changes nothing.':
+    'Keine Jahreskosten erfasst — Verteilen ändert nichts.',
+  '{total} of year costs spread across the months of the year they belong to. The months add up to the totals above.':
+    '{total} Jahreskosten auf die Monate ihres jeweiligen Jahres verteilt. Die Monate ergeben zusammen die Werte oben.',
+  'Excludes {total} of year costs, which the totals above do include.':
+    'Ohne {total} Jahreskosten, die in den Werten oben enthalten sind.',
   'Whose money': 'Wessen Geld',
   'Year cost total': 'Jahreskosten gesamt',
   'Offsets': 'Ausgleiche',
@@ -694,6 +710,8 @@ I18N.register('de', {
   'End of {year}: {amount}': 'Ende {year}: {amount}',
   'No recorded balance covers {year}. Net worth starts at your first recorded balance.':
     'Kein erfasster Saldo deckt {year} ab. Das Vermögen beginnt beim ersten erfassten Saldo.',
+  'No recorded balance covers any month yet. Net worth starts at your first recorded balance.':
+    'Noch kein erfasster Saldo deckt einen Monat ab. Das Vermögen beginnt beim ersten erfassten Saldo.',
   'Not yet included (no balance recorded): {list}': 'Noch nicht enthalten (kein Saldo erfasst): {list}',
   'Dashed red = periods where transactions don’t reconcile with the recorded balances.':
     'Rot gestrichelt = Zeiträume, in denen die Transaktionen nicht mit den erfassten Salden übereinstimmen.',

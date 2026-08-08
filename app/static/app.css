@@ -70,6 +70,10 @@ header.appbar {
 .appbar-row { max-width: 1800px; margin: 0 auto; padding: 10px 24px 0; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .appbar-title { font-size: var(--type-headline-size); line-height: var(--type-headline-line); font-weight: var(--font-medium); letter-spacing: 0; color: var(--ink); display: flex; align-items: center; gap: 10px; }
 .appbar-title md-icon { color: var(--primary); }
+/* The all-years link sits beside the year selector rather than in the tab row, because it is
+   the one page the year selector does not apply to. It marks itself while you are on it, since
+   nothing in the tab row will. */
+#overview-link[data-active] { --md-icon-button-icon-color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); border-radius: 50%; }
 /* Pull the tab row down so the active-tab indicator meets the app bar's bottom divider
    instead of floating above it (which read as a doubled border under the tabs). */
 md-tabs { --md-primary-tab-container-color: transparent; margin-bottom: -1px; }

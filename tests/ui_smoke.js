@@ -14,7 +14,7 @@ const PYTHON = path.join(PROJECT, '.venv', 'bin', 'python');
 const UVICORN = path.join(PROJECT, '.venv', 'bin', 'uvicorn');
 const SCREENSHOTS = path.join(__dirname, 'screenshots');
 const TABS = [
-  'dashboard', 'transactions', 'review', 'rules', 'categories',
+  'overview', 'dashboard', 'transactions', 'review', 'rules', 'categories',
   'settlement', 'tax', 'add', 'ingest', 'feedback', 'settings',
 ];  // Accounts moved into Settings › Accounts; its #accounts deep-link is exercised in the anchor-entry flow below
 

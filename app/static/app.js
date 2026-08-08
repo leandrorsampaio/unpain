@@ -1,7 +1,7 @@
 /* Family Accountability UI — vanilla JS, talks to the FastAPI endpoints. */
 'use strict';
 
-const state = { meta: null, year: null, tab: 'dashboard', renderId: 0, yearCache: new Map(), lastRendered: null, reviewBatches: 1,
+const state = { meta: null, year: null, tab: 'overview', renderId: 0, yearCache: new Map(), lastRendered: null, reviewBatches: 1,
   spreadYearCosts: (() => { try { return localStorage.getItem('fa-spread-year-costs') !== '0'; } catch (_) { return true; } })() };
 const $ = sel => document.querySelector(sel);
 const fmt = v => (v == null ? '–' : (v === 0 ? 0 : v).toLocaleString('en-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'); // v===0 normalizes -0 -> 0
@@ -272,7 +272,7 @@ async function boot() {
   const syncFromHash = () => {
     const hash = location.hash.slice(1);
     if (hash === 'accounts') { state.settingsArea = 'accounts'; state.tab = 'settings'; }  // legacy deep-link → Settings › Accounts
-    else if (['dashboard', 'transactions', 'ingest', 'review', 'rules', 'categories', 'settlement', 'tax', 'add', 'feedback', 'settings'].includes(hash)) state.tab = hash;
+    else if (['overview', 'dashboard', 'transactions', 'ingest', 'review', 'rules', 'categories', 'settlement', 'tax', 'add', 'feedback', 'settings'].includes(hash)) state.tab = hash;
     const idx = [...tabs.tabs].findIndex(t => t.dataset.tab === state.tab);
     if (idx >= 0) tabs.activeTabIndex = idx;
     else [...tabs.tabs].forEach(tab => { tab.active = false; });  // non-tab page: no tab active
@@ -447,7 +447,9 @@ async function render() {
   const scrollY = inPlace ? window.scrollY : 0;
   if (!inPlace) state.reviewBatches = 1;   // lazy-loaded review batches belong to one tab+year visit
   state.lastRendered = { tab, year };
-  const views = { dashboard: renderDashboard, transactions: renderTransactions, ingest: renderIngest, review: renderReview, rules: renderRules, categories: renderCategories, settlement: renderSettlement, tax: renderTax, add: renderAdd, feedback: renderFeedback, settings: renderSettings };
+  const views = { overview: renderOverview, dashboard: renderDashboard, transactions: renderTransactions, ingest: renderIngest, review: renderReview, rules: renderRules, categories: renderCategories, settlement: renderSettlement, tax: renderTax, add: renderAdd, feedback: renderFeedback, settings: renderSettings };
+  const ovLink = $('#overview-link');
+  if (ovLink) ovLink.toggleAttribute('data-active', tab === 'overview');
   if (tab === 'review') $('#main').innerHTML = '<div class="card p-8 flex items-center justify-center"><md-circular-progress indeterminate></md-circular-progress></div>';
   const badge = ['dashboard', 'review'].includes(tab) ? null : refreshReviewBadge(id, tab, year);
   await views[tab](id);
@@ -1388,6 +1390,202 @@ function statTile(label, value, color) {
     <div class="stat-value" style="color:${color || 'var(--ink)'}">${value}</div></div>`;
 }
 
+/* ---------- building blocks shared by the Dashboard (one year) and the Overview (all years)
+   The two pages ask the same questions over different windows, so they must not answer them
+   with two copies of the same chart — a fix to one would silently miss the other. Everything
+   below takes its window as an argument and knows nothing about which page called it. ---- */
+
+/* Card with a title, an optional right-hand control, an optional caption, and a canvas.
+   `height` overrides the two standard box heights for a chart whose content sets its own size
+   (a long legend, one row per flow) rather than fitting whatever height it is given. */
+function chartCard(title, canvasId, { tall = false, header = '', note = '', height = 0 } = {}) {
+  return `<div class="card p-5"><div class="flex items-center justify-between gap-3 flex-wrap mb-3"><h2 class="font-medium">${title}</h2>${header}</div>
+    ${note ? `<div class="type-caption mb-3" style="color:var(--ink2)">${note}</div>` : ''}
+    <div class="chart-box${tall ? ' tall' : ''}"${height ? ` style="height:${+height}px"` : ''}><canvas id="${canvasId}"></canvas></div></div>`;
+}
+
+/* The four figures that describe any period: in, out, kept, kept as a share of in. */
+function moneyTiles(data) {
+  const rate = data.income > 0 ? Math.round(100 * data.savings / data.income) + ' %' : '–';
+  return statTile(T('Income'), fmt(data.income), 'var(--good)') +
+    statTile(T('Expenses'), fmt(-data.expenses), 'var(--bad)') +
+    statTile(T('Savings'), fmt(data.savings), data.savings >= 0 ? 'var(--good)' : 'var(--bad)') +
+    statTile(T('Savings rate'), rate, data.savings >= 0 ? 'var(--good)' : 'var(--bad)');
+}
+
+/* "Whose money" perspectives: Together | Shared | each person — a clean partition. */
+function scopeSegmentOptions() {
+  return [{ value: 'all', kind: 'together' }, { value: 'shared', kind: 'shared' },
+    ...state.meta.people.map(p => ({ value: p, kind: `person:${p}` }))];
+}
+
+/* "Where the money goes" — one slice per MAIN category (subs aggregated up), labelled and
+   tooltipped as a share of total expenses, category-coloured. */
+function drawCategoryPie(canvasId, byCategory) {
+  const c = $(`#${canvasId}`); if (!c) return;
+  const mainTotals = {};
+  Object.entries(byCategory).forEach(([slug, v]) => {
+    if (v >= 0) return;
+    const main = slug.split('/')[0];
+    mainTotals[main] = (mainTotals[main] || 0) + -v;
+  });
+  const mains = Object.entries(mainTotals).sort((a, b) => b[1] - a[1]);
+  const total = mains.reduce((sum, [, v]) => sum + v, 0);
+  if (!total) { c.closest('.chart-box').innerHTML = `<div class="type-body-small" style="color:var(--ink2)">${T('No expenses.')}</div>`; return; }
+  const pct = v => Math.round(100 * v / total);
+  const labels = mains.map(([k, v]) => `${groupName(k)} · ${pct(v)} %`);
+  const values = mains.map(([, v]) => v);
+  const colors = mains.map(([k]) => resolveColor(catColorFor(k)));
+  mkChart(c, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }] },
+    options: { cutout: '58%', plugins: { legend: { position: 'right', labels: { padding: 10 } },
+      tooltip: { callbacks: { label: ctx => `${groupName(mains[ctx.dataIndex][0])}: ${pct(ctx.parsed)} %` } } } },
+  });
+}
+
+/* Parse a colour to [r,g,b]. Category colours are hex; resolved CSS vars come back as rgb().
+   Anything else (a named colour, a gradient) returns null and is left alone by the caller. */
+function rgbParts(color) {
+  const c = String(color || '').trim();
+  let m = /^#([0-9a-f]{3})$/i.exec(c);
+  if (m) return [0, 1, 2].map(i => parseInt(m[1][i] + m[1][i], 16));
+  m = /^#([0-9a-f]{6})$/i.exec(c);
+  if (m) return [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16));
+  m = /^rgba?\(([^)]+)\)$/i.exec(c);
+  if (m) {
+    const p = m[1].split(/[,\s/]+/).map(parseFloat).filter(Number.isFinite);
+    if (p.length >= 3) return p.slice(0, 3).map(v => Math.round(v));
+  }
+  return null;
+}
+/* Move a colour toward white (amount > 0) or black (amount < 0), 0 = unchanged, 1 = fully. */
+function shadeColor(color, amount) {
+  const rgb = rgbParts(resolveColor(color));
+  if (!rgb) return color;
+  const target = amount >= 0 ? 255 : 0, k = Math.min(1, Math.abs(amount));
+  return '#' + rgb.map(v => Math.round(v + (target - v) * k).toString(16).padStart(2, '0')).join('');
+}
+
+/* "Where the money goes", one slice per SUBCATEGORY: the biggest `top` of them, everything
+   smaller collapsed into one Other slice — thirty named slivers is a legend, not a chart.
+
+   Subcategories all inherit their main category's colour, so five subs of one category would
+   draw five identical wedges, which is one wedge as far as the eye is concerned. Each keeps its
+   family's hue and steps along a ramp within it: the biggest keeps the category colour, smaller
+   ones get progressively lighter. The grouping still reads and the slices stay apart. Colour is
+   never the only channel — every slice is named in the legend and in its tooltip. */
+function drawSubcategoryPie(canvasId, byCategory, { top = 15 } = {}) {
+  const c = $(`#${canvasId}`); if (!c) return;
+  const entries = Object.entries(byCategory)
+    .filter(([, v]) => v < 0).map(([k, v]) => [k, -v]).sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((sum, [, v]) => sum + v, 0);
+  if (!total) { c.closest('.chart-box').innerHTML = `<div class="type-body-small" style="color:var(--ink2)">${T('No expenses.')}</div>`; return; }
+  const head = entries.slice(0, top), tail = entries.slice(top);
+  const rest = tail.reduce((sum, [, v]) => sum + v, 0);
+  const pct = v => Math.round(100 * v / total);
+  const t = CHART_COLORS();
+  const rank = {};
+  const names = head.map(([k]) => catName(k));
+  const colors = head.map(([k]) => {
+    const group = k.split('/')[0];
+    rank[group] = (rank[group] === undefined ? 0 : rank[group] + 1);
+    return shadeColor(catColorFor(k), Math.min(0.55, 0.18 * rank[group]));
+  });
+  const values = head.map(([, v]) => v);
+  if (rest > 0) {
+    names.push(T('Other ({n} smaller)', { n: tail.length }));
+    values.push(rest);
+    colors.push(t.ink2);
+  }
+  mkChart(c, {
+    type: 'doughnut',
+    data: { labels: names.map((n, i) => `${n} · ${pct(values[i])} %`), datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }] },
+    options: { cutout: '58%', plugins: { legend: { position: 'right', labels: { padding: 8, boxWidth: 10, boxHeight: 10 } },
+      tooltip: { callbacks: { label: ctx => `${names[ctx.dataIndex]}: ${fmt(ctx.parsed)} · ${pct(ctx.parsed)} %` } } } },
+  });
+}
+
+/* Income / expenses / surplus over a run of months. Expenses arrive signed-negative from the
+   pipeline and are plotted as magnitudes, so all three lines share one direction. */
+function drawIncomeExpenseLine(canvasId, labels, rows) {
+  const c = $(`#${canvasId}`); if (!c) return;
+  const t = CHART_COLORS();
+  mkChart(c, {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: T('Income'), data: rows.map(r => r.income), borderColor: t.c1, backgroundColor: t.c1, tension: .3, pointRadius: 3 },
+      { label: T('Expenses'), data: rows.map(r => -r.expenses), borderColor: t.c2, backgroundColor: t.c2, tension: .3, pointRadius: 3 },
+      { label: T('Surplus'), data: rows.map(r => r.savings), borderColor: t.good, backgroundColor: t.good, tension: .3, pointRadius: 3, borderDash: [5, 4] },
+    ] },
+    options: { plugins: { legend: { position: 'top' } } },
+  });
+}
+
+/* ---- liquid net worth ---- : the ONE net-worth card, on the Dashboard (one year) and the
+   Overview (every month on record). Recorded balances + the raw ledger; cash and credit-card
+   accounts excluded. Spans where the transactions don't reconcile with the anchors are drawn
+   dashed and red, because a level nobody can prove should not look like one that is proven. */
+function netWorthCardHtml(id = 'networth-card') {
+  return `<div class="card p-5 mb-6" id="${id}">
+    <div class="flex items-center justify-between mb-1 flex-wrap gap-2"><h2 class="font-medium">${T('Liquid net worth')}</h2><span class="nw-total type-title"></span></div>
+    <div class="nw-note type-caption mb-3" style="color:var(--ink2)"></div>
+    <div class="chart-box tall"><canvas id="${id}-canvas"></canvas></div>
+    <div class="nw-empty type-body-small" style="color:var(--ink2)"></div></div>`;
+}
+
+function drawNetWorth(canvasId, nw, labelFor) {
+  const c = $(`#${canvasId}`); if (!c) return;
+  const t = CHART_COLORS();
+  const labels = nw.points.map(p => (labelFor ? labelFor(p) : p.date));
+  const data = nw.points.map(p => p.total_eur);
+  const badSpans = [];
+  nw.accounts.forEach(a => a.spans.forEach(s => { if (s.ok === false && s.has_txns) badSpans.push([s.from, s.to]); }));
+  const untrusted = nw.points.map(p => badSpans.some(([f, to]) => f < p.date && p.date <= to));
+  const dash = ctx => (untrusted[ctx.p0DataIndex] || untrusted[ctx.p1DataIndex]) ? [6, 4] : undefined;
+  const col = ctx => (untrusted[ctx.p0DataIndex] || untrusted[ctx.p1DataIndex]) ? t.bad : t.c1;
+  mkChart(c, {
+    type: 'line',
+    data: { labels, datasets: [{ data, borderColor: t.c1, backgroundColor: 'transparent', tension: .25, pointRadius: 2, fill: false,
+      segment: { borderDash: dash, borderColor: col } }] },
+    options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => fmt(ctx.parsed.y) } } },
+      scales: { y: { ticks: { callback: v => fmt(v) } } } },
+  });
+}
+
+/* Fetch + fill the card. `year` narrows the sampled months to that year; null charts the whole
+   history. `isCurrent` guards against the page having moved on while the request was in flight. */
+function fillNetWorthCard({ id = 'networth-card', year = null, isCurrent = () => true, labelFor = null } = {}) {
+  const card = $(`#${id}`); if (!card) return;
+  api(`/api/networth${year ? `?year=${year}` : ''}`).then(nw => {
+    if (!isCurrent()) return;
+    const host = $(`#${id}`); if (!host) return;
+    const totalEl = host.querySelector('.nw-total'), noteEl = host.querySelector('.nw-note');
+    const emptyEl = host.querySelector('.nw-empty'), box = host.querySelector('.chart-box');
+    if (!nw.points.length) {
+      totalEl.textContent = ''; noteEl.textContent = ''; box.style.display = 'none';
+      // Anchors exist but none of them reach this window — a different problem from having none at all.
+      emptyEl.innerHTML = nw.accounts.length
+        ? (year ? T('No recorded balance covers {year}. Net worth starts at your first recorded balance.', { year })
+          : T('No recorded balance covers any month yet. Net worth starts at your first recorded balance.'))
+        : T('Record a balance for your bank accounts (Settings › Accounts → “Record balance”) to chart your money over time. Cash and credit-card accounts are not included.');
+      return;
+    }
+    box.style.display = ''; emptyEl.textContent = '';
+    // The chart stops at Dec of a selected year, so "Now" is only true when it reaches today.
+    const last = nw.points[nw.points.length - 1];
+    totalEl.innerHTML = last.date === nw.as_of
+      ? T('Now: {amount}', { amount: `<b>${fmt(nw.current.total_eur)}</b>` })
+      : T('End of {year}: {amount}', { year, amount: `<b>${fmt(last.total_eur)}</b>` });
+    // Name the scope where the line is read: this is spendable money, not total wealth.
+    const notes = [T('Recorded account balances. Cash and credit cards are not included.')];
+    if (nw.uncovered.length) notes.push(T('Not yet included (no balance recorded): {list}', { list: nw.uncovered.map(a => esc(accountLabel(a))).join(', ') }));
+    if (nw.accounts.some(a => a.spans.some(s => s.ok === false && s.has_txns))) notes.push(T('Dashed red = periods where transactions don’t reconcile with the recorded balances.'));
+    noteEl.innerHTML = notes.join(' · ');   // account labels already esc()-d above
+    drawNetWorth(`${id}-canvas`, nw, labelFor);
+  });
+}
+
 /* View sentinels for the dashboard tabs: 0 = whole year, 'yc' = year costs,
    1..12 = a month. state.dashView holds the current one. */
 function dashViewToIndex(v) { return v === 0 ? 0 : v === 'yc' ? 1 : v + 1; }
@@ -1433,10 +1631,7 @@ async function renderDashboard(renderId = state.renderId) {
       </div>`;
   }
 
-  // perspective selector: Together | Shared | <each person> — a clean partition
-  const cap = w => w[0].toUpperCase() + w.slice(1);
-  const scopeOpts = [{ value: 'all', kind: 'together' }, { value: 'shared', kind: 'shared' },
-    ...state.meta.people.map(p => ({ value: p, kind: `person:${p}` }))];
+  const scopeOpts = scopeSegmentOptions();
 
   $('#main').innerHTML = `
     <div class="page-sticky">
@@ -1460,12 +1655,6 @@ async function renderDashboard(renderId = state.renderId) {
   let drawSeq = 0;               // guards async chart fills against tab switches
   let yoyData = null;            // cached /api/yoy response for the chart/table toggle
 
-  /* ---- small builders reused across views ---- */
-  const chartCard = (title, canvasId, { tall = false, header = '', note = '' } = {}) =>
-    `<div class="card p-5"><div class="flex items-center justify-between gap-3 flex-wrap mb-3"><h2 class="font-medium">${title}</h2>${header}</div>
-      ${note ? `<div class="type-caption mb-3" style="color:var(--ink2)">${note}</div>` : ''}
-      <div class="chart-box${tall ? ' tall' : ''}"><canvas id="${canvasId}"></canvas></div></div>`;
-
   const tilesHtml = (view, data) => {
     if (view === 'yc') {
       return statTile(T('Year cost total'), fmt(-data.expenses), 'var(--bad)') +
@@ -1473,11 +1662,7 @@ async function renderDashboard(renderId = state.renderId) {
         statTile(T('Net'), fmt(data.savings), data.savings >= 0 ? 'var(--good)' : 'var(--bad)') +
         statTile(T('Transactions'), String(data.transactions || 0));
     }
-    const rate = data.income > 0 ? Math.round(100 * data.savings / data.income) + ' %' : '–';
-    return statTile(T('Income'), fmt(data.income), 'var(--good)') +
-      statTile(T('Expenses'), fmt(-data.expenses), 'var(--bad)') +
-      statTile(T('Savings'), fmt(data.savings), data.savings >= 0 ? 'var(--good)' : 'var(--bad)') +
-      statTile(T('Savings rate'), rate, data.savings >= 0 ? 'var(--good)' : 'var(--bad)') +
+    return moneyTiles(data) +
       (typeof view === 'number' && view !== 0 ? statTile(T('Year costs (excluded)'), fmt(-data.year_costs_excluded)) : '') +
       statTile(T('Needs review'), String(data.needs_review || 0), data.needs_review ? 'var(--bad)' : 'var(--good)');
   };
@@ -1522,30 +1707,7 @@ async function renderDashboard(renderId = state.renderId) {
       options: { plugins: { legend: { display: false } } },
     });
   };
-  // "Where the money goes" — one slice per MAIN category (subs aggregated up),
-  // labelled and tooltipped as a share of total expenses, category-coloured.
-  const drawPie = data => {
-    const c = $('#pie-canvas'); if (!c) return;
-    const mainTotals = {};
-    Object.entries(data.by_category).forEach(([slug, v]) => {
-      if (v >= 0) return;
-      const main = slug.split('/')[0];
-      mainTotals[main] = (mainTotals[main] || 0) + -v;
-    });
-    const mains = Object.entries(mainTotals).sort((a, b) => b[1] - a[1]);
-    const total = mains.reduce((sum, [, v]) => sum + v, 0);
-    if (!total) { c.closest('.chart-box').innerHTML = `<div class="type-body-small" style="color:var(--ink2)">${T('No expenses.')}</div>`; return; }
-    const pct = v => Math.round(100 * v / total);
-    const labels = mains.map(([k, v]) => `${groupName(k)} · ${pct(v)} %`);
-    const values = mains.map(([, v]) => v);
-    const colors = mains.map(([k]) => resolveColor(catColorFor(k)));
-    mkChart(c, {
-      type: 'doughnut',
-      data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }] },
-      options: { cutout: '58%', plugins: { legend: { position: 'right', labels: { padding: 10 } },
-        tooltip: { callbacks: { label: ctx => `${groupName(mains[ctx.dataIndex][0])}: ${pct(ctx.parsed)} %` } } } },
-    });
-  };
+  const drawPie = data => drawCategoryPie('pie-canvas', data.by_category);
   /* Year costs (the e-bike effect) are kept out of every monthly figure on purpose, so the
      twelve months here summed to less than the year tiles above them — 28% less on a year
      with a big one-off — and nothing on screen said so. Spreading shares the year-cost slice
@@ -1574,23 +1736,14 @@ async function renderDashboard(renderId = state.renderId) {
       : T('Excludes {total} of year costs, which the totals above do include. See the Year costs tab.', { total: fmt(-total) });
   };
   const drawByMonth = () => {
-    const c = $('#bymonth-canvas'); if (!c) return;
-    const t = CHART_COLORS();
     const { n, income: incShare, expenses: expShare } = spreadShare();
     // Only months that have happened carry a share, so the line never rises into the future.
     const share = (index, value) => (state.spreadYearCosts && index < n ? value : 0);
-    const inc = s.months.map((m, i) => m.income + share(i, incShare));
-    const exp = s.months.map((m, i) => -(m.expenses + share(i, expShare)));
-    const sav = s.months.map((m, i) => m.savings + share(i, incShare + expShare));
-    mkChart(c, {
-      type: 'line',
-      data: { labels: MONTHS.map(T), datasets: [
-        { label: T('Income'), data: inc, borderColor: t.c1, backgroundColor: t.c1, tension: .3, pointRadius: 3 },
-        { label: T('Expenses'), data: exp, borderColor: t.c2, backgroundColor: t.c2, tension: .3, pointRadius: 3 },
-        { label: T('Surplus'), data: sav, borderColor: t.good, backgroundColor: t.good, tension: .3, pointRadius: 3, borderDash: [5, 4] },
-      ] },
-      options: { plugins: { legend: { position: 'top' } } },
-    });
+    drawIncomeExpenseLine('bymonth-canvas', MONTHS.map(T), s.months.map((m, i) => ({
+      income: m.income + share(i, incShare),
+      expenses: m.expenses + share(i, expShare),
+      savings: m.savings + share(i, incShare + expShare),
+    })));
   };
   const toggleSpread = on => {
     state.spreadYearCosts = on;
@@ -1815,55 +1968,11 @@ async function renderDashboard(renderId = state.renderId) {
     if (sh.startsWith('personal:')) return T('Personal') + ' · ' + personLabelRaw(sh.split(':')[1]);
     return sh;
   };
-  /* Liquid net worth over the selected year. Reconstructed from recorded balances + the raw ledger;
-     cash & credit-card accounts excluded. Untrusted spans (transactions don't reconcile with
-     the anchors) are drawn dashed/red. */
-  const nwNote = id => esc(accountLabel(id));
-  const drawNetworth = nw => {
-    const c = $('#nw-canvas'); if (!c) return;
-    const t = CHART_COLORS();
-    const labels = nw.points.map(p => p.date);
-    const data = nw.points.map(p => p.total_eur);
-    const badSpans = [];
-    nw.accounts.forEach(a => a.spans.forEach(s => { if (s.ok === false && s.has_txns) badSpans.push([s.from, s.to]); }));
-    const untrusted = nw.points.map(p => badSpans.some(([f, to]) => f < p.date && p.date <= to));
-    const dash = ctx => (untrusted[ctx.p0DataIndex] || untrusted[ctx.p1DataIndex]) ? [6, 4] : undefined;
-    const col = ctx => (untrusted[ctx.p0DataIndex] || untrusted[ctx.p1DataIndex]) ? t.bad : t.c1;
-    mkChart(c, {
-      type: 'line',
-      data: { labels, datasets: [{ data, borderColor: t.c1, backgroundColor: 'transparent', tension: .25, pointRadius: 2, fill: false,
-        segment: { borderDash: dash, borderColor: col } }] },
-      options: { plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => fmt(ctx.parsed.y) } } },
-        scales: { y: { ticks: { callback: v => fmt(v) } } } },
-    });
-  };
-  const fillNetworth = token => {
-    const card = $('#networth-card'); if (!card) return;
-    api(`/api/networth?year=${year}`).then(nw => {
-      if (token !== drawSeq || !renderIsCurrent(renderId, tab, year)) return;
-      const totalEl = $('#nw-total'), noteEl = $('#nw-note'), emptyEl = $('#nw-empty'), box = card.querySelector('.chart-box');
-      if (!nw.points.length) {
-        totalEl.textContent = ''; noteEl.textContent = ''; box.style.display = 'none';
-        // Anchors exist but none of them reach this year — a different problem from having none at all.
-        emptyEl.innerHTML = nw.accounts.length
-          ? T('No recorded balance covers {year}. Net worth starts at your first recorded balance.', { year })
-          : T('Record a balance for your bank accounts (Settings › Accounts → “Record balance”) to chart your money over time. Cash and credit-card accounts are not included.');
-        return;
-      }
-      box.style.display = ''; emptyEl.textContent = '';
-      // The chart stops at Dec of the shown year, so "Now" is only true for the running year.
-      const last = nw.points[nw.points.length - 1];
-      totalEl.innerHTML = last.date === nw.as_of
-        ? T('Now: {amount}', { amount: `<b>${fmt(nw.current.total_eur)}</b>` })
-        : T('End of {year}: {amount}', { year, amount: `<b>${fmt(last.total_eur)}</b>` });
-      // Name the scope where the line is read: this is spendable money, not total wealth.
-      const notes = [T('Recorded account balances. Cash and credit cards are not included.')];
-      if (nw.uncovered.length) notes.push(T('Not yet included (no balance recorded): {list}', { list: nw.uncovered.map(nwNote).join(', ') }));
-      if (nw.accounts.some(a => a.spans.some(s => s.ok === false && s.has_txns))) notes.push(T('Dashed red = periods where transactions don’t reconcile with the recorded balances.'));
-      noteEl.innerHTML = notes.join(' · ');   // list labels already esc()-d via nwNote
-      drawNetworth(nw);
-    });
-  };
+  // Liquid net worth over the selected year — the shared card, narrowed to this year.
+  const fillNetworth = token => fillNetWorthCard({
+    year,
+    isCurrent: () => token === drawSeq && renderIsCurrent(renderId, tab, year),
+  });
   const fillTopBuys = (view, token) => {
     const host = $('#topbuys-body'); if (!host) return;
     const monthQ = (typeof view === 'number' && view !== 0) ? `&month=${view}` : '';
@@ -1908,11 +2017,7 @@ async function renderDashboard(renderId = state.renderId) {
     // Above the figures, because it is a statement about the figures below it.
     parts.push(driftBannerHtml(view));
     parts.push(`<div class="flex gap-4 flex-wrap mb-6">${tilesHtml(view, data)}</div>`);
-    if (view === 0) parts.push(`<div class="card p-5 mb-6" id="networth-card">
-      <div class="flex items-center justify-between mb-1 flex-wrap gap-2"><h2 class="font-medium">${T('Liquid net worth')}</h2><span id="nw-total" class="type-title"></span></div>
-      <div id="nw-note" class="type-caption mb-3" style="color:var(--ink2)"></div>
-      <div class="chart-box tall"><canvas id="nw-canvas"></canvas></div>
-      <div id="nw-empty" class="type-body-small" style="color:var(--ink2)"></div></div>`);
+    if (view === 0) parts.push(netWorthCardHtml());
     if (typeof view === 'number' && view !== 0) parts.push('<div id="findings-card"></div>');
     // row 1: money flow (1/3) + where-the-money-goes (2/3)
     parts.push(`<div class="grid-1-2 mb-6">
@@ -2005,6 +2110,128 @@ async function renderDashboard(renderId = state.renderId) {
     state.dashView = view; draw(view);
   });
   draw(state.dashView);
+}
+
+/* ---------- overview ---------- : every year on record, in one page.
+
+   The landing page. The Dashboard answers "how was this year"; this answers "how has it been",
+   which is the same question over a wider window — so it is built from the same components and
+   deliberately shows less: four figures and three charts, no queues, no locks, no editing. It
+   ignores the year selector, because the whole point of it is that it is not about one year. */
+const OV_KEYS = { nw: 'ov-networth', months: 'ov-bymonth', pie: 'ov-pie', subpie: 'ov-subpie' };
+
+/* How many subcategories the second doughnut names before collapsing the tail into Other.
+   Matches the Dashboard's "Top 15 costs" so the two pages cut the long tail at the same place. */
+const OV_TOP_SUBS = 15;
+
+/* Both doughnuts share one height so they read as two views of one total rather than as a big
+   chart and a small one. It is stated rather than inherited because each sizes itself from its
+   legend, which is a different length on each — the taller of the two would otherwise set the
+   comparison. */
+const OV_PIE_HEIGHT = 400;
+
+/* "Jan '24" — a month label that stays unambiguous across a multi-year x-axis. */
+function ovMonthLabel(year, month) { return `${T(MONTHS[month - 1])} '${String(year).slice(2)}`; }
+
+async function renderOverview(renderId = state.renderId) {
+  const tab = 'overview';
+  const year = state.year;                    // only used by the staleness guard
+  const scope = state.dashScope || 'all';     // one "whose money" lens for the whole app
+  const isCurrent = () => renderIsCurrent(renderId, tab, year);
+  const o = await cachedYearData('overview', `/api/overview?scope=${scope}`);
+  if (!isCurrent()) return;
+
+  if (!o.years.length) {
+    $('#main').innerHTML = `<div class="card p-8 type-body" style="color:var(--ink2)">
+      ${T('Nothing to show yet. Drop a bank export in the inbox and ingest it, and this page fills itself in.')}
+      <div class="mt-4"><md-filled-button href="#ingest"><md-icon slot="icon">upload_file</md-icon>${T('Ingest')}</md-filled-button></div></div>`;
+    return;
+  }
+
+  const span = o.first_year === o.last_year ? String(o.first_year) : `${o.first_year}–${o.last_year}`;
+  const flatMonths = o.years.flatMap(y => y.months);
+  // Trailing months of the running year have not happened; charting them as zero would draw a
+  // cliff that is an artefact of the calendar, not of the money.
+  const lastReal = (() => {
+    for (let i = flatMonths.length - 1; i >= 0; i--) {
+      const m = flatMonths[i];
+      if (cents(m.income) || cents(m.expenses)) return i;
+    }
+    return flatMonths.length - 1;
+  })();
+  const months = flatMonths.slice(0, lastReal + 1);
+
+  /* Year costs sit in the year totals but not in the monthly ones, so the twelve months of a
+     year with a big one-off add up to less than its tile. Spreading amortizes each year's own
+     year costs across its own elapsed months — never across another year's. Same switch, same
+     preference, same caveat as the Dashboard: it is a model, not a record. */
+  const shareFor = y => {
+    const n = Math.max(1, y.elapsed_months);
+    return { n, income: (y.year_costs.income || 0) / n, expenses: (y.year_costs.expenses || 0) / n };
+  };
+  const spreadTotal = o.years.reduce((sum, y) => sum + (y.year_costs.income || 0) + (y.year_costs.expenses || 0), 0);
+  const spreadNote = () => {
+    if (!cents(spreadTotal)) return T('No year costs on record, so spreading changes nothing.');
+    return state.spreadYearCosts
+      ? T('{total} of year costs spread across the months of the year they belong to. The months add up to the totals above.', { total: fmt(-spreadTotal) })
+      : T('Excludes {total} of year costs, which the totals above do include.', { total: fmt(-spreadTotal) });
+  };
+  const monthRows = () => months.map(m => {
+    const y = o.years.find(x => x.year === m.year);
+    const { n, income: inc, expenses: exp } = shareFor(y);
+    const on = state.spreadYearCosts && m.month <= n;
+    return { income: m.income + (on ? inc : 0), expenses: m.expenses + (on ? exp : 0),
+      savings: m.savings + (on ? inc + exp : 0) };
+  });
+  const drawMonths = () => drawIncomeExpenseLine(OV_KEYS.months,
+    months.map(m => ovMonthLabel(m.year, m.month)), monthRows());
+
+  $('#main').innerHTML = `
+    <div class="page-sticky">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h1 class="type-title" style="margin:0">${T('All years')}</h1>
+        <span class="type-label" style="color:var(--ink2)">${esc(span)}</span>
+        <span class="ml-auto flex items-center gap-3">
+          <span class="type-label" style="color:var(--ink2)">${T('Whose money')}</span>
+          ${personSegment('ov-scope', scopeSegmentOptions(), scope, 'seg-scope')}
+        </span>
+      </div>
+    </div>
+    <div class="mt-8">
+      <div class="flex gap-4 flex-wrap mb-2">${moneyTiles(o.totals)}</div>
+      <div class="type-caption mb-6" style="color:var(--ink2)">${T('Everything on record, {span}, year costs included. {n} transactions.', { span, n: o.totals.transactions })}</div>
+      ${netWorthCardHtml(OV_KEYS.nw)}
+      <div class="mb-6">${chartCard(T('Income vs expenses by month'), OV_KEYS.months, {
+        tall: true,
+        header: switchField({ id: 'ov-spread', label: T('Spread year costs'), on: state.spreadYearCosts }),
+        note: `<span id="ov-spread-note">${spreadNote()}</span>`,
+      })}</div>
+      <div class="mb-6">${chartCard(T('Where the money goes'), OV_KEYS.pie, { height: OV_PIE_HEIGHT })}</div>
+      <div class="mb-6">${chartCard(T('Where the money goes — by subcategory'), OV_KEYS.subpie, {
+        height: OV_PIE_HEIGHT,
+        note: T('The {n} biggest subcategories. Everything smaller is grouped into Other, so the chart stays readable — the total is unchanged.', { n: OV_TOP_SUBS }),
+      })}</div>
+    </div>`;
+
+  $('#ov-scope').addEventListener('change', () => {
+    state.dashScope = readSeg($('#ov-scope')) || 'all';
+    render();
+  });
+  const spread = $('#ov-spread');
+  if (spread) spread.addEventListener('change', () => {
+    state.spreadYearCosts = spread.selected;
+    try { localStorage.setItem(SPREAD_KEY, spread.selected ? '1' : '0'); } catch (_) { /* private mode */ }
+    const note = $('#ov-spread-note'); if (note) note.innerHTML = spreadNote();
+    drawMonths();
+  });
+
+  drawMonths();
+  drawCategoryPie(OV_KEYS.pie, o.by_category);
+  drawSubcategoryPie(OV_KEYS.subpie, o.by_category, { top: OV_TOP_SUBS });
+  // Net worth covers every month with a recorded balance, which is its own window: it starts at
+  // the first anchor, not at the first transaction, so it is fetched and labelled on its own.
+  fillNetWorthCard({ id: OV_KEYS.nw, year: null, isCurrent,
+    labelFor: p => ovMonthLabel(+p.date.slice(0, 4), +p.date.slice(5, 7)) });
 }
 
 async function setRecurringOverride(key, st) {

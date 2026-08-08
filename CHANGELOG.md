@@ -9,6 +9,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **An Overview page across every year on record, and the app now opens on it.** Four figures
+  (income, expenses, savings, savings rate), liquid net worth over every month, income vs expenses
+  by month, and where the money goes. Reachable any time from the home icon beside the year
+  selector — it sits there rather than in the tab row because it is the one page the year selector
+  does not apply to. The figures are the same `year_summary` the Dashboard shows, added up: widening
+  the window must not change what a euro means. Year costs can be spread across the months of the
+  year they belong to, never across another year's, using the same switch and the same caveat as the
+  Dashboard. A second "where the money goes" breaks the same total down by **subcategory**: the 15
+  biggest are named and everything smaller is collapsed into one Other slice, because thirty named
+  slivers is a legend, not a chart. Subcategories inherit their category's colour, so each one steps
+  along a light-to-dark ramp inside its family — the grouping still reads and the slices stay apart.
+
 - **Settings › Balances**: a year grid of recorded account balances — months down, accounts across, with
   a per-month total. Each cell is either a balance recorded from a statement (carrying its reconciliation
   verdict) or the figure the ledger computes, shown so you can check it against your bank. Entry is a

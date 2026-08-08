@@ -23,7 +23,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline import anchors, balances, closings, coverage, doctor, fx, ingest, networth, recurring, rules_engine, settle, store, transfers  # noqa: E402
+from pipeline import anchors, balances, closings, coverage, doctor, fx, ingest, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
 from pipeline.util import DATA, INBOX, ROOT, RULES, cents, load_config, read_json, write_json, load_accounts  # noqa: E402
 
 app = FastAPI(title="FamilyAccountability")
@@ -799,6 +799,12 @@ def set_budgets(b: Budgets):
     clean = {k: float(v) for k, v in b.budgets.items() if v not in (None, "", 0)}
     write_json(BUDGETS_FILE, {"_help": "Monthly targets in EUR per category slug.", "budgets": clean})
     return {"ok": True}
+
+
+@app.get("/api/overview")
+def overview_view(scope: str = "all"):
+    """Every year on record in one payload — the landing page's whole dataset."""
+    return overview.series(scope=_check_scope(scope))
 
 
 @app.get("/api/yoy")
