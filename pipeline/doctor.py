@@ -3,7 +3,7 @@ import math
 from collections import Counter, defaultdict
 from datetime import date
 
-from . import anchors, closings, fx, ingest, rules_engine, schemas, settle, store
+from . import anchors, closings, format_lint, fx, fx_audit, ingest, rules_engine, schemas, settle, store
 from .util import DATA, ROOT, RULES, cents, load_accounts, load_config, read_json
 
 
@@ -695,14 +695,248 @@ def _orphan_transfer_marks(ctx):
     return out
 
 
+def _conservation_identities(ctx):
+    """Recompute the totals from the rows, deliberately the long way round.
+
+    Everything else in this file audits the *data*. This audits the *arithmetic*, and it
+    is the one check that must not reuse settle.py to do it: an auditor that calls the
+    same function it is auditing can only ever agree with it. So the sums here are
+    written out plainly, in integer cents, from the effective rows — and if they disagree
+    with what the dashboards report, one of the two is wrong and a person needs to know
+    which before trusting either.
+
+    These are identities, not opinions. Each one is true of any correct ledger:
+      the year equals the sum of its months;
+      income and expenses partition the lines that are counted;
+      a split's parts equal their parent;
+      what was paid toward shared costs equals the shared total, and the balances cancel.
+    """
+    out = []
+    for year in ctx["years"]:
+        try:
+            out.extend(_conservation_for(ctx, year))
+        except Exception as exc:            # noqa: BLE001 - reported, never raised
+            # Recomputing a year means reading every row in it, so a single malformed row
+            # can stop the arithmetic entirely — a missing date, an amount that is text, a
+            # transaction pointing at an account that no longer exists. That is a finding,
+            # not a traceback: the checks above name the offending rows precisely, and
+            # this says why the totals could not be independently confirmed. An auditor
+            # that dies on the corruption it was sent to find is no auditor.
+            out.append(_finding("warning", "conservation:not-verifiable", year,
+                                "The totals for %d could not be independently recomputed because "
+                                "the year contains data that cannot be read as money (%s). Fix the "
+                                "rows reported above, then run this again." % (year, exc)))
+    return out
+
+
+def _conservation_for(ctx, year):
+    """One year's identities. Raises StoreCorrupt if the year cannot be read at all."""
+    out = []
+    rows = ctx["effective"].get(year) or []
+    income_cats = settle.income_categories()
+    accounts = ctx["accounts"]
+
+    # The long way: expand every line by hand, exactly as the totals are defined.
+    counted, per_month = [], defaultdict(int)
+    for txn in rows:
+        if txn.get("kind") == "internal-transfer":
+            continue
+        for _, part in settle.money_lines(txn):
+            view = settle.part_view(txn, part)
+            if view["sharing"] == "out-of-scope":
+                continue
+            amount = cents(part["amount"] if part else txn.get("amount_eur") or 0)
+            counted.append((txn, view, amount))
+            if not view["year_cost"]:
+                per_month[int(txn["date"][5:7])] += amount
+
+    income = sum(a for t, v, a in counted
+                 if (v["category"] in income_cats if v["category"] else a > 0))
+    expenses = sum(a for t, v, a in counted
+                   if not (v["category"] in income_cats if v["category"] else a > 0))
+    reported = settle.year_summary(year)
+    if cents(reported["income"]) != income or cents(reported["expenses"]) != expenses:
+        out.append(_finding("error", "conservation:year-totals", year,
+                            "Recomputing the year from its rows gives income %.2f and expenses "
+                            "%.2f, but the dashboard reports %.2f and %.2f."
+                            % (income / 100.0, expenses / 100.0,
+                               reported["income"], reported["expenses"])))
+
+    # A year is its months. Year costs are excluded from the monthly picture by
+    # design, so they are excluded from both sides of this identity, not just one.
+    month_total = sum(cents(m["income"]) + cents(m["expenses"]) for m in reported["months"])
+    rows_total = sum(per_month.values())
+    if month_total != rows_total:
+        out.append(_finding("error", "conservation:months-sum-to-year", year,
+                            "The twelve monthly figures add up to %.2f but the rows they are "
+                            "built from add up to %.2f."
+                            % (month_total / 100.0, rows_total / 100.0)))
+
+    # A split that does not add up is deliberately NOT re-checked here. The effective
+    # view drops an invalid split rather than applying it, so this function — which
+    # reads that view — could never see one; and `_bad_splits` reads the decisions,
+    # where they actually live, with `schema:split-sum` behind it. Three implementations
+    # of one identity is how two of them quietly stop agreeing.
+
+    # Settlement: what each person paid toward shared costs must add up to the shared
+    # total, each fair share likewise, and the two balances must cancel exactly.
+    result = settle.settlement(year)
+    shared = cents(result["total_shared_expenses"])
+    paid = sum(cents(v) for v in result["paid"].values())
+    fair = sum(cents(v) for v in result["fair_share"].values())
+    balance = sum(cents(v) for v in result["balances"].values())
+    if paid != shared or fair != shared or balance != 0:
+        out.append(_finding("error", "conservation:settlement", year,
+                            "Settlement does not conserve: shared %.2f, paid %.2f, fair shares "
+                            "%.2f, balances %.2f (should be 0)."
+                            % (shared / 100.0, paid / 100.0, fair / 100.0, balance / 100.0)))
+
+    # The three perspectives are a partition of everything, so they must add back to it.
+    for field in ("income", "expenses"):
+        whole = cents(settle.year_summary(year, scope="all")[field])
+        parts_total = sum(cents(settle.year_summary(year, scope=scope)[field])
+                          for scope in ["shared"] + list(ctx["people"]))
+        if whole != parts_total:
+            out.append(_finding("error", "conservation:scope-partition", year,
+                                "Together, shared + each person's %s add up to %.2f, but the "
+                                "whole is %.2f — the perspectives are meant to partition it."
+                                % (field, parts_total / 100.0, whole / 100.0)))
+    del accounts
+    return out
+
+
+def _fx_reproducible(ctx):
+    """Every stored euro amount must follow from its foreign amount and its rate.
+
+    Reuses the FX audit's read-only cache access — never the network — but checks the
+    arithmetic here rather than trusting the audit's own verdict.
+    """
+    out = []
+    for year in ctx["years"]:
+        try:
+            report = fx_audit.audit_year(year)
+        except Exception as exc:            # noqa: BLE001 - a broken audit is a finding
+            out.append(_finding("warning", "fx:unavailable", year,
+                                "The FX audit could not run: %s" % exc))
+            continue
+        for item in report["items"]:
+            if item["status"] == "amount-mismatch":
+                out.append(_finding("error", "fx:amount-mismatch", year,
+                                    "%s stores %.2f EUR, but %s at the rate recorded for it (%s) "
+                                    "gives %.2f." % (item["id"], item["stored_eur_cents"] / 100.0,
+                                                     item["amount_original"], item["rate_date"],
+                                                     (item["expected_eur_cents"] or 0) / 100.0),
+                                    [item["id"]]))
+            elif item["status"] == "rate-mismatch":
+                out.append(_finding("warning", "fx:rate-restated", year,
+                                    "%s was converted at %s, but the cache now holds %s for %s. The "
+                                    "stored euro figure is unchanged; the published rate moved."
+                                    % (item["id"], item["stored_rate"], item["cached_rate"],
+                                       item["rate_date"]), [item["id"]]))
+            elif item["status"] == "missing-rate":
+                out.append(_finding("warning", "fx:no-cached-rate", year,
+                                    "%s cannot be re-checked: no cached ECB rate for %s on %s. Run "
+                                    "'fx-update'." % (item["id"], item["currency"],
+                                                      item["requested_rate_date"]), [item["id"]]))
+    return out
+
+
+def _rule_health(ctx):
+    """Rules that cannot fire, or that quietly shadow one another.
+
+    A rule is retroactive, so a broken one is not an inert line in a file — it is either
+    reclassifying history or failing to. Both are worth saying out loud. Matching is
+    substring, first-match-wins, so 'shadowing' here means exactly that: an earlier rule
+    whose pattern is contained in a later one's takes every row the later one wanted.
+    """
+    out = []
+    rules = ctx["rules"]
+    categories = ctx["categories"] | {"auto:items"}
+    seen = {}
+    for index, rule in enumerate(rules):
+        rule_id = rule.get("id") or "rule %d" % index
+        match = rule.get("match") or {}
+        pattern = (match.get("contains") or "").strip()
+        if not pattern:
+            out.append(_finding("error", "rule:never-matches", 0,
+                                "Rule %s has no pattern, so it can never match anything." % rule_id,
+                                [rule_id]))
+            continue
+        field = match.get("field", "any")
+        key = (field, pattern.lower(), rule.get("scope", "family"))
+        if key in seen:
+            out.append(_finding("warning", "rule:duplicate", 0,
+                                "Rule %s repeats the condition already in %s; only the first can "
+                                "ever apply." % (rule_id, seen[key]), [rule_id]))
+        else:
+            seen[key] = rule_id
+        category = rule.get("category")
+        if category and category not in categories:
+            out.append(_finding("error", "rule:unknown-category", 0,
+                                "Rule %s assigns category '%s', which does not exist."
+                                % (rule_id, category), [rule_id]))
+        for earlier_index in range(index):
+            earlier = rules[earlier_index]
+            earlier_match = earlier.get("match") or {}
+            earlier_pattern = (earlier_match.get("contains") or "").strip().lower()
+            if not earlier_pattern or earlier_pattern == pattern.lower():
+                continue
+            same_reach = earlier_match.get("field", "any") in (field, "any")
+            same_scope = earlier.get("scope", "family") == rule.get("scope", "family")
+            if same_reach and same_scope and earlier_pattern in pattern.lower():
+                out.append(_finding("info", "rule:shadowed", 0,
+                                    "Rule %s can never see a row that %s did not take first: '%s' "
+                                    "contains '%s' and comes earlier."
+                                    % (rule_id, earlier.get("id"), pattern,
+                                       earlier_match.get("contains")), [rule_id]))
+                break
+    return out
+
+
+def _format_manifests(ctx):
+    """The bank format catalogue, checked by the same linter CI and startup use.
+
+    Only *invalid* manifests are reported. A best-guess format is a fact about the
+    installed software, not about this household's data, and it never clears — the
+    doctor is meant to reach zero, and a finding that cannot be resolved is one people
+    learn to scroll past, taking the resolvable ones with it. Best-guess is surfaced
+    where it is actionable instead: in the import preview, before somebody decides
+    whether to trust a row count, and in `pipeline.cli formats-lint`.
+    """
+    return [_finding("error", "format:invalid-manifest", 0, problem)
+            for problem in format_lint.lint()["problems"]]
+
+
+def _untraceable_rows(ctx):
+    """Canonical rows that cannot be traced back to something that produced them.
+
+    Provenance is only as good as the weakest row. Cash is excluded because its source
+    ledger is `inbox/cash.csv` and it is checked separately; anything else with no source
+    file at all arrived by a route nobody can now name.
+    """
+    out = []
+    for year in ctx["years"]:
+        anonymous = sorted(txn.get("id") for txn in ctx["raw"].get(year, [])
+                           if not (txn.get("source") or {}).get("file"))
+        if anonymous:
+            out.append(_finding("warning", "provenance:no-source", year,
+                                "%d transaction%s carry no source file, so what produced them "
+                                "cannot be established." % (len(anonymous),
+                                                            "" if len(anonymous) == 1 else "s"),
+                                anonymous))
+    return out
+
+
 CHECKS = (
-    _unreadable_files, _invalid_transactions, _orphan_decisions, _unknown_accounts,
-    _unknown_categories, _bad_splits,
+    _schema_findings, _unreadable_files, _invalid_transactions, _orphan_decisions,
+    _unknown_accounts, _unknown_categories, _bad_splits,
     _duplicate_ids, _unknown_sharing_and_owner, _anchor_findings, _cash_desync,
     _review_in_closed_month, _unpaired_markers, _orphan_budgets, _stale_upload_refs,
     _account_currency_mismatch, _anchor_currency_drift, _fx_cache_sanity, _out_of_scope_drift,
     _orphan_transfer_marks, _closed_month_drift, _contradictory_split_scope,
     _unscanned_year_dirs, _decision_account_reassignment,
+    _conservation_identities, _fx_reproducible, _rule_health, _format_manifests,
+    _untraceable_rows,
 )
 
 

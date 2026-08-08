@@ -7,6 +7,27 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The doctor audits the arithmetic, not just the data** (IMP-06). New checks recompute the totals
+  the long way — from the effective rows, in integer cents, deliberately *without* calling the
+  functions being audited, because an auditor that calls what it audits can only ever agree with it.
+  It verifies four identities true of any correct ledger: the year equals the sum of its months,
+  income and expenses partition the counted lines, what was paid toward shared costs equals the
+  shared total with balances cancelling exactly, and the three "whose money" perspectives add back to
+  the whole. The test that matters most breaks `settle.year_summary` on purpose and asserts the
+  doctor notices.
+
+  Also new: every stored euro amount is re-derived from its foreign amount and rate (offline, reusing
+  the FX audit's read-only cache); rules that can never match, repeat a condition, name a category
+  that does not exist, or are permanently shadowed by an earlier substring are reported; the format
+  catalogue is linted; and rows with no source file are flagged as untraceable.
+
+  Fixed while here: the schema audit added in the previous release was **defined but never
+  registered**, so it had never run. And a `format:best-guess` note was deliberately *removed* from
+  the report — it is a fact about the installed software rather than this household's data, it never
+  clears, and a finding that cannot be resolved teaches people to scroll past the ones that can.
+
 ### Security
 
 - **Restore no longer deletes your data before deciding whether it can proceed** (IMP-08). It used to
