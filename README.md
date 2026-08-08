@@ -49,6 +49,12 @@ py -3.12 -m venv .venv
 .venv\Scripts\uvicorn app.server:app --port 8765
 ```
 
+One difference on Windows: UnPAIN serializes writes between the web app and the `pipeline.cli`
+commands with a POSIX file lock, which Windows does not have. Browser tabs are still serialized
+against each other, but running a CLI command that writes (`ingest`, `fx-update`, `close-baseline`)
+while the server is running can interleave with a write from the browser. Stop the server first, or
+use the web app for everything.
+
 To look around first, run `./start.sh --demo`. It seeds an isolated `demo/` folder with five years of
 synthetic data and serves it. Your real data stays untouched.
 

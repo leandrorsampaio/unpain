@@ -12,6 +12,7 @@ import csv
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -440,6 +441,41 @@ check("and a decision that does not move it is not reported",
               for f in doctor.run(dup_year)["findings"]))
 
 
+# ---------------------------------------------------------------- portability
+print("== a lock that cannot exist must not stop the app existing")
+# The cross-process mutation lock is built on fcntl, which is POSIX-only. Importing it
+# unconditionally meant `import app.server` raised ModuleNotFoundError on the platform
+# README.md documents installation for — the app did not fail to lock, it failed to
+# start. A guarantee that cannot be provided has to degrade, not detonate.
+probe = """
+import sys
+class Blocker:
+    def find_spec(self, name, path=None, target=None):
+        if name == "fcntl":
+            raise ModuleNotFoundError("No module named 'fcntl'")
+        return None
+sys.meta_path.insert(0, Blocker())
+sys.modules.pop("fcntl", None)
+from pipeline.mutation_lock import mutation_lock, AVAILABLE
+assert AVAILABLE is False, "the probe did not actually hide fcntl"
+with mutation_lock():
+    pass
+import app.server            # the import that used to die on Windows
+print("OK")
+"""
+result = subprocess.run([sys.executable, "-c", probe], cwd=str(PROJECT),
+                        env=dict(os.environ, FA_ROOT=str(tmp)),
+                        capture_output=True, text=True)
+check("the app still imports and locks (as a no-op) with no fcntl",
+      result.returncode == 0 and "OK" in result.stdout,
+      (result.stdout + result.stderr)[-300:])
+
+from pipeline import mutation_lock as _lock  # noqa: E402
+check("and where fcntl does exist the lock is real", _lock.AVAILABLE is (os.name != "nt"))
+with _lock.mutation_lock():
+    check("the lock is a working context manager here", True)
+
+
 # ---------------------------------------------------------------- doctor robustness
 print("== the doctor survives the data it exists to find")
 # An integrity check that throws on corrupt data is no use: corrupt data is the only
@@ -582,7 +618,7 @@ check("an empty statement produces no anchors to record",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 102
+MIN_CHECKS = 105
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

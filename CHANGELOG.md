@@ -9,6 +9,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed (review follow-up)
 
+- **The cross-process write lock stopped the app starting on Windows.** It is built on `fcntl`,
+  which is POSIX-only, and importing it unconditionally meant `app.server` raised
+  `ModuleNotFoundError` on the platform the README documents installation for — the app failed to
+  start rather than failing to lock, which is a much worse answer to a race nobody had reported.
+  The file lock now degrades to a no-op where it cannot exist, so Windows keeps exactly the
+  protection it had before (two browser tabs are still serialized; a simultaneous CLI run is not),
+  and POSIX keeps the full guarantee. A test hides `fcntl` and asserts the app still imports.
 - **Ingest preview could promise a normalized extraction that Process would refuse.** Preview now
   applies the same reconciliation gate, so an extracted CSV without its sidecar fails immediately.
 - **PDF rollback copied the entire data tree and could overwrite a concurrent CLI import.** Web and
