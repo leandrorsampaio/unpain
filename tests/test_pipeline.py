@@ -1337,7 +1337,11 @@ doctor_decisions[doctor_raw["id"]] = {
     "splits": [{"amount": 0, "category": "missing/category", "sharing": "shared"}],
 }
 doctor_decisions["orphan-doctor-decision"] = {"category": "core-living/groceries"}
-store.save_decisions(2026, doctor_decisions)
+# Written straight to the file, not through save_decisions. Seeding corruption is a
+# fixture operation; the application API now validates on write and would — correctly —
+# refuse to create the very state this section exists to prove doctor can report. A
+# damaged store is something the app *finds*, not something it can be asked to produce.
+write_json(tmp / "data" / "2026" / "decisions.json", doctor_decisions)
 doctor_months = store.months_state(2026)
 doctor_months["2026-06"] = "closed"
 store.save_months_state(2026, doctor_months)

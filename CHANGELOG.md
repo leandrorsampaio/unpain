@@ -9,6 +9,30 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **One authoritative schema per persisted object** (IMP-03). `pipeline/schemas.py` defines what a
+  transaction, decision, split part, account, balance anchor and merchant rule are allowed to be, and
+  everything that reads or writes them asks it. Validation used to live wherever a reader happened to
+  need it — three approximations of the same truth, and the one that mattered was always the one that
+  did not run.
+
+  Errors name the exact place and carry a stable code, the file, a JSON path and the fix:
+  `decisions.json → abc#1.splits[1].amount is not an amount of money`. Booleans are rejected where
+  numbers belong (Python says `True` is an `int`, and it then behaves as 1 in arithmetic), NaN and
+  Infinity everywhere, dates outside 1900–2999, and **unknown fields in canonical financial records** —
+  a misspelled `shraing` is read as no sharing at all, and the money quietly joins the totals.
+
+  `validate_graph(root)` checks a whole tree, including references *between* files (a decision for a
+  transaction that no longer exists, a category or account that was deleted). It takes an explicit
+  root rather than the live one, because its most important future caller is restore: a candidate has
+  to be judged complete before it goes anywhere near live data. Failures are isolated per file — one
+  unreadable year must not make the others vanish from the report.
+
+  Wired into `store.save_decisions` and `store.append_transactions` (validated on the way **out**, so
+  corruption never replaces a good file) and into the doctor, which now reports what production
+  itself enforces rather than its own approximation of it. Running it over the real store found one
+  thing — and it was the schema that was wrong, not the data: split parts legitimately carry a
+  `purpose` the editor writes.
+
 - **"What changed?" — why today's figures differ from the ones you reviewed** (FEAT-11). The
   Dashboard gains a card that compares the current year against a recorded moment: a month or annual
   close, the last import, or the last backup. It answers in transactions and fields — *"UNKNOWN

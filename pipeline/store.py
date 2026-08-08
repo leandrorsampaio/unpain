@@ -13,7 +13,7 @@ import copy
 import tempfile
 from pathlib import Path
 
-from . import rules_engine
+from . import rules_engine, schemas
 from .util import DATA, ROOT, RULES, load_accounts, load_config, read_json, write_json, year_dir
 
 
@@ -81,11 +81,19 @@ def known_ids(year):
 
 
 def append_transactions(year, source_name, txns):
-    """Append new records to this source's jsonl for the year."""
+    """Append new records to this source's jsonl for the year.
+
+    Every row is validated before a byte is written. A malformed row appended here is
+    the worst kind of corruption: it is canonical, every total reads it, and nothing
+    downstream is in a position to refuse it any more.
+    """
     if not txns:
         return
     tdir = year_dir(year) / "transactions"
     path = tdir / (source_name + ".jsonl")
+    for index, txn in enumerate(txns):
+        schemas.validate_for_write(txn, schemas.raw_transaction, file=path,
+                                   path="new row %d" % (index + 1))
     with open(path, "a", encoding="utf-8") as f:
         for t in txns:
             f.write(json.dumps(t, ensure_ascii=False) + "\n")
@@ -171,6 +179,13 @@ def decisions(year):
 
 
 def save_decisions(year, obj):
+    # Validated on the way OUT, not only on the way in. Checking only on read means the
+    # corruption is already on disk by the time anyone notices, and the good copy it
+    # replaced is gone. People are passed so `personal:<slug>` can be checked against
+    # the household that actually exists.
+    schemas.validate_for_write(obj, schemas.decisions_file,
+                               file=year_dir(year) / "decisions.json",
+                               people=load_config().get("people") or ())
     write_json(year_dir(year) / "decisions.json", obj)
 
 

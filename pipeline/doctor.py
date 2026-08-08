@@ -3,8 +3,8 @@ import math
 from collections import Counter, defaultdict
 from datetime import date
 
-from . import anchors, closings, fx, ingest, rules_engine, settle, store
-from .util import DATA, RULES, cents, load_accounts, load_config, read_json
+from . import anchors, closings, fx, ingest, rules_engine, schemas, settle, store
+from .util import DATA, ROOT, RULES, cents, load_accounts, load_config, read_json
 
 
 def _finding(severity, check, year, message, ids=None):
@@ -65,6 +65,21 @@ def _effective_or_empty(year, unreadable):
         if not any(item == year for item, _ in unreadable):
             unreadable.append((year, str(exc)))
         return []
+
+
+def _schema_findings(ctx):
+    """Every persisted file, judged against its authoritative schema.
+
+    Doctor used to re-derive its own approximations of these shapes, which meant the
+    auditor could agree with production about something they were both wrong about.
+    Sharing the validators removes that: this reports what the readers and writers
+    themselves enforce, so a clean report means the same thing everywhere.
+    """
+    out = []
+    for finding in schemas.validate_graph(ROOT)["findings"]:
+        out.append(_finding("error", "schema:%s" % finding["code"], 0,
+                            finding["message"]))
+    return out
 
 
 def _unreadable_files(ctx):
