@@ -205,7 +205,9 @@ def verify_checkpoints(transactions, checkpoints):
         return failures
     ordered = sorted(transactions, key=lambda t: (t["date"], t["order"]))
     closing_by_date = {}
+    opening_by_date = {}
     for txn in ordered:
+        opening_by_date.setdefault(txn["date"], txn["balance_cents"] - txn["amount_cents"])
         closing_by_date[txn["date"]] = txn["balance_cents"]
     for checkpoint in checkpoints:
         checkpoint_date = checkpoint.get("date")
@@ -231,6 +233,20 @@ def verify_checkpoints(transactions, checkpoints):
         failures.append("no Saldo Final was read for %s, so %s section%s cannot be checked for "
                         "completeness" % (", ".join(uncovered), "that" if len(uncovered) == 1 else "those",
                                           "" if len(uncovered) == 1 else "s"))
+    # A day's printed close is also the independently authored opening of the next
+    # transaction day.  Comparing those boundaries catches a missing first row on
+    # every date except the oldest date in the statement.  The remaining oldest edge
+    # is proved at admission time by a pre-recorded manual opening balance, because
+    # this bank does not print one in the PDF.
+    printed_close = {c.get("date"): c.get("balance_cents") for c in checkpoints
+                     if c.get("date") is not None}
+    for previous, current in zip(dated, dated[1:]):
+        if previous in printed_close and opening_by_date[current] != printed_close[previous]:
+            failures.append(
+                "%s opens at %.2f but the previous printed Saldo Final on %s is %.2f; "
+                "the first row of %s may be missing" %
+                (current, opening_by_date[current] / 100.0, previous,
+                 printed_close[previous] / 100.0, current))
     return failures
 
 
@@ -304,6 +320,10 @@ def extract_pdf(pdf, output, allow_review=False):
         "transactions_extracted": len(txns),
         "transactions_for_review": sum(1 for t in txns if t["force_review"]),
         "opening_balance": None if opening is None else opening / 100.0,
+        # Banco Rendimento does not print the period opening.  Admission therefore
+        # requires an independently recorded manual anchor matching this derived value;
+        # without it, losing the first row of the oldest date is mathematically invisible.
+        "opening_balance_source": "derived",
         "closing_balance": None if closing is None else closing / 100.0,
         "sum_of_transactions": sum_cents / 100.0,
         "discrepancy": 0.0 if opening is None else (opening + sum_cents - closing) / 100.0,

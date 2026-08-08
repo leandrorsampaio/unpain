@@ -22,7 +22,7 @@ Review tab instead:
 
 ## The reconciliation gate
 
-The statement prints a running balance on every row, so the balance chain *is* the gate.
+The statement prints a running balance on every row, so the balance chain is one part of the gate.
 Walked oldest to newest, each printed balance must equal the previous one plus the printed
 amount. The opening balance is derived from the oldest row (`balance − amount`), and the
 closing balance is the newest row's. A single break fails the whole statement.
@@ -30,6 +30,12 @@ closing balance is the newest row's. A single break fails the whole statement.
 There is no printed opening balance to check against, and the trailing `Saldo Atual` block is
 the balance on the *print date*, not the end of the period — on a real 2025 statement the
 period ends at R$ 1.280,00 while `Saldo Atual` reads R$ 1.450,00. Neither is used as an anchor.
+
+Because a derived opening cannot reveal a missing first row, the app admits this extractor's
+output only when a **manual balance anchor** already exists for the day before the oldest
+transaction and matches the derived opening exactly. Record that balance in Settings › Balances
+before processing the first Banco Rendimento statement. Daily `Saldo Final` values then prove the
+boundaries between every later date; the running chain proves the rows inside each date.
 
 ## Layout notes
 

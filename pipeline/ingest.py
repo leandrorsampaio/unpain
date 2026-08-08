@@ -12,13 +12,11 @@ from collections import Counter
 from . import anchors, extraction, formats, fx, store, transfers
 from .util import DATA, INBOX, load_accounts, read_json, txn_hash, year_dir
 
-# A statement whose numbers were read out of a PDF rather than exported by a bank carries
-# no arithmetic of its own, so it has to bring the reconciliation it claims to have passed.
-# The extract-statement skill names its output '<account>__<name>.extracted.csv' and writes
-# '<account>__<name>.extracted.report.json' beside it; see _admit_extracted. The suffix is
-# what makes the requirement enforceable — the normalized CSV *shape* is also what the
-# deterministic extractors and hand-written exports use, so the shape cannot say who wrote
-# it, and demanding a report from all of them would refuse ordinary bank data.
+# A normalized ``generic-extracted`` CSV is not a bank export: it is the output of an
+# extractor or a hand-written transformation.  Its shape carries no bank-authored totals,
+# so every production ingestion boundary requires the reconciliation sidecar.  Filename
+# suffixes are kept for a useful error message, but are not the trust boundary: renaming an
+# extracted file must never turn it into an ordinary, trusted bank statement.
 EXTRACTED_SUFFIX = ".extracted"
 REPORT_SUFFIX = ".report.json"
 
@@ -95,21 +93,24 @@ def report_path_for(path):
     return path.with_name(path.stem + REPORT_SUFFIX)
 
 
-def _admit_extracted(path):
+def _admit_extracted(path, cfg=None):
     """Hold an extracted statement to the reconciliation it claims to have passed.
 
     The skill's instructions have always called reconciliation mandatory, and nothing
     ever checked: the pipeline read the CSV, and the format file's own note asserted
     that reconciliation "happens in the skill". A claim nobody verifies is not a gate.
-    So a file named `.extracted.csv` must arrive with its report, and any file that
-    brings a report has that report re-checked here — against the CSV that is actually
-    about to be imported, not against whatever the producer had in front of it.
+    Any file detected as ``generic-extracted`` must arrive with its report, and any
+    file that brings a report has that report re-checked here — against the CSV that
+    is actually about to be imported, not against whatever the producer had in front
+    of it.  The deterministic PDF path passes ``admitted=True`` only after calling
+    :func:`pipeline.extraction.admit` itself.
     """
     report_file = report_path_for(path)
     if not report_file.is_file():
-        if path.stem.endswith(EXTRACTED_SUFFIX):
+        cfg = cfg or formats.detect(path)
+        if path.stem.endswith(EXTRACTED_SUFFIX) or cfg.get("name") == "generic-extracted":
             raise ValueError(
-                "%s is an extracted statement, which may only be imported together with its "
+                "%s uses the normalized extracted-statement format, which may only be imported together with its "
                 "reconciliation report. Write %s beside it, carrying the statement's own "
                 "opening_balance and closing_balance, as skills/extract-statement/instructions.md "
                 "describes." % (path.name, report_file.name))
@@ -118,8 +119,8 @@ def _admit_extracted(path):
 
 
 def _ingest_file(path, account_id, accounts):
-    _admit_extracted(path)
     cfg = formats.detect(path)
+    _admit_extracted(path, cfg)
     rows, stats = formats.parse(path, cfg, with_stats=True)
     by_year = {}
     occurrence = Counter()
@@ -252,8 +253,10 @@ def ingest_upload(path, account_id, source_stem, original_name=None, admitted=Fa
     if account_id not in accounts:
         raise ValueError("unknown account '%s'" % account_id)
     if not admitted:
-        _admit_extracted(path)
-    cfg = formats.detect(path)
+        cfg = formats.detect(path)
+        _admit_extracted(path, cfg)
+    else:
+        cfg = formats.detect(path)
     rows, stats = formats.parse(path, cfg, with_stats=True)
     by_year = {}
     occurrence = Counter()

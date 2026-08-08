@@ -7,6 +7,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed (review follow-up)
+
+- **Normalized extracted CSVs could bypass reconciliation by being renamed.** Admission now keys
+  on the detected format, not a filename suffix, and the financial oracle uses a real Nubank export
+  shape instead of relying on the normalized extractor format.
+- **A failed PDF import could leave transactions behind while reporting that nothing was imported.**
+  Statement processing now rolls back the canonical ledger, anchors, upload metadata and moved
+  source file as one operation when any publication step fails.
+- **Banco Rendimento could not prove the oldest statement boundary.** Its self-derived opening now
+  requires a matching manual prior-day balance, and daily printed closes verify every later boundary.
+- **The doctor tolerated malformed canonical rows without identifying them.** Missing or invalid
+  ids, dates, accounts, monetary values, currencies, kinds and sources are now explicit findings;
+  JSONL values that are not transaction objects are reported as unreadable store data.
+- The real-data tripwire now hashes every byte of large files, and closed-period coverage now tests
+  rule updates/deletes and account ownership changes as retroactive financial operations.
+
 ### Fixed (found by the new tests)
 
 - **Settlement rounded per transaction, so every odd cent went to the same person.** Halving a

@@ -101,7 +101,7 @@ def _check_anchors(report, opening, closing):
                                       opening / 100.0, closing / 100.0))
 
 
-def admit(report, csv_path):
+def admit(report, csv_path, trusted_opening_cents=None):
     """Verify an extraction report against the file it wrote. Raises, or returns facts.
 
     Every caller that turns an extraction into stored transactions goes through here.
@@ -112,6 +112,16 @@ def admit(report, csv_path):
         raise ExtractionRejected(report.get("error") or "the extractor did not report status 'ok'")
     opening = _balance_cents(report.get("opening_balance"), "opening balance")
     closing = _balance_cents(report.get("closing_balance"), "closing balance")
+    if report.get("opening_balance_source") == "derived":
+        if trusted_opening_cents is None:
+            raise ExtractionRejected(
+                "the extractor derived its opening balance from the first row instead of reading "
+                "a balance printed by the bank. Record that opening balance manually for this "
+                "account, then retry; otherwise a missing first row cannot be detected")
+        if int(trusted_opening_cents) != opening:
+            raise ExtractionRejected(
+                "the derived opening balance %.2f disagrees with the independently recorded "
+                "opening balance %.2f" % (opening / 100.0, trusted_opening_cents / 100.0))
     rows, total = read_rows(csv_path)
     if opening + total != closing:
         raise ExtractionRejected(

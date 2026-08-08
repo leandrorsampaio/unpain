@@ -1,4 +1,5 @@
 """Read-only whole-store data integrity checks."""
+import math
 from collections import Counter, defaultdict
 from datetime import date
 
@@ -72,6 +73,59 @@ def _unreadable_files(ctx):
                      "so this audit is incomplete until that file is repaired or removed."
                      % message)
             for year, message in ctx.get("unreadable", [])]
+
+
+def _invalid_transactions(ctx):
+    """Report malformed canonical rows instead of merely surviving them.
+
+    The effective view is intentionally defensive so the doctor can run over damaged
+    data.  That defence must not turn damage into silence: a missing amount that is
+    treated as non-income for the duration of the audit is still not a valid financial
+    record.  Validate the raw ledger here, before downstream checks interpret it.
+    """
+    out = []
+    valid_kinds = {"normal", "internal-transfer"}
+    for year in ctx["years"]:
+        for filename, transactions in ctx["files"].get(year, {}).items():
+            for line, txn in enumerate(transactions, start=1):
+                issues = []
+                txn_id = txn.get("id")
+                if not isinstance(txn_id, str) or not txn_id.strip():
+                    issues.append("id is missing or not a non-empty string")
+                account = txn.get("account")
+                if not isinstance(account, str) or not account.strip():
+                    issues.append("account is missing or not a non-empty string")
+                raw_date = txn.get("date")
+                try:
+                    parsed_date = date.fromisoformat(raw_date) if isinstance(raw_date, str) else None
+                except ValueError:
+                    parsed_date = None
+                if parsed_date is None or parsed_date.isoformat() != raw_date:
+                    issues.append("date is missing or not YYYY-MM-DD")
+                elif parsed_date.year != year:
+                    issues.append("date belongs to %d but the row is stored under %d" %
+                                  (parsed_date.year, year))
+                for field in ("amount_original", "amount_eur"):
+                    value = txn.get(field)
+                    if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                            or not math.isfinite(value):
+                        issues.append("%s is missing or not finite money" % field)
+                currency = txn.get("currency")
+                if not isinstance(currency, str) or not currency.strip():
+                    issues.append("currency is missing or empty")
+                if txn.get("kind", "normal") not in valid_kinds:
+                    issues.append("kind '%s' is unknown" % txn.get("kind"))
+                if not isinstance(txn.get("source"), dict):
+                    issues.append("source is missing or not an object")
+                if not issues:
+                    continue
+                location = "%s:%d" % (filename, line)
+                finding_id = txn_id if isinstance(txn_id, str) and txn_id else location
+                out.append(_finding(
+                    "error", "invalid-transaction", year,
+                    "Canonical transaction %s is malformed: %s." %
+                    (location, "; ".join(issues)), [finding_id]))
+    return out
 
 
 def _orphan_decisions(ctx):
@@ -622,7 +676,8 @@ def _orphan_transfer_marks(ctx):
 
 
 CHECKS = (
-    _unreadable_files, _orphan_decisions, _unknown_accounts, _unknown_categories, _bad_splits,
+    _unreadable_files, _invalid_transactions, _orphan_decisions, _unknown_accounts,
+    _unknown_categories, _bad_splits,
     _duplicate_ids, _unknown_sharing_and_owner, _anchor_findings, _cash_desync,
     _review_in_closed_month, _unpaired_markers, _orphan_budgets, _stale_upload_refs,
     _account_currency_mismatch, _anchor_currency_drift, _fx_cache_sanity, _out_of_scope_drift,

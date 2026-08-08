@@ -20,7 +20,7 @@ shutil.copy(PROJECT / "examples" / "accounts.json", root / "data" / "accounts.js
 (root / "inbox" / "staging").mkdir(parents=True)
 
 from app import server  # noqa: E402
-from pipeline import store  # noqa: E402
+from pipeline import anchors, store  # noqa: E402
 
 
 ROWS = [("2025-01-02", "-12.34", "EUR", "SAFE TEST", "PDF extraction test", "", "false")]
@@ -90,6 +90,63 @@ try:
     result = stage("tampered")
     assert result["results"][0]["status"] == "error", result
     assert store.load_year_raw(2025) == []
+    server._save_staging([])
+
+    # A derived opening cannot prove that the first row survived.  Banco Rendimento
+    # uses this path and must be backed by a manual opening anchor for the account.
+    server.PDF_EXTRACTORS["derived"] = {
+        "label": "derived", "extract": make_extractor(opening_balance_source="derived")}
+    result = stage("derived")
+    assert result["results"][0]["status"] == "error", result
+    assert store.load_year_raw(2025) == []
+    server._save_staging([])
+    anchors.add_manual("bank1-person1", "2025-01-01", 100.00)
+    result = stage("derived")
+    assert result["results"][0]["status"] == "processed", result
+    source_stem = server._uploads()[0]["source_stem"]
+    store_path = root / "data" / "2025" / "transactions" / (source_stem + ".jsonl")
+    store_path.unlink()
+    server._save_uploads([])
+    anchors.remove("bank1-person1", "2025-01-02")
+    server._save_staging([])
+
+    # Fail after transactions were written.  The entire attempt must roll back and
+    # the error may only say "No data was imported" when that statement is true.
+    server.PDF_EXTRACTORS["post-write-failure"] = {
+        "label": "post-write-failure", "extract": make_extractor()}
+    original_record = server.anchors.record
+    server.anchors.record = lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("anchor disk failure"))
+    try:
+        result = stage("post-write-failure")
+    finally:
+        server.anchors.record = original_record
+    assert result["results"][0]["status"] == "error", result
+    assert "No data was imported" in result["results"][0]["detail"]
+    assert store.load_year_raw(2025) == [], "post-ingest failure left transactions behind"
+    assert server._staging(), "failed source disappeared from staging"
+    assert not [p for p in (server.INBOX / "processed").glob("*post-write-failure*")]
+    server._save_staging([])
+
+    # Metadata publication is part of the same transaction too.  Fail it once so the
+    # handler can restore the attempt and then persist the actionable error state.
+    original_save_uploads = server._save_uploads
+    calls = {"count": 0}
+    def fail_once(items):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("uploads metadata disk failure")
+        return original_save_uploads(items)
+    server._save_uploads = fail_once
+    server.PDF_EXTRACTORS["metadata-failure"] = {
+        "label": "metadata-failure", "extract": make_extractor()}
+    try:
+        result = stage("metadata-failure")
+    finally:
+        server._save_uploads = original_save_uploads
+    assert result["results"][0]["status"] == "error", result
+    assert store.load_year_raw(2025) == []
+    assert server._uploads() == []
+    assert server._staging(), "metadata failure lost the staged source"
     server._save_staging([])
 
     # And the honest one goes all the way through.

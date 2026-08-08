@@ -4,7 +4,7 @@
   "delimiter": ",",
   "decimal": "dot",
   "date_format": "%Y-%m-%d",
-  "_note": "The normalized CSV shape: written by the deterministic PDF extractors in scripts/, by the extract-statement skill, and by any hand-rolled export. The shape alone cannot say who produced it, so it is not what decides whether reconciliation is required: pipeline/extraction.py gates the scripts/ extractors on the report they return, and pipeline/ingest.py requires a <name>.report.json for any file named '*.extracted.csv' (what the skill writes). Either way, opening + rows == closing is re-checked here, over this file, before a row is imported.",
+  "_note": "Normalized extractor output, never a bank-authored export. Every production ingestion path requires a reconciliation report for this format, regardless of filename. Deterministic PDF extractors are admitted directly after pipeline/extraction.py rechecks opening + rows == closing over the exact CSV being imported.",
   "columns": {
     "date": "date",
     "amount": "amount",

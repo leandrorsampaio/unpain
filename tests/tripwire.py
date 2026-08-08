@@ -15,12 +15,6 @@ import sys
 
 WATCHED = ["data", "rules", "inbox", "receipts", "config.json"]
 
-# Anything larger than this is hashed by its first and last megabyte plus its size.
-# A statement PDF or a backup zip is the only thing here that gets big, and reading
-# every byte of one on every test run would make the guard cost more than the suite.
-FULL_HASH_LIMIT = 8 * 1024 * 1024
-
-
 def digest(path, size):
     """Content hash, so a change that preserves mtime and size is still a change.
 
@@ -31,13 +25,12 @@ def digest(path, size):
     """
     h = hashlib.sha256()
     with open(path, "rb") as f:
-        if size <= FULL_HASH_LIMIT:
-            for chunk in iter(lambda: f.read(1024 * 1024), b""):
-                h.update(chunk)
-        else:
-            h.update(f.read(1024 * 1024))
-            f.seek(-1024 * 1024, os.SEEK_END)
-            h.update(f.read())
+        # Hash every byte.  Sampling only the ends let a same-size edit in the middle
+        # of a large statement or receipt pass the guard that claims tests cannot touch
+        # personal data.  The watched tree is local and this runs once before/after the
+        # suite; correctness is worth the small sequential-read cost.
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
     return h.hexdigest()
 
 

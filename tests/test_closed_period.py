@@ -157,6 +157,58 @@ for label, operation in sorted(ALLOWED.items()):
           any(row["month"] == KEY and row["status"] == "drifted" for row in closings.verify(YEAR)),
           str([(r["month"], r["status"]) for r in closings.verify(YEAR)]))
 
+# Updating and deleting a rule are the same retroactive operation as creating one.
+# Exercise them separately; listing them as "irrelevant" previously let either path
+# rewrite a settled month without proving that the drift alarm followed.
+rules_path = tmp / "rules" / "merchant-rules.json"
+rule_target = next(t for t in IN_MONTH if t["id"] not in store.decisions(YEAR)
+                   and (t.get("counterparty") or t.get("purpose")))
+needle = (rule_target.get("counterparty") or rule_target.get("purpose"))
+categories = sorted(server._decision_options()[0] - {"auto:items"})
+
+
+def install_front_rule(rule_id, category, sharing="shared"):
+    document = json.loads(rules_path.read_text())
+    document["rules"].insert(0, {"id": rule_id,
+                                 "match": {"field": "any", "contains": needle},
+                                 "category": category, "sharing": sharing, "scope": "family"})
+    rules_path.write_text(json.dumps(document, indent=2))
+
+
+for label, mutate in (
+    ("updating a merchant rule", lambda rid: server.rule_update(
+        server.RuleUpdate(id=rid, category=categories[1]))),
+    ("deleting a merchant rule", lambda rid: server.rule_delete(server.RuleDelete(id=rid))),
+):
+    saved_rules = rules_path.read_bytes()
+    rule_id = "closed-period-" + label.split()[0]
+    install_front_rule(rule_id, categories[0],
+                       sharing="out-of-scope" if label.startswith("deleting") else "shared")
+    status, unchanged = outcome(lambda rid=rule_id, fn=mutate: fn(rid))
+    check("allowed with drift: %s" % label, status == 200, "status %s" % (status,))
+    check("rule metadata changed no canonical transaction: %s" % label, unchanged)
+    check("drift surfaced after %s" % label,
+          any(row["month"] == KEY and row["status"] == "drifted"
+              for row in closings.verify(YEAR)))
+    rules_path.write_bytes(saved_rules)
+
+# Account ownership decides who paid a shared cost, so changing it is not cosmetic.
+# It remains an allowed correction, but a closed-period baseline must announce it.
+accounts_path = tmp / "data" / "accounts.json"
+account_target = next(t for t in IN_MONTH
+                      if t.get("amount_eur", 0) < 0 and
+                      server.load_accounts()[0].get(t.get("account"), {}).get("owner") in PEOPLE + ["couple"])
+old_owner = server.load_accounts()[0][account_target["account"]]["owner"]
+new_owner = next(p for p in PEOPLE if p != old_owner) if old_owner in PEOPLE else PEOPLE[0]
+saved_accounts = accounts_path.read_bytes()
+status, unchanged = outcome(lambda: server.account_update(
+    server.AccountUpdate(id=account_target["account"], owner=new_owner)))
+check("allowed with drift: changing account ownership", status == 200, "status %s" % (status,))
+check("account correction changed metadata but not transaction rows", not unchanged)
+check("drift surfaced after changing account ownership",
+      any(row["month"] == KEY and row["status"] == "drifted" for row in closings.verify(YEAR)))
+accounts_path.write_bytes(saved_accounts)
+
 
 print("== the lock is about the period, not the whole year")
 close_month()
@@ -186,35 +238,36 @@ print("== every write endpoint is accounted for")
 # guess the answer — it fails until a human writes the answer down, above.
 source = (PROJECT / "app" / "server.py").read_text()
 declared = {line.split('"')[1] for line in source.splitlines() if line.startswith('@app.post("/api/')}
-# Endpoints that cannot touch a settled period's figures: session, config, uploads,
-# categories, feedback, and the closing machinery itself.
-IRRELEVANT = {
+# Endpoints that cannot touch a settled period's figures. Figure-changing global
+# corrections belong in COVERED even when their policy is "allow and report drift".
+NON_FINANCIAL = {
     "/api/unlock", "/api/lock", "/api/security/set-password", "/api/security/remove-password",
     "/api/security/auto-lock", "/api/feedback", "/api/feedback-delete", "/api/setup",
-    "/api/settings-update", "/api/account-add", "/api/account-update", "/api/account-delete",
+    "/api/account-add", "/api/account-delete",
     "/api/closing-accept", "/api/anchor", "/api/anchor-delete", "/api/budgets",
     "/api/finding-dismiss", "/api/attachment-add", "/api/attachment-delete",
     "/api/recurring-override", "/api/restore", "/api/delete-year", "/api/rule-apply",
-    "/api/rule-update", "/api/rule-delete", "/api/decision-clear-orphan",
-    "/api/transaction-edit-reset", "/api/ingest", "/api/ingest/upload",
+    "/api/decision-clear-orphan", "/api/ingest/upload",
     "/api/ingest/staging-update", "/api/ingest/staging-delete", "/api/ingest/process",
     "/api/ingest/upload-delete", "/api/close", "/api/close-year", "/api/category",
     "/api/category-add", "/api/category-rename", "/api/category-archive",
     "/api/category-style", "/api/category-watch", "/api/category-delete",
-    "/api/transfer-confirm", "/api/settlement-transfers", "/api/settlement-transfer-delete",
-    "/api/cash-delete", "/api/cash-edit",
+    "/api/settlement-transfers", "/api/settlement-transfer-delete",
 }
 COVERED = {"/api/decision", "/api/decisions-bulk", "/api/decision-clear",
            "/api/decisions-clear-bulk", "/api/ratio-override", "/api/cash",
-           "/api/rule", "/api/transaction-edit"}
-unaccounted = sorted(declared - IRRELEVANT - COVERED)
+           "/api/cash-delete", "/api/cash-edit", "/api/rule", "/api/rule-update",
+           "/api/rule-delete", "/api/transaction-edit", "/api/transaction-edit-reset",
+           "/api/transfer-confirm", "/api/account-update", "/api/settings-update",
+           "/api/ingest", "/api/ingest/process", "/api/ingest/upload-delete"}
+unaccounted = sorted(declared - NON_FINANCIAL - COVERED)
 check("no write endpoint is unaccounted for", not unaccounted,
       "decide what a closed month does about: %s" % ", ".join(unaccounted))
 
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 24
+MIN_CHECKS = 34
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

@@ -51,10 +51,14 @@ def read_jsonl(path):
             if not line:
                 continue
             try:
-                rows.append(json.loads(line))
+                row = json.loads(line)
             except ValueError as exc:
                 raise StoreCorrupt("%s line %d is not readable JSON: %s"
                                    % (Path(path).name, number, exc)) from exc
+            if not isinstance(row, dict):
+                raise StoreCorrupt("%s line %d is JSON but is not a transaction object"
+                                   % (Path(path).name, number))
+            rows.append(row)
     return rows
 
 

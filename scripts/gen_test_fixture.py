@@ -53,7 +53,7 @@ TRANSFER_WINDOW = 4  # must match config.json transfer_match_window_days
 # ---------------------------------------------------------------------------
 ACCOUNTS = [
     {"id": "db-giro-person1",  "owner": "person1",  "bank": "Deutsche Bank", "type": "giro",        "currency": "EUR", "iban": "DE11111111111111111111", "fmt": "db-giro"},
-    {"id": "nubank-person1",   "owner": "person1",  "bank": "Nubank",        "type": "giro",        "currency": "BRL", "iban": None,                     "fmt": "generic"},
+    {"id": "nubank-person1",   "owner": "person1",  "bank": "Nubank",        "type": "giro",        "currency": "BRL", "iban": None,                     "fmt": "nubank-conta"},
     {"id": "dkb-person2",     "owner": "person2", "bank": "DKB",           "type": "giro",        "currency": "EUR", "iban": "DE22222222222222222222", "fmt": "dkb"},
     {"id": "barclays-person2","owner": "person2", "bank": "Barclays",      "type": "credit-card", "currency": "EUR", "iban": None,                     "fmt": "barclays"},
     {"id": "n26-joint",        "owner": "couple",   "bank": "N26",           "type": "giro",        "currency": "EUR", "iban": "DE33333333333333333333", "fmt": "n26"},
@@ -478,17 +478,21 @@ def write_csvs():
         for p in sorted(ps, key=lambda x: x["date"]):
             yield [p["date"], p["cp"], p["purpose"], _fmt_amount(p["orig"], "dot"), ""]
 
-    def generic_rows(ps):  # nubank BRL via generic-extracted format
-        yield ["date", "amount", "currency", "counterparty", "purpose"]
-        for p in sorted(ps, key=lambda x: x["date"]):
-            yield [p["date"], _fmt_amount(p["orig"], "dot"), p["cur"], p["cp"], p["purpose"]]
+    def nubank_conta_rows(ps):
+        # The oracle must enter through a real bank-export shape.  Using the normalized
+        # extractor shape here previously forced production to trust that shape without
+        # its reconciliation report just to keep a test fixture convenient.
+        yield ["Data", "Valor", "Identificador", "Descrição"]
+        for index, p in enumerate(sorted(ps, key=lambda x: x["date"]), start=1):
+            yield [_fmt_date(p["date"], "%d/%m/%Y"), _fmt_amount(p["orig"], "dot"),
+                   "fixture-%05d" % index, (p["cp"] + " " + p["purpose"]).strip()]
 
     builders = {
         "db-giro": (";", db_giro_rows),
         "dkb": (";", dkb_rows),
         "barclays": (";", barclays_rows),
         "n26": (",", n26_rows),
-        "generic": (",", generic_rows),
+        "nubank-conta": (",", nubank_conta_rows),
     }
     written = []
     for acct_id, ps in by_acct.items():

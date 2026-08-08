@@ -123,6 +123,15 @@ honest = {"status": "ok", "opening_balance": 100.00, "closing_balance": 87.66,
           "balance_anchors": [{"date": "2026-03-01", "balance": 100.00},
                               {"date": "2026-03-02", "balance": 87.66}]}
 check("an honest report is admitted", extraction.admit(honest, csv_path)["total_cents"] == -1234)
+derived = dict(honest, opening_balance_source="derived")
+check("a self-derived opening is not accepted as independent evidence",
+      raises(lambda: extraction.admit(derived, csv_path),
+             extraction.ExtractionRejected) is not None)
+check("a matching independently recorded opening proves the otherwise invisible edge",
+      extraction.admit(derived, csv_path, trusted_opening_cents=10000)["rows"] == 1)
+check("a contradictory independent opening refuses the extraction",
+      raises(lambda: extraction.admit(derived, csv_path, trusted_opening_cents=9999),
+             extraction.ExtractionRejected) is not None)
 
 for name, patch in [
     ("status is not ok", {"status": "failed"}),
@@ -164,9 +173,14 @@ check("but not when the report does not hold up",
 extracted.unlink()
 ingest.report_path_for(extracted).unlink()
 
-# A plain bank CSV is not an extraction and is not asked for a report.
+# The normalized shape is extractor output whatever it is named.  Renaming it must
+# not turn producer-controlled metadata into an integrity bypass.
 plain = write_csv(work / "plain.csv", [GOOD_ROW])
-check("an ordinary CSV needs no report", ingest._admit_extracted(plain) is None)
+check("renaming extracted content to an ordinary CSV does not bypass reconciliation",
+      raises(lambda: ingest._admit_extracted(plain), ValueError) is not None)
+write_json(ingest.report_path_for(plain), honest)
+check("the renamed file is admitted only with an honest report",
+      ingest._admit_extracted(plain)["rows"] == 1)
 
 
 # ---------------------------------------------------------------- settlement cents
@@ -363,6 +377,32 @@ check("one bad token spoils the selection rather than being dropped",
       status_of(lambda: server._selected_parts("data,typo")) == 400)
 
 
+# ---------------------------------------------------------------- cash publication
+print("== cash source and derived ledgers roll back together")
+
+
+def tree_bytes(root):
+    return {path.relative_to(root): path.read_bytes()
+            for path in root.rglob("*") if path.is_file()}
+
+
+cash_path = tmp / "inbox" / "cash.csv"
+cash_before = cash_path.read_bytes()
+data_before = tree_bytes(tmp / "data")
+original_rekey = server._rekey_cash_decisions
+server._rekey_cash_decisions = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+    RuntimeError("decision publication failed"))
+try:
+    failure = raises(lambda: server.cash(server.CashEntry(
+        date="2026-04-15", account="cash-person1", amount=-9.87,
+        currency="EUR", description="rollback probe", category="")), RuntimeError)
+finally:
+    server._rekey_cash_decisions = original_rekey
+check("a failure after cash regeneration is surfaced", bool(failure), str(failure))
+check("cash.csv and every canonical data file are restored byte-for-byte",
+      cash_path.read_bytes() == cash_before and tree_bytes(tmp / "data") == data_before)
+
+
 # ---------------------------------------------------------------- doctor
 print("== the doctor sees what it claims to check")
 
@@ -422,7 +462,12 @@ for label, corrupt in CORRUPTIONS.items():
     probe_file.write_text(json.dumps(corrupt, ensure_ascii=False) + "\n", encoding="utf-8")
     try:
         result = doctor.run(dup_year)
-        check("doctor survives %s" % label, isinstance(result.get("findings"), list))
+        expected = "unknown-account" if label == "a row whose account does not exist" \
+            else "invalid-transaction"
+        matching = [finding for finding in result.get("findings", [])
+                    if finding["check"] == expected]
+        check("doctor identifies %s" % label, bool(matching),
+              str([(f["check"], f["message"]) for f in result.get("findings", [])]))
     except Exception as exc:                       # noqa: BLE001 - a crash is the failure
         check("doctor survives %s" % label, False, "%s: %s" % (type(exc).__name__, exc))
 
@@ -433,6 +478,16 @@ try:
           isinstance(result.get("findings"), list) and result["findings"], "no finding")
 except Exception as exc:                           # noqa: BLE001
     check("doctor reports a JSONL file it cannot parse rather than crashing", False,
+          "%s: %s" % (type(exc).__name__, exc))
+
+probe_file.write_text("[]\n", encoding="utf-8")
+try:
+    result = doctor.run(dup_year)
+    check("doctor reports valid JSON that is not a transaction object",
+          any(f["check"] == "unreadable-file" and "not a transaction object" in f["message"]
+              for f in result["findings"]))
+except Exception as exc:                           # noqa: BLE001
+    check("doctor reports valid JSON that is not a transaction object", False,
           "%s: %s" % (type(exc).__name__, exc))
 probe_file.unlink()
 
@@ -493,24 +548,41 @@ check("the whole statement passes", rendimento.verify_checkpoints(two_days, all_
 check("dropping the OLDEST block is caught, though the chain still balances",
       rendimento.verify_checkpoints(two_days[1:], all_closes) != [])
 check("dropping the NEWEST row is caught", rendimento.verify_checkpoints(two_days[:2], all_closes) != [])
-# The two gates divide the document between them, and each covers what the other
-# cannot: the printed closes catch truncation at the edges of a day, and the chain walk
-# catches a hole inside one. A row missing from the middle leaves both of its day's
-# printed closes correct, so only the chain sees it.
-middle_gone = [two_days[0], two_days[2]]
+same_day_first_gone = [two_days[0], two_days[2]]
+check("dropping the first row of a later multi-row date is caught by the previous printed close",
+      rendimento.verify_checkpoints(same_day_first_gone, all_closes) != [])
+# On the oldest date there is no previous daily close. Banco Rendimento prints no
+# period opening, so the extractor exposes exactly the prior-day boundary that the
+# central admission gate requires the user to have recorded independently.
+check("the oldest boundary is exposed as the day-before opening anchor",
+      rendimento.balance_anchors(two_days, 100000, 128000)[0] ==
+      {"date": "2025-12-27", "balance": 1000.0})
+# The two gates divide the document between them: printed closes and the preceding
+# day's close catch boundaries, while the chain walk catches a hole inside a day. A
+# middle row can disappear while the first and last boundary figures remain present.
+three_row_day = [
+    two_days[0],
+    {"date": "2025-12-29", "order": (1, 20), "amount_cents": 10000,
+     "balance_cents": 110000, "counterparty": "first-on-day"},
+    {"date": "2025-12-29", "order": (1, 25), "amount_cents": 10000,
+     "balance_cents": 120000, "counterparty": "middle-on-day"},
+    {"date": "2025-12-29", "order": (1, 30), "amount_cents": 8000,
+     "balance_cents": 128000, "counterparty": "last-on-day"},
+]
+middle_gone = [three_row_day[0], three_row_day[1], three_row_day[3]]
 check("a row missing from the middle leaves the day's printed close intact",
       rendimento.verify_checkpoints(middle_gone, all_closes) == [])
 check("so the chain walk is what catches it", rendimento.verify_chain(middle_gone)[2] != [])
 check("and together they leave no gap uncovered",
       all(rendimento.verify_checkpoints(rows, all_closes) or rendimento.verify_chain(rows)[2]
-          for rows in ([two_days[1:], two_days[:2], middle_gone])))
+          for rows in ([two_days[1:], two_days[:2], same_day_first_gone, middle_gone])))
 check("an empty statement produces no anchors to record",
       rendimento.balance_anchors([], None, None) == [])
 
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 93
+MIN_CHECKS = 102
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

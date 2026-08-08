@@ -2250,6 +2250,37 @@ def _publish_bytes(path, payload):
         raise
 
 
+def _snapshot_tree(root):
+    """Small byte snapshot used to roll back a multi-file local transaction."""
+    root = Path(root)
+    if not root.exists():
+        return None
+    return {path.relative_to(root): path.read_bytes()
+            for path in root.rglob("*") if path.is_file()}
+
+
+def _restore_tree(root, snapshot):
+    """Mirror a tree back to a prior byte snapshot using atomic file publication."""
+    root = Path(root)
+    before = snapshot or {}
+    if root.exists():
+        for path in sorted((item for item in root.rglob("*") if item.is_file()), reverse=True):
+            if path.relative_to(root) not in before:
+                path.unlink()
+    for relative, payload in before.items():
+        _publish_bytes(root / relative, payload)
+    if snapshot is None:
+        with contextlib.suppress(OSError):
+            root.rmdir()
+        return
+    # Remove directories created only by the failed attempt.  Non-empty directories
+    # are preserved; every file they contain is already exactly the snapshot above.
+    for directory in sorted((item for item in root.rglob("*") if item.is_dir()),
+                            key=lambda item: len(item.parts), reverse=True):
+        with contextlib.suppress(OSError):
+            directory.rmdir()
+
+
 def _write_cash_rows(header, body):
     """Publish cash.csv — the source of truth for every cash entry — atomically.
 
@@ -2644,6 +2675,20 @@ def ingest_process():
     remaining = list(staging)
     for e in ready:
         src = STAGING / e["stored"]
+        # One staged statement changes several canonical files (transaction sources,
+        # transfer marks, anchors and uploads metadata) and may move the source PDF.
+        # Snapshot each attempt after prior successes, so any later exception restores
+        # exactly this attempt without undoing another file processed in the same batch.
+        data_before = _snapshot_tree(DATA)
+        source_before = src.read_bytes() if src.is_file() else None
+        staging_file = STAGING / "staging.json"
+        staging_before = staging_file.read_bytes() if staging_file.exists() else None
+        processed_dir = INBOX / "processed"
+        processed_before = {path.name for path in processed_dir.iterdir()} \
+            if processed_dir.exists() else set()
+        remaining_before = list(remaining)
+        upload_count = len(uploads)
+        result_count = len(results)
         acct = e["account"]
         owner = accounts.get(acct, {}).get("owner")
         try:
@@ -2659,7 +2704,19 @@ def ingest_process():
                 # that is actually about to be imported, so a plugin that reports success
                 # it did not earn cannot put a transaction in the store.
                 try:
-                    e["admission"] = extraction.admit(report, extracted)
+                    trusted_opening = None
+                    if report.get("opening_balance_source") == "derived":
+                        report_anchors = report.get("balance_anchors") or []
+                        opening_anchor = report_anchors[0] if report_anchors else {}
+                        opening_date = opening_anchor.get("date")
+                        recorded = next(
+                            (row for row in anchors.list_for(acct)
+                             if row.get("date") == opening_date and row.get("kind") == "manual"),
+                            None)
+                        if recorded is not None:
+                            trusted_opening = cents(recorded.get("balance"))
+                    e["admission"] = extraction.admit(
+                        report, extracted, trusted_opening_cents=trusted_opening)
                 except extraction.ExtractionRejected as rejected:
                     extracted.unlink(missing_ok=True)
                     e["error"] = "Extraction failed reconciliation: %s. No data was imported." % rejected
@@ -2734,11 +2791,31 @@ def ingest_process():
                     detail = "empty statement — no activity in this period"
                 results.append({"file": e["original_name"], "status": "processed", "detail": detail})
             remaining = [s for s in remaining if s["id"] != e["id"]]
+            _save_staging(remaining)
+            _save_uploads(uploads)
         except Exception as ex:  # noqa: BLE001
+            _restore_tree(DATA, data_before)
+            uploads = uploads[:upload_count]
+            remaining = remaining_before
+            del results[result_count:]
+            # The source may already have been moved to processed/.  Restore it before
+            # reporting failure, and remove every artifact this attempt created there.
+            if source_before is not None:
+                _publish_bytes(src, source_before)
+            if processed_dir.exists():
+                for artifact in processed_dir.iterdir():
+                    if artifact.name not in processed_before and artifact.is_file():
+                        artifact.unlink()
+            extracted = STAGING / (e["stored"] + ".extracted.csv")
+            extracted.unlink(missing_ok=True)
+            if staging_before is None:
+                staging_file.unlink(missing_ok=True)
+            else:
+                _publish_bytes(staging_file, staging_before)
             e["error"] = "%s No data was imported." % ex
             results.append({"file": e["original_name"], "status": "error", "detail": e["error"]})
-    _save_staging(remaining)
-    _save_uploads(uploads)
+            _save_staging(remaining)
+            _save_uploads(uploads)
     return {"results": results}
 
 
