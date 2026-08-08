@@ -117,6 +117,21 @@ add/save/delete buttons.
   Drift is surfaced where a person looks: `/api/summary` carries it, the dashboard marks the tab
   red instead of locked and explains what moved, and `/api/closing-accept` adopts the new figures
   without reopening. Detecting drift and never mentioning it is most of the way to not detecting it.
+- **Evidence is never an input.** `pipeline/fx_audit.py` (how a foreign amount became its euro
+  amount), `pipeline/anomalies.py` (review suggestions) and `pipeline/audit.py` (checkpoints for
+  "What changed?") all describe the ledger and are never read to compute a total, a settlement, a tax
+  figure or a net-worth point. None of them writes to `data/` except `anomaly-dismissals.json` and
+  `audit-checkpoints.json`, which are metadata about suggestions and comparisons — never about money.
+  The FX audit never downloads (`fx.rate_details(..., allow_download=False)`); a heuristic never
+  edits a transaction; a checkpoint that disagrees with a fresh recomputation loses.
+- There is **one** definition of a watched money line: `audit.semantic_lines()`. `closings` hashes it
+  for drift detection and `audit.compare()` diffs it for the explanation, so the alarm and the
+  account of the alarm cannot disagree. Changing it means bumping `closings.DIGEST_VERSION` — old
+  snapshots then report *reduced coverage*, never drift.
+- There is **one** merchant normalization, `recurring.merchant_key()`, shared with anomaly detection.
+  It strips digits so a merchant groups across time, which is right for cadence and spikes and wrong
+  for "is this the same charge twice" — duplicate detection compares the raw counterparty text
+  instead, or instalments of one purchase read as duplicates of each other.
 - Categories: never delete, set `archived: true`. Slugs are stable ids.
 - Rule scope: `family` (default) applies everywhere; `<person>` scope applies only to that
   person's accounts and beats family rules. Couple-owned accounts match family rules only.

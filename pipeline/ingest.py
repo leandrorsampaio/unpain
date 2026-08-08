@@ -9,7 +9,7 @@ import json
 import shutil
 from collections import Counter
 
-from . import anchors, extraction, formats, fx, store, transfers
+from . import anchors, audit, extraction, formats, fx, store, transfers
 from .mutation_lock import mutation_lock
 from .util import DATA, INBOX, load_accounts, read_json, txn_hash, year_dir
 
@@ -115,6 +115,14 @@ def _run_locked(verbose=True):
             results.append((path.name, "ERROR: %s" % e))
     for y in sorted(years_touched):
         transfers.mark_internal(y)
+    # One checkpoint per run, not per file: transfer detection finishes after the file
+    # loop, so a per-file checkpoint would record figures that the very next line of
+    # this function changes. Labelled with everything the run processed.
+    processed = sorted(name for name, message in results
+                       if not message.startswith(("ERROR", "SKIPPED")))
+    for y in sorted(years_touched):
+        audit.checkpoint(y, "import", label=", ".join(processed) or "inbox ingest",
+                         metadata={"source": "cli", "files": processed})
     if verbose:
         for name, msg in results:
             print("  %-40s %s" % (name, msg))

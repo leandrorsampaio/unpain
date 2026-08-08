@@ -34,6 +34,10 @@ def _effective_fingerprint(year):
 
 
 def years():
+    # A store with no data/ directory at all is a fresh install, not an error: every
+    # caller here means "which years exist", and the answer is none.
+    if not DATA.exists():
+        return []
     return sorted(int(p.name) for p in DATA.iterdir() if p.is_dir() and re.match(r"^\d{4}$", p.name))
 
 

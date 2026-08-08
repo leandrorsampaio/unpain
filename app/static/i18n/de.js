@@ -8,20 +8,17 @@
 I18N.register('de', {
   /* ---- static chrome (index.html): tabs, header, footer ---- */
   'Dashboard': 'Übersicht',
-  'Transactions': 'Transaktionen',
   'Review': 'Prüfen',
   'Rules': 'Regeln',
   'Categories': 'Kategorien',
   'Accounts': 'Konten',
   'Settlement': 'Ausgleich',
-  'Tax': 'Steuer',
   'Add entry': 'Eintrag',
   'Ingest': 'Import',
   'Settings': 'Einstellungen',
   'Year': 'Jahr',
   'Sections': 'Bereiche',
   'Download backup zip (data, rules, receipts, config)': 'Backup-ZIP herunterladen (Daten, Regeln, Belege, Konfiguration)',
-  'Data health check': 'Datenprüfung',
   'Toggle light/dark': 'Hell/Dunkel umschalten',
   'My Notes': 'Meine Notizen',
 
@@ -66,7 +63,6 @@ I18N.register('de', {
   /* ---- shared helpers (buttons, dialogs, badges) ---- */
   'Rule for: family': 'Regel für: Familie',
   'Rule for: {name} only': 'Regel für: nur {name}',
-  'Out of scope': 'Nicht relevant',
   'Both': 'Beide',
   'Together': 'Zusammen',
   'Shared': 'Gemeinsam',
@@ -168,7 +164,6 @@ I18N.register('de', {
   'Personal': 'Persönlich',
   'No purchases.': 'Keine Käufe.',
   'Money flow — income to categories': 'Geldfluss — Einnahmen zu Kategorien',
-  'Statement coverage': 'Kontoauszug-Abdeckung',
   'Money in · costs · surplus': 'Geld ein · Kosten · Überschuss',
   'Where the money goes': 'Wohin das Geld geht',
   'Year-cost transactions': 'Jahreskosten-Transaktionen',
@@ -225,14 +220,12 @@ I18N.register('de', {
   'Edit split': 'Aufteilung bearbeiten',
   'Edit transaction': 'Transaktion bearbeiten',
   'Correct the raw date, name, amount or bank account of this entry': 'Datum, Name, Betrag oder Bankkonto dieses Eintrags korrigieren',
-  'Edit entry': 'Eintrag bearbeiten',
   'Category': 'Kategorie',
   'Income owner': 'Einkommens-Inhaber',
   'Sharing': 'Aufteilung',
   'Remove manual decision; falls back to rules / review': 'Manuelle Entscheidung entfernen; fällt auf Regeln / Prüfung zurück',
   'Reset': 'Zurücksetzen',
   'Send this transaction back to the review queue': 'Diese Transaktion zurück in die Prüf-Warteschlange senden',
-  'Send to review': 'Zur Prüfung senden',
   'Pick a category first.': 'Zuerst eine Kategorie wählen.',
   'Edit entry values': 'Eintragswerte bearbeiten',
   "Correct this entry's raw values — e.g. the bank restated it, or it was imported under the wrong account. The original is kept so you can reset, and all totals use the corrected values.":
@@ -275,7 +268,6 @@ I18N.register('de', {
   'e.g. Grocery': 'z. B. Lebensmittel',
   'Amount (EUR)': 'Betrag (EUR)',
   'Add remaining': 'Rest hinzufügen',
-  'Remaining:': 'Verbleibend:',
   'Split {amount}': '{amount} aufteilen',
   'Add part': 'Teil hinzufügen',
   'Save split': 'Aufteilung speichern',
@@ -289,7 +281,6 @@ I18N.register('de', {
 
   /* ---- shared UI words ---- */
   'Add': 'Hinzufügen',
-  'Owner': 'Inhaber',
   'Bank': 'Bank',
   'Type': 'Typ',
   'Checking account': 'Girokonto',
@@ -304,7 +295,6 @@ I18N.register('de', {
   'Total': 'Gesamt',
   'Amount': 'Betrag',
   'Who paid': 'Wer bezahlt hat',
-  'Currency': 'Währung',
   'Direction': 'Richtung',
   'From → To': 'Von → An',
   'Title': 'Titel',
@@ -496,7 +486,6 @@ I18N.register('de', {
   'Reset decisions': 'Entscheidungen zurücksetzen',
   'Remove manual decisions; they fall back to rules / review': 'Manuelle Entscheidungen entfernen; fallen auf Regeln / Prüfung zurück',
   'Out of scope': 'Außerhalb des Rahmens',
-  'Apply': 'Anwenden',
   'Validated as {format}: an empty statement with no activity. Choose the account, then process.':
     'Als {format} validiert: ein leerer Auszug ohne Bewegungen. Wähle das Konto und verarbeite dann.',
   'Edit rule': 'Regel bearbeiten',
@@ -836,7 +825,6 @@ I18N.register('de', {
   /* ---- Doctor (data health check) ---- */
   'Data health check': 'Datenprüfung',
   'Scans all years for data problems. Read-only until you act on a finding.': 'Durchsucht alle Jahre nach Datenproblemen. Schreibgeschützt, bis du auf eine Auffälligkeit reagierst.',
-  'Run check': 'Prüfung ausführen',
   'Stale decision': 'Veraltete Entscheidung',
   'Send to review': 'Zur Prüfung senden',
   '{errors} errors, {warnings} warnings, {info} info — {years} years, {txns} transactions checked':
@@ -1097,7 +1085,6 @@ I18N.register('de', {
   'Rates already published never change, so an old cache does not make past conversions wrong — it only limits new imports.':
     'Bereits veröffentlichte Kurse ändern sich nie. Ein alter Zwischenspeicher macht frühere Umrechnungen also nicht falsch — er begrenzt nur neue Importe.',
   'All ({n})': 'Alle ({n})',
-  'Currency': 'Währung',
   'Rows': 'Zeilen',
   'Stored': 'Gespeichert',
   'Rate dates used': 'Verwendete Kurstage',
@@ -1156,4 +1143,39 @@ I18N.register('de', {
   'Transaction date': 'Buchungsdatum',
   'Statement covers': 'Auszug umfasst',
   'Statement': 'Kontoauszug',
+  // ---- What changed? (FEAT-11) ----
+  'What changed?': 'Was hat sich geändert?',
+  'Compare': 'Vergleichen',
+  'Compare against': 'Vergleichen mit',
+  'Since {label} · {when}': 'Seit {label} · {when}',
+  'No reviewed moment recorded yet. Close a month, process an import, or make a backup to create one.':
+    'Noch kein geprüfter Stand aufgezeichnet. Schließe einen Monat ab, verarbeite einen Import oder erstelle ein Backup.',
+  'Nothing changed': 'Nichts hat sich geändert',
+  'No financial or semantic difference since {label}.':
+    'Keine finanzielle oder inhaltliche Abweichung seit {label}.',
+  'This checkpoint was recorded by an older version, so only part of it can be compared.':
+    'Dieser Prüfpunkt stammt aus einer älteren Version, daher kann nur ein Teil verglichen werden.',
+  'The totals are the same, but the lines behind them are not — two changes cancelled each other out.':
+    'Die Summen sind gleich, die Buchungen dahinter aber nicht — zwei Änderungen haben sich aufgehoben.',
+  'Effect on totals and settlement': 'Auswirkung auf Summen und Ausgleich',
+  'Effect on savings': 'Auswirkung auf Ersparnis',
+  'Added': 'Hinzugefügt',
+  'Removed': 'Entfernt',
+  'Changed': 'Geändert',
+  'Splits': 'Aufteilungen',
+  'Shared expenses': 'Gemeinsame Ausgaben',
+  'Paid': 'Gezahlt',
+  'Fair share': 'Fairer Anteil',
+  'Classified by rule {rule}': 'Durch Regel {rule} zugeordnet',
+  'Manually set: {fields}': 'Manuell gesetzt: {fields}',
+  '{a} part(s) → {b} part(s)': '{a} Teil(e) → {b} Teil(e)',
+  'Amount or date changed': 'Betrag oder Datum geändert',
+  'Account or owner changed': 'Konto oder Eigentümer geändert',
+  'Category, sharing or tax changed': 'Kategorie, Aufteilung oder Steuer geändert',
+  'Transfer status changed': 'Umbuchungsstatus geändert',
+  'Came from a different statement': 'Stammt aus einem anderen Kontoauszug',
+  'Only the description changed': 'Nur die Beschreibung hat sich geändert',
+  'Month close': 'Monatsabschluss',
+  'Statement import': 'Import',
+  'Backup made': 'Backup',
 });

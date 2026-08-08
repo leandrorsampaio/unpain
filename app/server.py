@@ -29,8 +29,8 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline import anchors, anomalies, balances, closings, coverage, doctor, extraction, fx_audit, ingest, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
-from pipeline.mutation_lock import async_mutation_lock  # noqa: E402
+from pipeline import anchors, anomalies, audit, balances, closings, coverage, doctor, extraction, fx_audit, ingest, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
+from pipeline.mutation_lock import async_mutation_lock, mutation_lock  # noqa: E402
 from pipeline.util import DATA, ICON_NAME, INBOX, ROOT, RULES, cents, load_config, read_json, write_json, load_accounts  # noqa: E402
 
 app = FastAPI(title="FamilyAccountability")
@@ -1198,6 +1198,26 @@ def recurring_view(year: int, scope: str = "all"):
     return recurring.detect(year, scope=_check_scope(scope))
 
 
+@app.get("/api/changes/baselines")
+def changes_baselines(year: int):
+    """The reviewed moments this year can be compared against."""
+    return {"year": year, "baselines": audit.available_baselines(year)}
+
+
+@app.get("/api/changes")
+def changes_view(year: int, baseline: str):
+    """What is different now versus one stored checkpoint.
+
+    The baseline is resolved through this year's checkpoint file — never a path and
+    never client-supplied snapshot data, so a comparison can only ever be made against
+    evidence the app itself recorded.
+    """
+    result = audit.compare(year, baseline)
+    if result is None:
+        raise HTTPException(404, "no checkpoint with that id for %d" % year)
+    return result
+
+
 @app.get("/api/anomalies")
 def anomalies_view(year: int, scope: str = "all", include_dismissed: bool = False):
     """Review suggestions for one year. Read-only; never touches a transaction."""
@@ -1327,7 +1347,26 @@ def _write_backup(prefix: str, selected):
 
 @app.get("/api/backup")
 def backup(parts: str = ""):
-    path = _write_backup("family-accountability-backup", _selected_parts(parts))
+    """Write a backup zip and hand it back.
+
+    This is a GET that writes, which is why it takes the cross-process mutation lock
+    itself: the middleware only serializes non-GET requests, so without this a backup
+    could be zipping the store while an import rewrites it (the plan's lower-change
+    option). Inside the lock it also records where the figures stood, so "what has
+    changed since my last backup" has something to compare against.
+    """
+    selected = _selected_parts(parts)
+    with mutation_lock():
+        path = _write_backup("family-accountability-backup", selected)
+        # Only after the zip exists: a failed backup must not leave a checkpoint
+        # claiming a backup happened. The zip's hash is stored so the comparison
+        # refers to an artefact somebody can actually go and find.
+        if "data" in selected:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+            for year in store.years():
+                audit.checkpoint(year, "backup", label=path.name,
+                                 metadata={"file": path.name, "sha256_16": digest,
+                                           "parts": sorted(selected)})
     return FileResponse(path, filename=path.name, media_type="application/zip")
 
 
@@ -2854,6 +2893,17 @@ def ingest_process():
                     # range and a missing-anchor note would both be noise, not news.
                     detail = "empty statement — no activity in this period"
                 results.append({"file": e["original_name"], "status": "processed", "detail": detail})
+            # Everything canonical has published successfully, so record where the
+            # figures now stand for every year this import could have moved. It is
+            # inside the try on purpose: the checkpoint file lives under the year
+            # directory the rollback already covers, so a failure here rolls the whole
+            # import back and the "no data was imported" message stays true.
+            for touched in (stats.get("years") or []):
+                audit.checkpoint(touched, "import",
+                                 label=e.get("original_name") or "import",
+                                 metadata={"upload_id": e["id"], "account": acct,
+                                           "file_hash": e.get("hash"),
+                                           "source_stem": "%s__%s" % (acct, e["id"])})
             remaining = [s for s in remaining if s["id"] != e["id"]]
             _save_staging(remaining)
             _save_uploads(uploads)

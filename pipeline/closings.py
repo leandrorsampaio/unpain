@@ -15,10 +15,9 @@ makes the change *visible*, which is what the lock was always trying to buy.
 A snapshot is evidence, never a source of truth: nothing reads these numbers to
 compute anything. They are only ever compared against a fresh recomputation.
 """
-import hashlib
 from datetime import datetime, timezone
 
-from . import settle, store
+from . import audit, settle, store
 from .util import cents, read_json, write_json, year_dir
 
 # The figures a person recognises. They are what the drift report quotes, but they are
@@ -38,7 +37,12 @@ SETTLEMENT_FIELDS = ("ratio", "total_shared_expenses", "paid", "balances", "tran
 # coverage to be upgraded — never drift. Without this, widening the digest would
 # accuse every watched period at once, and an alarm that fires on everything is one
 # nobody reads.
-DIGEST_VERSION = 2
+# v3: the line representation moved to pipeline.audit so the drift alarm and the
+# "What changed?" explanation share one definition. The bytes hashed are the same facts
+# in a different order, so every v2 digest is incomparable — which is precisely what
+# this version number is for. Old snapshots drop to partial coverage until they are
+# re-closed or accepted; none of them is accused of drifting.
+DIGEST_VERSION = 3
 
 
 def _line_digest(year, month=None):
@@ -49,24 +53,13 @@ def _line_digest(year, month=None):
     resolver the totals use, so a change anywhere in it — a sharing flip, a category
     reallocation that nets to zero, a payer correction, two rows moving in compensating
     directions — shows up, whether or not anybody predicted it.
+
+    The line representation itself now lives in `pipeline.audit`, which also stores it
+    so a drift can be *explained* and not merely announced. Two definitions of "the
+    watched money line" would be one too many: they would drift apart, and then the
+    alarm and the explanation of the alarm would disagree about whether anything moved.
     """
-    rows = []
-    for txn in sorted(store.effective_year(year), key=lambda t: str(t.get("id"))):
-        if month is not None and int(txn["date"][5:7]) != month:
-            continue
-        for index, (_, part) in enumerate(settle.money_lines(txn)):
-            view = settle.part_view(txn, part)
-            amount = part["amount"] if part else txn.get("amount_eur")
-            rows.append("|".join(str(value) for value in (
-                txn.get("id"), index, txn.get("date"), txn.get("account"),
-                txn.get("kind") or "normal", cents(amount or 0),
-                view["category"] or "", view["sharing"] or "", view["year_cost"],
-                view["tax_bucket"] or "", txn.get("income_owner") or "",
-                # No figure depends on the description once the category is fixed, but
-                # the digest's claim is that the month is still what was agreed, and a
-                # renamed counterparty means it reads differently to a person.
-                txn.get("counterparty") or "")))
-    return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()[:16]
+    return audit.line_digest(audit.semantic_lines(year, month))
 
 
 def _settlement_snapshot(year, month=None):
@@ -106,8 +99,16 @@ def year_figures(year):
 
 
 def record(year, month, when=None):
-    """Store the month's current state as the baseline to watch."""
+    """Store the month's current state as the baseline to watch.
+
+    The comparison checkpoint is written in the same breath, and deliberately BEFORE
+    the baseline: a period that says it is settled but cannot explain what has happened
+    to it since is the state this whole feature exists to end. If the checkpoint cannot
+    be written, the close fails and nothing claims to be settled.
+    """
     key = "%d-%02d" % (int(year), int(month))
+    audit.checkpoint(year, "close", period=key, month=int(month),
+                     label="%s close" % key, metadata={"month": int(month)})
     rows = load(year)
     rows[key] = dict(figures(year, month),
                      closed_at=(when or datetime.now(timezone.utc)).isoformat(timespec="seconds"))
@@ -116,6 +117,8 @@ def record(year, month, when=None):
 
 
 def record_year(year, when=None):
+    audit.checkpoint(year, "close", period="annual", month=None,
+                     label="%d annual close" % int(year), metadata={"annual": True})
     rows = load(year)
     rows["annual"] = dict(year_figures(year),
                           closed_at=(when or datetime.now(timezone.utc)).isoformat(timespec="seconds"))
@@ -124,6 +127,9 @@ def record_year(year, when=None):
 
 
 def drop_year(year):
+    # Reopening withdraws the claim that the year was settled, so the thing it would be
+    # compared against goes too.
+    audit.drop(year, "close:annual")
     rows = load(year)
     if rows.pop("annual", None) is not None:
         save(year, rows)
@@ -133,6 +139,7 @@ def drop(year, month):
     """Forget the baseline. Reopening a month withdraws the claim that it is settled,
     so there is nothing left to hold it to."""
     key = "%d-%02d" % (int(year), int(month))
+    audit.drop(year, "close:%s" % key)
     rows = load(year)
     if key in rows:
         del rows[key]

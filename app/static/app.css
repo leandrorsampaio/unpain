@@ -246,6 +246,8 @@ h2 { font-size: var(--type-title-size); line-height: var(--type-title-line); fon
 .fx-kv > b { text-align: right; }
 .anomaly-card { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .anomaly-card:last-of-type { border-bottom: none; }
+.change-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.change-row:last-child { border-bottom: none; }
 .chip-neutral { background: var(--md-sys-color-surface-container-high); color: var(--ink2); }
 /* Filter toggle: a clickable .chip that changes colour when active (no checkmark). */
 button.chip { appearance: none; -webkit-appearance: none; background: var(--md-sys-color-surface); color: var(--ink); cursor: pointer; font-family: var(--typeface); }

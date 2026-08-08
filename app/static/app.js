@@ -1778,6 +1778,7 @@ async function renderDashboard(renderId = state.renderId) {
   // the app disagreeing with its own record, so it replaces the lock rather than
   // sitting beside it: a period that has moved should not read as closed.
   const drift = s.drift || {};
+  state.dashDrift = drift;   // the "What changed?" card opens on a drifted close
   const monthKey = m => `${year}-${String(m).padStart(2, '0')}`;
   const monthDrifted = m => Array.isArray(drift[monthKey(m)]);
   const yearDrifted = () => Array.isArray(drift.annual)
@@ -2189,6 +2190,7 @@ async function renderDashboard(renderId = state.renderId) {
     const coverageCardHtml = `<div class="card p-5 mb-6" id="coverage-card"><h2 class="font-medium">${T('Statement coverage')}</h2><div class="mt-3 type-body-small" style="color:var(--ink2)">${T('Loading…')}</div></div>`;
     // Above the figures, because it is a statement about the figures below it.
     parts.push(driftBannerHtml(view));
+    if (view === 0) parts.push(whatChangedCardHtml());
     parts.push(`<div class="flex gap-4 flex-wrap mb-6">${tilesHtml(view, data)}</div>`);
     if (view === 0) parts.push(netWorthCardHtml());
     if (typeof view === 'number' && view !== 0) parts.push('<div id="findings-card"></div>');
@@ -2246,6 +2248,7 @@ async function renderDashboard(renderId = state.renderId) {
       if (typeof view === 'number' && view !== 0) fillFindings(view, token);
       if (view === 0) {
         fillNetworth(token);
+        fillWhatChangedCard(year);
         fillRecurring(token);
         fillCoverage(token);
         if (yoyData) renderYoyBody();
@@ -4401,6 +4404,164 @@ async function confirmTransfer(id, confirmed) {
   }
   invalidateYearCache();   // the verdict moves totals, review counts and the badge
   render();
+}
+
+/* ---------- "What changed?" (FEAT-11) ----------
+   A comparison against a reviewed moment — a close, an import, a backup — explained in
+   lines and figures rather than in a moved hash. Evidence only: the current figures are
+   still whatever the current data computes. */
+const CHANGE_KIND_LABELS = {
+  amount_or_date_changed: 'Amount or date changed',
+  account_or_owner_changed: 'Account or owner changed',
+  classification_changed: 'Category, sharing or tax changed',
+  transfer_changed: 'Transfer status changed',
+  source_changed: 'Came from a different statement',
+  presentation_only: 'Only the description changed',
+};
+
+function whatChangedCardHtml() {
+  return `<div class="card p-5 mb-6" id="what-changed-card">
+    <div class="flex items-center gap-3 flex-wrap">
+      <h2 class="font-medium flex-1">${T('What changed?')}</h2>
+      <span id="what-changed-summary" class="type-body-small" style="color:var(--ink2)">${T('Loading…')}</span>
+      <md-outlined-button id="what-changed-open" disabled><md-icon slot="icon">history</md-icon>${T('Compare')}</md-outlined-button>
+    </div></div>`;
+}
+
+async function fillWhatChangedCard(year) {
+  const host = $('#what-changed-card');
+  if (!host) return;
+  const label = $('#what-changed-summary');
+  const button = $('#what-changed-open');
+  try {
+    const { baselines } = await api(`/api/changes/baselines?year=${year}`);
+    if (!baselines.length) {
+      label.textContent = T('No reviewed moment recorded yet. Close a month, process an import, or make a backup to create one.');
+      return;
+    }
+    state.changeBaselines = baselines;
+    label.textContent = T('Since {label} · {when}', {
+      label: baselines[0].label, when: fmtDate((baselines[0].created_at || '').slice(0, 10), true) });
+    button.disabled = false;
+    button.onclick = () => openWhatChanged(defaultBaselineId(baselines));
+  } catch (error) {
+    label.textContent = String(error);
+  }
+}
+
+/* A drifted closed month is the reason someone opens this, so open on its close if
+   there is one; otherwise the most recent moment (plan Decision 5). */
+function defaultBaselineId(baselines) {
+  const drift = (state.dashDrift && Object.keys(state.dashDrift)) || [];
+  const drifted = baselines.find(b => b.kind === 'close' && drift.includes(b.period));
+  return (drifted || baselines[0]).id;
+}
+
+async function openWhatChanged(baselineId) {
+  const year = state.year;
+  openModal({
+    title: T('What changed?'),
+    width: '900px',
+    body: `<div class="changed-body"><div class="flex justify-center p-8"><md-circular-progress indeterminate></md-circular-progress></div></div>`,
+    actions: `<md-text-button class="changed-close">${T('Close')}</md-text-button>`,
+    onMount: async root => {
+      root.querySelector('.changed-close').onclick = () => root._close();
+      const body = root.querySelector('.changed-body');
+      const load = async id => {
+        body.innerHTML = `<div class="flex justify-center p-8"><md-circular-progress indeterminate></md-circular-progress></div>`;
+        try {
+          body.innerHTML = whatChangedHtml(await api(`/api/changes?year=${year}&baseline=${encodeURIComponent(id)}`));
+          const picker = body.querySelector('#changed-baseline');
+          if (picker) picker.addEventListener('change', e => load(e.target.value));
+        } catch (error) {
+          body.innerHTML = `<div class="type-body-small" style="color:var(--bad)">${esc(String(error))}</div>`;
+        }
+      };
+      await load(baselineId);
+    },
+  });
+}
+
+function whatChangedHtml(result) {
+  const baselines = state.changeBaselines || [];
+  const picker = selectField({
+    id: 'changed-baseline', label: T('Compare against'), value: result.baseline.id,
+    options: baselines.map(b => [b.id, `${b.label}`,
+      `${T(b.kind === 'close' ? 'Month close' : b.kind === 'import' ? 'Statement import' : 'Backup made')} · ${(b.created_at || '').replace('T', ' ').slice(0, 16)}`]),
+  });
+  const s = result.summary;
+  const nothing = !s.added && !s.removed && !s.changed && !result.figure_changes.length;
+  if (nothing) {
+    return `<div class="mb-4">${picker}</div>` + auditEmptyState('check_circle',
+      T('Nothing changed'),
+      T('No financial or semantic difference since {label}.', { label: result.baseline.label }));
+  }
+  const money = c => fmt((c || 0) / 100);
+  const group = (title, rows) => rows.length
+    ? `<h3 class="type-title font-medium mt-4 mb-2">${title}</h3>${rows.join('')}` : '';
+  const figureRows = result.figure_changes.map(f => `<div class="fx-kv">
+      <span>${esc(changeFigureLabel(f))}</span>
+      <b>${f.name === 'transactions' ? `${f.old_cents} → ${f.new_cents}`
+    : `${money(f.old_cents)} → ${money(f.new_cents)}`}
+        <span style="color:${f.delta_cents >= 0 ? 'var(--good)' : 'var(--bad)'}">(${f.delta_cents >= 0 ? '+' : ''}${f.name === 'transactions' ? f.delta_cents : money(f.delta_cents)})</span></b>
+    </div>`);
+  return `
+    <div class="mb-4">${picker}</div>
+    ${result.reduced_coverage ? `<div class="fx-cache type-body-small mb-3"><md-icon>info</md-icon><span>${T('This checkpoint was recorded by an older version, so only part of it can be compared.')}</span></div>` : ''}
+    <div class="flex flex-wrap gap-3 mb-2">
+      ${statTile(T('Added'), String(s.added))}
+      ${statTile(T('Removed'), String(s.removed))}
+      ${statTile(T('Changed'), String(s.changed))}
+      ${statTile(T('Effect on savings'), money(s.financial_delta_cents),
+    s.financial_delta_cents >= 0 ? 'var(--good)' : 'var(--bad)')}
+    </div>
+    ${s.digest_changed && !result.figure_changes.length
+    ? `<p class="type-body-small mb-3" style="color:var(--ink2)">${T('The totals are the same, but the lines behind them are not — two changes cancelled each other out.')}</p>` : ''}
+    ${group(T('Effect on totals and settlement'), figureRows)}
+    ${group(T('Added'), result.line_changes.added.map(l => changeRowHtml(l, result.year)))}
+    ${group(T('Removed'), result.line_changes.removed.map(l => changeRowHtml(l, result.year)))}
+    ${group(T('Changed'), result.line_changes.changed.map(l => changeRowHtml(l, result.year)))}
+    ${result.split_changes.length ? group(T('Splits'), result.split_changes.map(sp =>
+    `<div class="fx-kv"><span>${transactionLink(sp.transaction_id, sp.transaction_id, result.year)}</span>
+       <b>${T('{a} part(s) → {b} part(s)', { a: sp.parts_before, b: sp.parts_after })}</b></div>`)) : ''}`;
+}
+
+function changeFigureLabel(change) {
+  const names = {
+    income_cents: T('Income'), expenses_cents: T('Expenses'), savings_cents: T('Savings'),
+    transactions: T('Transactions'), total_shared_cents: T('Shared expenses'),
+  };
+  if (names[change.name]) return names[change.name];
+  if (change.group === 'category') return catName(change.name);
+  const [field, person] = change.name.split('.');
+  const fieldNames = { paid_cents: T('Paid'), fair_share_cents: T('Fair share'),
+    balances_cents: T('Balance') };
+  return `${fieldNames[field] || field} — ${personLabelRaw(person)}`;
+}
+
+/* One row renderer for added, removed and changed lines. */
+function changeRowHtml(line, year) {
+  const money = c => fmt((c || 0) / 100);
+  const label = line.counterparty || line.transaction_id;
+  const kinds = (line.kinds || []).map(k => T(CHANGE_KIND_LABELS[k] || k)).join(' · ');
+  const fields = (line.fields || []).map(field => `<div class="fx-kv">
+      <span>${esc(field)}</span>
+      <b>${esc(String(line.before[field] ?? '–'))} → ${esc(String(line.after[field] ?? '–'))}</b></div>`).join('');
+  return `<div class="change-row">
+    <div class="flex items-center gap-2 flex-wrap">
+      <b>${esc(label)}</b>
+      <span class="type-caption" style="color:var(--ink2)">${esc(fmtDate(line.date, true))}</span>
+      <span class="type-caption">${money(line.amount_cents)}</span>
+      ${kinds ? auditStatusChip('neutral', kinds) : ''}
+      <span class="flex-1"></span>
+      ${line.change !== 'removed' ? transactionLink(line.transaction_id, T('Open'), year) : ''}
+    </div>
+    ${fields}
+    ${line.change === 'changed' && line.matched_rule
+    ? `<div class="type-caption" style="color:var(--ink2)">${T('Classified by rule {rule}', { rule: esc(line.matched_rule) })}</div>` : ''}
+    ${line.change === 'changed' && (line.decision_fields || []).length
+    ? `<div class="type-caption" style="color:var(--ink2)">${T('Manually set: {fields}', { fields: esc((line.decision_fields || []).join(', ')) })}</div>` : ''}
+  </div>`;
 }
 
 /* ---------- review suggestions (FEAT-09) ----------

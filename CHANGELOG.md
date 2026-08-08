@@ -9,6 +9,31 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **"What changed?" — why today's figures differ from the ones you reviewed** (FEAT-11). The
+  Dashboard gains a card that compares the current year against a recorded moment: a month or annual
+  close, the last import, or the last backup. It answers in transactions and fields — *"UNKNOWN
+  VENDOR XYZ, category — → living-costs/rent, classified by rule X"* — rather than reporting that a
+  digest moved.
+
+  The cases it exists for are the ones a totals-only report cannot see: a rule reclassifying a row, a
+  merchant renamed out of the rule that categorised it, two edits that cancel out, or a settlement
+  that moves while income and expenses sit still. Changes are grouped by what they mean (amount or
+  date, account or owner, classification, transfer, source, presentation-only), a split is summarised
+  at its parent rather than as three unrelated lines, and a **removed** row is still described from
+  the baseline — the store can no longer describe it, and "one line was removed" without saying which
+  is not an explanation.
+
+  It is a **checkpoint comparison, not a mutation journal** (the plan's Decision 4): it answers "what
+  is different since that reviewed moment", which is the financial question, without instrumenting
+  every write path with event ordering and attribution. Checkpoints are evidence only — a test
+  tampers with one and asserts no total moves. Closing records one, reopening drops it, and retention
+  keeps every active close plus the latest import and backup per year.
+
+  `closings` now builds its drift digest from the same `pipeline/audit.py` line representation, so
+  the alarm and the explanation of the alarm cannot disagree about what a watched money line is. That
+  changes the digest bytes, so `DIGEST_VERSION` went to 3 — existing closed periods report *reduced
+  coverage* and prompt `close-baseline`, never false drift.
+
 - **Review suggestions — transactions worth a second look** (FEAT-09). The Review page gains a
   **Suggestions** section fed by seven deterministic checks: possible duplicate charges (same day, or
   one to three days apart), an amount unlike a merchant's usual ones, an expected recurring charge

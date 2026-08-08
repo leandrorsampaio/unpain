@@ -36,4 +36,17 @@ if (missing.length) {
   missing.forEach(k => console.error('  ' + JSON.stringify(k)));
   process.exit(1);
 }
-console.log(`i18n OK: all ${keys.size} translation keys present in de.js`);
+// A repeated key is not a duplicate — in an object literal the last one silently wins.
+// Adding 'Close': 'Abschluss' for a checkpoint kind quietly relabelled every dialog's
+// Close button, and nothing failed: the key existed, so the coverage check above was
+// perfectly happy. Only the file itself can show it.
+const declared = [...deSrc.matchAll(/^\s*('(?:[^'\\]|\\.)*')\s*:/gm)].map(m => m[1]);
+const seen = new Set();
+const repeated = [...new Set(declared.filter(k => seen.has(k) || (seen.add(k), false)))].sort();
+if (repeated.length) {
+  console.error(`i18n: ${repeated.length} key(s) declared more than once in de.js — the last`);
+  console.error('      declaration silently overrides the earlier ones:');
+  repeated.forEach(k => console.error('  ' + k));
+  process.exit(1);
+}
+console.log(`i18n OK: all ${keys.size} translation keys present in de.js, none declared twice`);

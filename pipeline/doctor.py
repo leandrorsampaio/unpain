@@ -626,11 +626,16 @@ def _closed_month_drift(ctx):
                                 "them cannot be detected. Run 'close-baseline' to adopt their "
                                 "current figures as the baseline." % len(unwatched), []))
         if partial:
+            # Deliberately vague about *which* older shape, because there are now two:
+            # a snapshot with no settlement at all, and one whose line digest predates
+            # the shared representation. Both mean the same thing to a reader — part of
+            # this period is being watched and part is not — and naming the internal
+            # version would be precision about the wrong thing.
             out.append(_finding("warning", "closed-month-stale-baseline", year,
-                                "%d closed periods were recorded before settlement was watched. "
-                                "Their totals are still checked, but a change to who owes whom "
-                                "would not be. Run 'close-baseline' to upgrade them."
-                                % len(partial), []))
+                                "%d closed periods were recorded by an older version and are only "
+                                "partly watched: their totals are still checked, but a change to "
+                                "who owes whom, or one that leaves the totals alone, may not be. "
+                                "Run 'close-baseline' to upgrade them." % len(partial), []))
     return out
 
 

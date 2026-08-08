@@ -113,6 +113,9 @@ ad-hoc id.
 | Balance-anchor status | `anchorStatusChip(summary)` | — |
 | Data doctor modal | `openDoctor()` + `doctorResultHtml(result)` | — |
 | Chart (line/bar/pie/doughnut) | `mkChart(canvas, {type, data, options})` (Chart.js, vendored, theme-aware) | — |
+| Audit status chip (evidence verdict) | `auditStatusChip(tone, label)` | — |
+| Link from evidence back to a row | `transactionLink(id, label, year)` | — |
+| "Nothing to report" panel | `auditEmptyState(icon, title, explanation)` | — |
 | Escape user text | `esc(str)` | — |
 | Money → integer cents | `cents(x)` (mirrors `pipeline/util.cents`) | — |
 
