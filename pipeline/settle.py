@@ -13,10 +13,39 @@ Conventions:
 - settlement ratio: income in subcategories flagged ratio_income (salary),
   income_owner 'couple' counts half to each person
 """
+import math
 from collections import defaultdict
 
 from . import store
-from .util import DATA, RULES, load_accounts, load_config, read_json
+from .util import DATA, RULES, cents, load_accounts, load_config, read_json
+
+
+def allocate_cents(total_cents, weights, keys):
+    """Split an integer amount by weight so the parts add back to the whole.
+
+    Rounding each share on its own creates and destroys money: at 50/50 a single
+    cent becomes two cents (0.005 rounds up twice), and any ratio that is not a
+    clean fraction leaves a cent stranded between the two people. Largest remainder
+    hands out the floor of every share, then gives the leftover cents one each to
+    the largest fractional parts, so the parts sum to `total_cents` exactly and
+    `sum(paid) - sum(fair_share)` is exactly zero rather than nearly zero.
+
+    Ties break on `keys` order, which is the order people are configured in, so the
+    same statement always produces the same split.
+    """
+    total_weight = sum(weights[key] for key in keys)
+    if total_weight <= 0:
+        return {key: 0 for key in keys}
+    exact = {key: total_cents * weights[key] / total_weight for key in keys}
+    parts = {key: int(math.floor(exact[key])) for key in keys}
+    # floor never overshoots, so the leftover is between 0 and len(keys)-1 whatever
+    # the sign of total_cents — a negative total (a refund larger than the spend)
+    # allocates the same way.
+    leftover = total_cents - sum(parts.values())
+    order = sorted(keys, key=lambda key: (-(exact[key] - parts[key]), keys.index(key)))
+    for key in order[:leftover]:
+        parts[key] += 1
+    return parts
 
 
 def _overrides_path(year):
@@ -227,48 +256,73 @@ def settlement(year, month=None):
     income_cats = income_categories()
     ratio_cats = ratio_income_categories()
 
-    def payer_shares(t):
+    def payer_account(t):
         account = accounts.get(t["account"])
         if not account:
             raise ValueError("Transaction %s references missing account '%s'" % (t["id"], t["account"]))
-        owner = account["owner"]
-        if owner == "couple":
-            return {p: 0.5 for p in people}
-        return {owner: 1.0}
+        return account
 
-    shared_paid = defaultdict(float)
-    total_shared = 0.0
-    ratio_income = defaultdict(float)
+    # Everything below is integer cents until the moment it is reported. Money one
+    # person owes the other has to add up exactly, and a float can only get close.
+    half = {p: 1 for p in people}
+    shared_paid = {p: 0 for p in people}
+    ratio_income = {p: 0 for p in people}
+    total_shared = 0
     for e in es:
         t = e["txn"]
+        amount = cents(e["amount"])
         if _is_income(e, income_cats):
             if e["category"] in ratio_cats:
                 owner = _entry_owner(e, accounts)
                 if owner == "couple":
-                    for p in people:
-                        ratio_income[p] += e["amount"] / 2
+                    for p, share in allocate_cents(amount, half, people).items():
+                        ratio_income[p] += share
                 else:
-                    ratio_income[owner] += e["amount"]
+                    ratio_income[owner] += amount
         elif e["sharing"] == "shared":
-            for p, share in payer_shares(t).items():
-                shared_paid[p] += -e["amount"] * share
-            total_shared += -e["amount"]
+            spent = -amount
+            owner = payer_account(t)["owner"]
+            if owner == "couple":
+                for p, share in allocate_cents(spent, half, people).items():
+                    shared_paid[p] += share
+            else:
+                shared_paid[owner] += spent
+            total_shared += spent
 
     total_income = sum(ratio_income.values())
     override = ratio_override(year, month, people)
+    negative_income = [p for p in people if ratio_income[p] < 0]
+    ratio_problem = None
     if override:
         ratio = override
         ratio_source = "manual override"
+    elif negative_income:
+        # A negative annual salary total is a booking error, not a small income: it
+        # produces a ratio outside 0–100%, so one person's "fair share" exceeds the
+        # whole shared cost and the other is owed money for existing. The old code
+        # computed that anyway and mentioned it in a sentence appended to ratio_source.
+        # There is no honest ratio to derive here, so fall back to the configured
+        # reference ratio and report the problem as a fact the UI can phrase and
+        # translate — a settlement standing on broken data has to say so where the
+        # figures are, not in a string nobody reads.
+        ratio = cfg["reference_ratio"]
+        ratio_problem = {"kind": "negative-ratio-income", "people": sorted(negative_income)}
+        ratio_source = "reference ratio (salary income is negative — see the warning)"
     elif total_income > 0:
         ratio = {p: ratio_income[p] / total_income for p in people}
         ratio_source = "actual salary income"
-        if any(ratio_income[p] < 0 for p in people):
-            ratio_source += " (warning: negative salary income produced a ratio outside 0–100%)"
     else:
         ratio = cfg["reference_ratio"]
         ratio_source = "reference ratio (no salary data found)"
 
-    balances = {p: round(shared_paid[p] - ratio[p] * total_shared, 2) for p in people}
+    fair_share = allocate_cents(total_shared, ratio, people)
+    balances = {p: shared_paid[p] - fair_share[p] for p in people}
+    # Conservation is the whole point of the cent arithmetic above, so it is checked
+    # rather than assumed: a future change that reintroduces a float here fails here.
+    if sum(shared_paid.values()) != total_shared or sum(fair_share.values()) != total_shared \
+            or sum(balances.values()) != 0:
+        raise AssertionError("settlement lost cents: paid=%r fair=%r total=%d"
+                             % (shared_paid, fair_share, total_shared))
     # positive balance = paid more than fair share = should receive
     creditor = max(balances, key=lambda p: balances[p])
     debtor = min(balances, key=lambda p: balances[p])
@@ -277,13 +331,14 @@ def settlement(year, month=None):
         "binding": month is None,
         "ratio": {p: round(ratio[p], 4) for p in people},
         "ratio_source": ratio_source,
-        "ratio_income": {p: round(ratio_income[p], 2) for p in people},
-        "total_shared_expenses": round(total_shared, 2),
-        "paid": {p: round(shared_paid[p], 2) for p in people},
-        "fair_share": {p: round(ratio[p] * total_shared, 2) for p in people},
-        "balances": balances,
-        "transfer": {"from": debtor, "to": creditor, "amount": round(max(balances[creditor], 0), 2)}
-        if balances[creditor] > 0.005 else None,
+        "ratio_problem": ratio_problem,
+        "ratio_income": {p: ratio_income[p] / 100.0 for p in people},
+        "total_shared_expenses": total_shared / 100.0,
+        "paid": {p: shared_paid[p] / 100.0 for p in people},
+        "fair_share": {p: fair_share[p] / 100.0 for p in people},
+        "balances": {p: balances[p] / 100.0 for p in people},
+        "transfer": {"from": debtor, "to": creditor, "amount": balances[creditor] / 100.0}
+        if balances[creditor] > 0 else None,
     }
 
 

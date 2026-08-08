@@ -43,6 +43,12 @@ this repo is trying to kill. Go back and extract a component.
    `cat-backdrop`/`generic-modal` with its own close/stop-propagation logic.
 4. **Escape user text.** Any bank/merchant/purpose/note/user string interpolated into
    `innerHTML` must pass through `esc()` from `core/`. Assume it contains `<`, `"`, `&`.
+   **Category and subcategory names count** — they are free text a person types, and a name is
+   plain text on the way out of `catName()` on purpose (chart labels are drawn to a canvas), so
+   the escaping belongs at each HTML sink. **Icons are different**: every icon goes through the one
+   `safeIcon()` validator rather than being escaped per sink, because a Material Symbol name is the
+   only legal value and the twelfth sink is the one that gets forgotten.
+   `tests/test_escaping_ui.js` fails the build if either slips.
 5. **Money uses the shared `cents()`** (`Math.round(Number(x)*100)`), matching
    `pipeline/util.cents()`. Never compare money with float `===`; never sum floats then round.
 6. **State by id, not by array index.** Prefer `state.txnById(id)` and event delegation over
@@ -61,7 +67,9 @@ utilities (`text-xs`, `text-sm`, etc.) or inline text sizes. Icon sizing is sepa
 ## Hard rules for the pipeline / backend (see CLAUDE.md for the full list)
 
 - LLMs never write to `data/` directly — extraction goes through `inbox/` + the reconciliation
-  gate. Everything derived (settlement, dashboards, tax) is recomputed on read, never stored.
+  gate in `pipeline/extraction.py`, which re-does the arithmetic rather than trusting the
+  extractor's `status`. Everything derived (settlement, dashboards, tax) is recomputed on read,
+  never stored, and settlement is integer cents that must add back to the shared total.
 - Run `./run-tests.sh --fast` after **any** change under `pipeline/` or `app/server.py`.
 - Run the read-only integrity audit with `.venv/bin/python -m pipeline.cli doctor [year]`.
 - Categories: never delete, set `archived: true`. Slugs are stable ids.

@@ -9,8 +9,18 @@ import json
 import shutil
 from collections import Counter
 
-from . import anchors, formats, fx, store, transfers
-from .util import DATA, INBOX, load_accounts, txn_hash, year_dir
+from . import anchors, extraction, formats, fx, store, transfers
+from .util import DATA, INBOX, load_accounts, read_json, txn_hash, year_dir
+
+# A statement whose numbers were read out of a PDF rather than exported by a bank carries
+# no arithmetic of its own, so it has to bring the reconciliation it claims to have passed.
+# The extract-statement skill names its output '<account>__<name>.extracted.csv' and writes
+# '<account>__<name>.extracted.report.json' beside it; see _admit_extracted. The suffix is
+# what makes the requirement enforceable — the normalized CSV *shape* is also what the
+# deterministic extractors and hand-written exports use, so the shape cannot say who wrote
+# it, and demanding a report from all of them would refuse ordinary bank data.
+EXTRACTED_SUFFIX = ".extracted"
+REPORT_SUFFIX = ".report.json"
 
 
 def preview_file(path):
@@ -35,7 +45,8 @@ def preview_file(path):
 def run(verbose=True):
     accounts, _ = load_accounts()
     results = []
-    files = sorted(p for p in INBOX.iterdir() if p.is_file() and not p.name.startswith("."))
+    files = sorted(p for p in INBOX.iterdir() if p.is_file() and not p.name.startswith(".")
+                   and not p.name.endswith(REPORT_SUFFIX))   # sidecars travel with their CSV
     years_touched = set()
     for path in files:
         if path.name == "cash.csv":
@@ -66,6 +77,9 @@ def run(verbose=True):
             results.append((path.name, message + ("; " + anchor_message if anchor_message else "")))
             if path.name != "cash.csv":
                 shutil.move(str(path), str(INBOX / "processed" / path.name))
+                sidecar = report_path_for(path)
+                if sidecar.is_file():
+                    shutil.move(str(sidecar), str(INBOX / "processed" / sidecar.name))
         except Exception as e:
             results.append((path.name, "ERROR: %s" % e))
     for y in sorted(years_touched):
@@ -76,7 +90,35 @@ def run(verbose=True):
     return results
 
 
+def report_path_for(path):
+    """Where the reconciliation report for an extracted CSV lives."""
+    return path.with_name(path.stem + REPORT_SUFFIX)
+
+
+def _admit_extracted(path):
+    """Hold an extracted statement to the reconciliation it claims to have passed.
+
+    The skill's instructions have always called reconciliation mandatory, and nothing
+    ever checked: the pipeline read the CSV, and the format file's own note asserted
+    that reconciliation "happens in the skill". A claim nobody verifies is not a gate.
+    So a file named `.extracted.csv` must arrive with its report, and any file that
+    brings a report has that report re-checked here — against the CSV that is actually
+    about to be imported, not against whatever the producer had in front of it.
+    """
+    report_file = report_path_for(path)
+    if not report_file.is_file():
+        if path.stem.endswith(EXTRACTED_SUFFIX):
+            raise ValueError(
+                "%s is an extracted statement, which may only be imported together with its "
+                "reconciliation report. Write %s beside it, carrying the statement's own "
+                "opening_balance and closing_balance, as skills/extract-statement/instructions.md "
+                "describes." % (path.name, report_file.name))
+        return None
+    return extraction.admit(read_json(report_file), path)
+
+
 def _ingest_file(path, account_id, accounts):
+    _admit_extracted(path)
     cfg = formats.detect(path)
     rows, stats = formats.parse(path, cfg, with_stats=True)
     by_year = {}
@@ -131,7 +173,7 @@ def _record_parsed_anchors(cfg, account_id, parse_stats, source, upload=None):
 def _anchor_message(result):
     if result is None:
         return ""
-    if not result["found"]:
+    if not result.get("found"):
         return "no balance anchor found"
     if result["conflicts"]:
         return "%d balance anchor conflict%s recorded" % (
@@ -198,13 +240,19 @@ def cash_rows_with_ids(path=None, accounts=None):
     return derived
 
 
-def ingest_upload(path, account_id, source_stem, original_name=None):
+def ingest_upload(path, account_id, source_stem, original_name=None, admitted=False):
     """Ingest ONE uploaded file under a unique `source_stem`, so it can later be
     deleted as a unit (see delete_upload). Explicit account (no filename rule).
-    Entries fall into the correct year automatically. Returns a stats dict."""
+    Entries fall into the correct year automatically. Returns a stats dict.
+
+    `admitted=True` means the caller already put this file through
+    extraction.admit — the PDF extractors do, on the CSV they just wrote. Anything
+    else claiming to be an extracted statement has to bring its report."""
     accounts, _ = load_accounts()
     if account_id not in accounts:
         raise ValueError("unknown account '%s'" % account_id)
+    if not admitted:
+        _admit_extracted(path)
     cfg = formats.detect(path)
     rows, stats = formats.parse(path, cfg, with_stats=True)
     by_year = {}

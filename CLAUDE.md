@@ -66,8 +66,28 @@ add/save/delete buttons.
 ## Invariants — do not break
 
 - LLMs never write to `data/` directly; LLM extraction goes through `inbox/` CSVs and the
-  reconciliation gate (see `skills/extract-statement/`).
+  reconciliation gate (see `skills/extract-statement/`). **The gate is `pipeline/extraction.py`, not
+  the producer's word for it**: `admit()` re-runs `opening + sum(rows) == closing` in integer cents
+  over the file about to be imported, and holds the report to its own claims about that file. Every
+  `scripts/*` PDF extractor passes through it; the skill's `*.extracted.csv` may only be ingested with
+  its `*.extracted.report.json`. An extractor returning `status: "ok"` proves nothing on its own.
 - Money comparisons use `util.cents()`, never float equality. German CSVs use comma decimals.
+  **Settlement is integer cents end to end** and splits by largest remainder (`settle.allocate_cents`):
+  rounding each person's share on its own creates and destroys cents, so `sum(paid)`,
+  `sum(fair_share)` and `sum(balances)` are asserted against the shared total before returning. A
+  ratio is a fraction in `[0, 1]` — a negative salary total produces no ratio at all, only the
+  reference ratio and a `ratio_problem` the Settlement page shows.
+- A parsed amount that is not finite, and a date outside `util.MIN_YEAR..MAX_YEAR`, refuse the whole
+  file. A dated row whose amount cell is written but unreadable refuses it too — skipping it left a
+  statement that still looked complete. An *empty* amount cell is an informational row and is skipped.
+- Mutating requests are serialized by one middleware (`serialize_writes`); reads stay parallel.
+  Almost every endpoint is read-modify-write over a whole document, so two tabs would otherwise
+  discard each other's work. `write_json` publishes through a unique temp file + fsync + replace, and
+  refuses NaN/Infinity.
+- Any icon a person can write (category, partner, shared, app bar) is a Material Symbol name,
+  validated by `util.ICON_NAME` on the way in and `safeIcon()` on the way out. Category *names* are
+  free text and must be `esc()`-d at every HTML sink — `catName()` deliberately returns them raw
+  because chart labels are drawn to a canvas. `tests/test_escaping_ui.js` guards both.
 - Transaction ids are content hashes + occurrence suffix; re-ingesting a file must be a no-op.
 - `sharing: out-of-scope` and `kind: internal-transfer` are invisible to ALL math.
 - Detected transfers are never silently final. Each pair stores `transfer_partner`, appears in the

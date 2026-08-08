@@ -169,6 +169,15 @@ h2 { font-size: var(--type-title-size); line-height: var(--type-title-line); fon
   background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container);
 }
 
+/* A settlement standing on data that cannot produce a ratio. It still shows a number,
+   because a blank page answers nothing — but the number is not to be acted on, so it
+   says why, beside the figures rather than in a log nobody opens. */
+.settle-problem {
+  display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 8px;
+  background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container);
+}
+.settle-problem md-icon { font-size: 20px; flex: none; }
+
 /* ---- toast ---- : transient confirmations, bottom-left so they never sit under the
    year picker or the action buttons people are clicking on the right. */
 #toast-host {

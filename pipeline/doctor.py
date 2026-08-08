@@ -121,17 +121,79 @@ def _bad_splits(ctx):
 
 
 def _duplicate_ids(ctx):
+    """Every id must appear exactly once in the store.
+
+    Counting the *filenames* an id appeared in, as this used to, cannot see two
+    identical rows inside one JSONL: a set of one filename looks unique while the
+    ledger counts the money twice. What makes a duplicate a duplicate is the second
+    occurrence, not the second file, so occurrences are counted.
+    """
     out = []
     for year in ctx["years"]:
-        locations = defaultdict(set)
+        locations = defaultdict(list)
         for filename, transactions in ctx["files"].get(year, {}).items():
-            for txn in transactions:
-                locations[txn.get("id")].add(filename)
-        for txn_id, filenames in locations.items():
-            if len(filenames) > 1:
+            for line, txn in enumerate(transactions, start=1):
+                locations[txn.get("id")].append((filename, line))
+        for txn_id, places in locations.items():
+            if len(places) > 1:
+                files = sorted({filename for filename, _ in places})
+                where = ("%s, lines %s" % (files[0], ", ".join(str(line) for _, line in places))
+                         if len(files) == 1 else ", ".join(files))
                 out.append(_finding("error", "duplicate-id", year,
-                                    "Transaction id %s appears in multiple files: %s." %
-                                    (txn_id, ", ".join(sorted(filenames))), [txn_id]))
+                                    "Transaction id %s appears %d times (%s)." %
+                                    (txn_id, len(places), where), [txn_id]))
+    return out
+
+
+def _unscanned_year_dirs(ctx):
+    """data/<year> directories the app will never look at.
+
+    store.years() discovers years by a four-digit directory name. A transaction
+    whose date parsed to year 1 was written to data/1 and reported as imported,
+    then never appeared in a single total. Ingestion refuses such dates now; this
+    reports the ones an older version already filed away.
+    """
+    out = []
+    if not DATA.exists():
+        return out
+    for path in sorted(DATA.iterdir()):
+        if not path.is_dir() or not path.name.isdigit() or len(path.name) == 4:
+            continue
+        rows = sum(1 for jsonl in (path / "transactions").glob("*.jsonl")
+                   for line in open(jsonl, encoding="utf-8") if line.strip())
+        out.append(_finding("error", "unscanned-year-dir", 0,
+                            "data/%s holds %d transaction row(s) but is not a four-digit year, "
+                            "so nothing in the app reads it. Re-file those rows under the year "
+                            "they belong to, or delete the directory." % (path.name, rows)))
+    return out
+
+
+def _decision_account_reassignment(ctx):
+    """Decisions that move a transaction to another account.
+
+    The effective view honours it, so settlement, ownership and coverage follow the
+    new account. Balance reconciliation and net worth deliberately read the raw
+    account instead, because a statement's balance chain contains the row the bank
+    actually booked. Both readings are defensible; what is not defensible is being
+    unaware that two parts of the app are answering the same question differently.
+    """
+    out = []
+    for year in ctx["years"]:
+        moved = sorted(txn_id for txn_id, decision in ctx["decisions"].get(year, {}).items()
+                       if decision.get("account"))
+        raw_account = {txn.get("id"): txn.get("account") for txn in ctx["raw"].get(year, [])}
+        moved = [txn_id for txn_id in moved
+                 if raw_account.get(txn_id, ctx["decisions"][year][txn_id]["account"])
+                 != ctx["decisions"][year][txn_id]["account"]]
+        if moved:
+            out.append(_finding("warning", "decision-account-reassignment", year,
+                                "%d transaction%s reassigned to another account by a decision. "
+                                "Settlement and coverage follow the new account; balance "
+                                "reconciliation and net worth still use the account the row was "
+                                "imported under, so those two views disagree about %s. Correct "
+                                "the transaction itself instead if the import was wrong." %
+                                (len(moved), "" if len(moved) == 1 else "s",
+                                 "it" if len(moved) == 1 else "them"), moved))
     return out
 
 
@@ -537,6 +599,7 @@ CHECKS = (
     _review_in_closed_month, _unpaired_markers, _orphan_budgets, _stale_upload_refs,
     _account_currency_mismatch, _anchor_currency_drift, _fx_cache_sanity, _out_of_scope_drift,
     _orphan_transfer_marks, _closed_month_drift, _contradictory_split_scope,
+    _unscanned_year_dirs, _decision_account_reassignment,
 )
 
 

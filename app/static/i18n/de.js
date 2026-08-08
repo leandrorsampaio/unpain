@@ -334,6 +334,10 @@ I18N.register('de', {
   'archived': 'archiviert',
   'ratio': 'Verhältnis',
   'manual ratio': 'manuelles Verhältnis',
+  'Salary income for {who} adds up to a negative amount, so it cannot produce a share of the costs. Fix the booking — a payroll reversal belongs in the month it reverses. Until then this settlement falls back to the reference ratio and is not binding.':
+    'Das Gehaltseinkommen von {who} ergibt in Summe einen negativen Betrag und kann daher keinen Kostenanteil bilden. Korrigiere die Buchung — eine Gehaltsrückbuchung gehört in den Monat, den sie zurücknimmt. Bis dahin nutzt dieser Ausgleich das Referenzverhältnis und ist nicht verbindlich.',
+  'This settlement is standing on data that cannot produce a ratio.':
+    'Dieser Ausgleich beruht auf Daten, aus denen sich kein Verhältnis bilden lässt.',
   'candidate': 'Kandidat',
   'confirmed': 'bestätigt',
   'ready': 'bereit',

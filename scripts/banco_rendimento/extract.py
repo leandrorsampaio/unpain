@@ -127,7 +127,8 @@ def parse_transactions(words, allow_review=False):
                 # trailing summary block (Saldo Atual etc.) labels itself outside the
                 # description column, so it falls through here and is ignored.
                 if description.startswith("Saldo Final"):
-                    checkpoints.append({"page": page, "balance_cents": money_cents(anchor.text)})
+                    checkpoints.append({"page": page, "date": current_date,
+                                        "balance_cents": money_cents(anchor.text)})
                 continue
             location = "page %d, balance %s" % (page, anchor.text)
             row_issues = []
@@ -186,6 +187,53 @@ def verify_chain(transactions):
     return opening, ordered[-1]["balance_cents"], breaks
 
 
+def verify_checkpoints(transactions, checkpoints):
+    """Check every 'Saldo Final' the statement prints against the rows we read.
+
+    The chain walked in verify_chain proves that the rows we *have* follow one from
+    the next, and its opening is derived from the first of them — so a statement
+    truncated at either end still reconciles perfectly against itself, which is no
+    proof at all. The Saldo Final line closing each date section is written by the
+    bank and read independently of the transaction rows above it, so it is the one
+    figure that knows about rows we missed.
+
+    Returns a list of failures: a date whose rows do not add up to its printed close,
+    and a printed close for a date we extracted nothing for.
+    """
+    failures = []
+    if not transactions:
+        return failures
+    ordered = sorted(transactions, key=lambda t: (t["date"], t["order"]))
+    closing_by_date = {}
+    for txn in ordered:
+        closing_by_date[txn["date"]] = txn["balance_cents"]
+    for checkpoint in checkpoints:
+        checkpoint_date = checkpoint.get("date")
+        if checkpoint_date is None:
+            failures.append("page %d: a Saldo Final sits outside any date section" % checkpoint["page"])
+            continue
+        if checkpoint_date not in closing_by_date:
+            failures.append(
+                "%s: the statement closes this date at %.2f but no transaction was read for it, "
+                "so rows are missing" % (checkpoint_date, checkpoint["balance_cents"] / 100.0))
+            continue
+        if closing_by_date[checkpoint_date] != checkpoint["balance_cents"]:
+            failures.append(
+                "%s: the statement closes this date at %.2f but the last row read for it leaves "
+                "%.2f" % (checkpoint_date, checkpoint["balance_cents"] / 100.0,
+                          closing_by_date[checkpoint_date] / 100.0))
+    dated = sorted(closing_by_date)
+    checkpointed = {c.get("date") for c in checkpoints}
+    uncovered = [d for d in dated if d not in checkpointed]
+    if uncovered and checkpoints:
+        # Every date section in this layout ends with a Saldo Final. A date that has
+        # rows but no printed close means the section was read only in part.
+        failures.append("no Saldo Final was read for %s, so %s section%s cannot be checked for "
+                        "completeness" % (", ".join(uncovered), "that" if len(uncovered) == 1 else "those",
+                                          "" if len(uncovered) == 1 else "s"))
+    return failures
+
+
 def balance_anchors(transactions, opening, closing):
     """The balances this statement proves, dated to bracket its transactions.
 
@@ -239,8 +287,15 @@ def extract_pdf(pdf, output, allow_review=False):
     opening, closing, breaks = verify_chain(txns)
     sum_cents = sum(t["amount_cents"] for t in txns)
     chain_ok = not breaks and opening is not None and opening + sum_cents == closing
+    checkpoint_failures = verify_checkpoints(txns, checkpoints)
+    if not checkpoints:
+        # Without a single printed Saldo Final there is nothing the statement asserts
+        # that the rows did not also produce. Reconciling a self-derived chain against
+        # itself always succeeds, and calling that reconciliation is the lie.
+        checkpoint_failures = ["the statement prints no Saldo Final line, so nothing independent "
+                               "of the rows we read confirms that we read them all"]
     safe_issues = not fatal_issues and (not issues or allow_review)
-    ok = chain_ok and safe_issues
+    ok = chain_ok and safe_issues and not checkpoint_failures
     report.update({
         "status": "ok" if ok else "failed",
         "balance_anchors": balance_anchors(txns, opening, closing) if ok else [],
@@ -254,8 +309,9 @@ def extract_pdf(pdf, output, allow_review=False):
         "discrepancy": 0.0 if opening is None else (opening + sum_cents - closing) / 100.0,
         "balance_breaks": breaks,
         "date_checkpoints": len(checkpoints),
+        "checkpoint_failures": checkpoint_failures,
         "issues": issues,
-        "fatal_issues": fatal_issues + breaks,
+        "fatal_issues": fatal_issues + breaks + checkpoint_failures,
     })
     if ok:
         output.parent.mkdir(parents=True, exist_ok=True)

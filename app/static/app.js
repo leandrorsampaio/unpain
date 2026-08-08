@@ -551,11 +551,21 @@ const ICON_RULES = [
   [/recreation|leisure|entertain|hobby|fun/, 'sports_esports'], [/donation|charit/, 'volunteer_activism'],
   [/gift/, 'card_giftcard'], [/travel|trip|vacation|holiday/, 'flight'], [/project/, 'build'],
 ];
+/* A Material Symbol name is the only thing an icon field may hold. Every icon ends up
+   between <md-icon> tags, so anything else there is markup entering the page from a
+   place a person — or an imported config, or a restored backup — can write. Validated
+   at the one point every icon passes through, rather than escaped at each of the dozen
+   sinks, because the dozenth is the one that gets forgotten. */
+const ICON_NAME = /^[a-z0-9_]{1,40}$/;
+function safeIcon(name, fallback = 'category') {
+  return ICON_NAME.test(String(name == null ? '' : name)) ? String(name) : fallback;
+}
 function defaultIcon(cat) {
-  if (cat.icon) return cat.icon;
+  const fallback = cat.type === 'income' ? 'payments' : 'category';
+  if (cat.icon) return safeIcon(cat.icon, fallback);
   const n = (cat.name || '').toLowerCase();
   for (const [re, ic] of ICON_RULES) if (re.test(n)) return ic;
-  return cat.type === 'income' ? 'payments' : 'category';
+  return fallback;
 }
 function catColor(cat) {
   if (cat.color) return cat.color;
@@ -577,7 +587,7 @@ function catIconFor(slug) {
 function catTriggerHtml(slug) {
   if (!slug) return T('Choose category');
   const ic = catIconFor(slug);
-  return (ic ? `<md-icon slot="icon">${ic}</md-icon>` : '') + catLabel(slug);
+  return (ic ? `<md-icon slot="icon">${ic}</md-icon>` : '') + esc(catLabel(slug));
 }
 function catColorFor(slug) {
   if (!slug) return 'var(--ink2)';
@@ -671,7 +681,7 @@ function personColor(p) {
     || PERSON_COLORS[state.meta.people.indexOf(p)] || PERSON_COLORS[2];
 }
 function personIcon(p) {
-  return ((state.meta.person_styles || {})[p] || {}).icon || 'person';
+  return safeIcon(((state.meta.person_styles || {})[p] || {}).icon, 'person');
 }
 /* Icons offered in Settings for the shared / together option. */
 const SHARED_ICONS = ['group', 'groups', 'groups_2', 'groups_3', 'diversity_1', 'diversity_2', 'diversity_3',
@@ -679,7 +689,7 @@ const SHARED_ICONS = ['group', 'groups', 'groups_2', 'groups_3', 'diversity_1', 
   'home', 'family_restroom', 'escalator_warning', 'volunteer_activism', 'join_full', 'join_inner',
   'partner_exchange', 'connect_without_contact', 'hub', 'forum'];
 const sharedColor = () => (state.meta.shared_style || {}).color || '#fb8c00';
-const sharedIcon = (def) => (state.meta.shared_style || {}).icon || def;
+const sharedIcon = (def) => safeIcon((state.meta.shared_style || {}).icon, def);
 /* Display name for a person slug. Slugs are permanent ids; labels are cosmetic.
    personLabelRaw is UNescaped — use it where the sink escapes (selectField/segControl
    headlines, txnFilterToggle, textContent, or a string a consumer later esc()s).
@@ -758,11 +768,11 @@ function openCatPicker(btn, opts = null) {
   const box = c => {
     const subs = c.subs.filter(s => !s.archived);
     if (!subs.length) return '';
-    return `<div class="cat-box ${c.type === 'income' ? 'income' : ''}" style="--acc:${catColor(c)}" data-name="${c.name.toLowerCase()}">
-      <h4><md-icon>${defaultIcon(c)}</md-icon>${c.name}</h4>
+    return `<div class="cat-box ${c.type === 'income' ? 'income' : ''}" style="--acc:${catColor(c)}" data-name="${esc(c.name.toLowerCase())}">
+      <h4><md-icon>${defaultIcon(c)}</md-icon>${esc(c.name)}</h4>
       ${subs.map(s => {
         const slug = `${c.slug}/${s.slug}`;
-        return `<button type="button" class="cat-sub ${isSel(slug) ? 'selected' : ''}" data-slug="${slug}" data-name="${s.name.toLowerCase()}" ${onClick(slug)}>${s.name}</button>`;
+        return `<button type="button" class="cat-sub ${isSel(slug) ? 'selected' : ''}" data-slug="${esc(slug)}" data-name="${esc(s.name.toLowerCase())}" ${onClick(slug)}>${esc(s.name)}</button>`;
       }).join('')}
     </div>`;
   };
@@ -1905,7 +1915,7 @@ async function renderDashboard(renderId = state.renderId) {
         ${row(T('Savings'), y => fmt(y.savings), y => y.savings >= 0 ? 'var(--good)' : 'var(--bad)')}
         ${row(T('Savings rate'), y => y.savings_rate == null ? '–' : Math.round(y.savings_rate * 100) + ' %')}
         <tr><td colspan="${ys.length + 1}" class="pt-3 pb-1 type-caption font-medium" style="color:var(--ink2)">${T('TOP EXPENSE CATEGORIES')}</td></tr>
-        ${cats.map(c => row(catName(c), y => y.by_category[c] ? fmt(-y.by_category[c]) : '–')).join('')}
+        ${cats.map(c => row(esc(catName(c)), y => y.by_category[c] ? fmt(-y.by_category[c]) : '–')).join('')}
       </table></div>`;
   };
 
@@ -3396,7 +3406,7 @@ function splitChildren(t) {
       <span></span>
       <span class="flex justify-center"><md-icon class="split-child-arrow" style="font-size:18px; color:var(--ink2)">subdirectory_arrow_right</md-icon></span>
       <span></span>
-      <span class="truncate" style="min-width:0; color:var(--ink2)">${esc(s.purpose) || catName(s.category)}</span>
+      <span class="truncate" style="min-width:0; color:var(--ink2)">${esc(s.purpose) || esc(catName(s.category))}</span>
       <span></span>
       <span class="flex justify-end">${shareBadge(s.sharing || 'shared')}</span>
       <span class="flex justify-end">${flagPill(s.year_cost, T('year cost'))}</span>
@@ -3908,7 +3918,7 @@ async function renderCategories() {
   const iconBtn = (icon, title, onclick, disabled) =>
     `<md-icon-button title="${esc(title)}" ${disabled ? 'disabled' : ''} ${onclick ? `onclick="${onclick}"` : ''}><md-icon>${icon}</md-icon></md-icon-button>`;
   const actions = (slug, name, archived, canDelete) => `<span class="cat-actions">
-    ${iconBtn('edit', T('Rename'), `renameCategory('${slug}', ${JSON.stringify(name).replace(/"/g, '&quot;')})`)}
+    ${iconBtn('edit', T('Rename'), `renameCategory('${slug}', ${esc(JSON.stringify(name))})`)}
     ${iconBtn(archived ? 'unarchive' : 'archive', archived ? T('Restore') : T('Archive'), `archiveCategory('${slug}', ${!archived})`)}
     ${iconBtn('delete', canDelete ? T('Delete') : T('In use — archive instead of deleting'), canDelete ? `deleteCategory('${slug}')` : '', !canDelete)}
   </span>`;
@@ -3946,7 +3956,7 @@ async function renderCategories() {
         <div class="card cat-card" style="--acc:${catColor(g)};${g.archived ? 'opacity:.55' : ''}">
           <div class="cat-head flex items-center gap-3 px-4 py-3 border-b" style="border-color:var(--line)">
             <md-icon style="color:${catColor(g)}">${defaultIcon(g)}</md-icon>
-            <span class="font-medium">${g.name}</span>
+            <span class="font-medium">${esc(g.name)}</span>
             <span class="chip ${g.type === 'income' ? 'chip-primary' : ''}">${g.type === 'income' ? T('Income') : T('Expense')}</span>
             ${g.dynamic ? `<span class="chip">${T('dynamic')}</span>` : ''}
             ${g.archived ? `<span class="chip chip-bad">${T('archived')}</span>` : ''}
@@ -3962,7 +3972,7 @@ async function renderCategories() {
             const full = `${g.slug}/${s.slug}`;
             const t = useTxn(full), r = useRule(full);
             return `<div class="cat-sub flex items-center gap-3 px-4 py-2 type-body-small border-b" style="border-color:var(--line);${s.archived ? 'opacity:.55' : ''}">
-              <span style="padding-left:12px">${s.name}</span>
+              <span style="padding-left:12px">${esc(s.name)}</span>
               ${s.ratio_income ? `<span class="chip chip-primary" ${tooltip(T('Settlement income basis'))}>${T('ratio')}</span>` : ''}
               ${s.archived ? `<span class="chip chip-bad">${T('archived')}</span>` : ''}
               ${s.watch ? `<span class="chip chip-primary" ${tooltip(T('On the dashboard watch-list'))}>${T('watching')}</span>` : ''}
@@ -4601,6 +4611,18 @@ function openSplit(id, total, onSaved) {
   };
 }
 
+/* Why a settlement is not to be acted on, said beside the figures it applies to.
+   The backend reports the fact (`{kind, people}`); the sentence is written here so it
+   translates like every other string. */
+function ratioProblemHtml(problem) {
+  if (!problem) return '';
+  const who = (problem.people || []).map(personLabelRaw).join(', ');
+  const text = problem.kind === 'negative-ratio-income'
+    ? T('Salary income for {who} adds up to a negative amount, so it cannot produce a share of the costs. Fix the booking — a payroll reversal belongs in the month it reverses. Until then this settlement falls back to the reference ratio and is not binding.', { who })
+    : T('This settlement is standing on data that cannot produce a ratio.');
+  return `<div class="settle-problem type-body-small mb-3"><md-icon>error</md-icon><span>${esc(text)}</span></div>`;
+}
+
 /* ---------- settlement ---------- */
 async function renderSettlement() {
   const annual = await api(`/api/settlement?year=${state.year}`);
@@ -4613,6 +4635,7 @@ async function renderSettlement() {
       <md-icon-button title="${T('Adjust ratio')}" onclick="openRatioModal('${key}')"><md-icon>tune</md-icon></md-icon-button>
     </div>
     <div class="type-caption mb-3" style="color:var(--ink2)">${T('ratio')} ${personLabel(p1)} ${(s.ratio[p1] * 100).toFixed(1)}% / ${personLabel(p2)} ${(s.ratio[p2] * 100).toFixed(1)}% — ${T(s.ratio_source)}</div>
+    ${ratioProblemHtml(s.ratio_problem)}
     <table class="w-full type-body-small settle-table">
       <tr style="color:var(--ink2)"><td></td><td class="text-right">${personLabel(p1)}</td><td class="text-right">${personLabel(p2)}</td></tr>
       <tr><td class="py-1">${T('Salary income counted')}</td><td class="text-right">${fmt(s.ratio_income[p1])}</td><td class="text-right">${fmt(s.ratio_income[p2])}</td></tr>
@@ -5187,7 +5210,7 @@ const HEADER_ICONS = ['savings', 'account_balance', 'account_balance_wallet', 'w
   'rocket_launch', 'star', 'bolt', 'shopping_cart', 'receipt_long', 'calculate', 'work', 'school',
   'flight', 'sailing', 'restaurant', 'local_cafe', 'directions_car', 'pedal_bike'];
 const brandColor = () => ((state.settingsBrandStyle || {}).color || '').toLowerCase();
-const brandIcon = () => (state.settingsBrandStyle || {}).icon || DEFAULT_BRAND_ICON;
+const brandIcon = () => safeIcon((state.settingsBrandStyle || {}).icon, DEFAULT_BRAND_ICON);
 function brandStyleEditor() {
   const curColor = brandColor(), curIcon = brandIcon();
   return `<div class="partner-style">

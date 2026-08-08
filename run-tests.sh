@@ -43,7 +43,8 @@ for t in tests/test_pipeline.py tests/test_oracle.py tests/test_feedback.py \
          tests/test_networth.py tests/test_balances.py tests/test_overview.py \
          tests/test_asset_versions.py \
          tests/test_security.py \
-         tests/test_ingest_pdf_flow.py tests/test_review_count.py \
+         tests/test_ingest_pdf_flow.py tests/test_integrity_gates.py \
+         tests/test_review_count.py \
          tests/test_transfer_review.py \
          tests/test_rules_engine.py tests/test_recurring.py tests/test_fx.py \
          tests/test_rule_reapply.py tests/test_trade_republic_extractor.py \
@@ -51,6 +52,7 @@ for t in tests/test_pipeline.py tests/test_oracle.py tests/test_feedback.py \
   echo "== $t"; "$PY" "$t"
 done
 for t in tests/test_i18n.js tests/test_material_ui.js tests/test_typography_ui.js \
+         tests/test_escaping_ui.js \
          tests/test_heavy_tabs_ui.js tests/test_year_selection.js; do
   echo "== $t"; node "$t"
 done

@@ -11,7 +11,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from .util import CURRENCY_JUNK as _CURRENCY_JUNK_TEXT, cents, parse_amount, read_json
+from .util import CURRENCY_JUNK as _CURRENCY_JUNK_TEXT, MAX_YEAR, MIN_YEAR, cents, parse_amount, read_json
 
 FORMATS_DIR = Path(__file__).parent / "formats"
 
@@ -83,6 +83,8 @@ def parse(path, cfg, with_stats=False):
     sign = cfg.get("sign", 1)
     out = []
     skipped_dates = []
+    bad_amounts = []
+    out_of_range_dates = []
     captured_anchors = []
     raw_amounts = []
     stated_total = None
@@ -117,15 +119,27 @@ def parse(path, cfg, with_stats=False):
             if sum(1 for cell in row if str(cell).strip()) >= 2:
                 skipped_dates.append(";".join(str(cell).strip() for cell in row)[:200])
             continue  # summary/preamble rows
+        if not MIN_YEAR <= int(date[:4]) <= MAX_YEAR:
+            out_of_range_dates.append(";".join(str(cell).strip() for cell in row)[:200])
+            continue
         if "amount_debit" in cmap or "amount_credit" in cmap:
+            written = [value for value in (get("amount_debit"), get("amount_credit")) if value]
             debit = parse_amount(get("amount_debit"), decimal) if get("amount_debit") else None
             credit = parse_amount(get("amount_credit"), decimal) if get("amount_credit") else None
             amount = -abs(debit) if debit is not None else (abs(credit) if credit is not None else None)
-            raw_amounts.extend(value for value in (get("amount_debit"), get("amount_credit")) if value)
+            raw_amounts.extend(written)
         else:
+            written = [get("amount")] if get("amount") else []
             amount = parse_amount(get("amount"), decimal, sign)
-            if get("amount"):
-                raw_amounts.append(get("amount"))
+            raw_amounts.extend(written)
+        if amount is None and written:
+            # The row carries a date and a written amount, so it is a transaction — but
+            # the amount does not read as money. Dropping it left a statement that still
+            # looked complete while a real line was missing from it, and the skipped-row
+            # count could not see it either. An empty amount cell is a different thing
+            # (an informational row) and keeps falling through below.
+            bad_amounts.append(";".join(str(cell).strip() for cell in row)[:200])
+            continue
         if amount is None or amount == 0:
             continue
         txn = {
@@ -140,6 +154,18 @@ def parse(path, cfg, with_stats=False):
         if cfg.get("account_column"):
             txn["account"] = get("account")
         out.append(txn)
+    if bad_amounts:
+        raise ValueError(
+            "%d row%s carry a date but an amount that cannot be read as money, so importing "
+            "this file would leave the statement incomplete. Nothing was imported. Samples: %s"
+            % (len(bad_amounts), " " if len(bad_amounts) == 1 else "s each ",
+               " | ".join(bad_amounts[:3])))
+    if out_of_range_dates:
+        raise ValueError(
+            "%d row%s dated outside %d-%d, which no statement does — the date column is being "
+            "read wrongly. Nothing was imported. Samples: %s"
+            % (len(out_of_range_dates), " is" if len(out_of_range_dates) == 1 else "s are",
+               MIN_YEAR, MAX_YEAR, " | ".join(out_of_range_dates[:3])))
     if skipped_dates and (not out or len(skipped_dates) > max(3, len(out) * .1)):
         raise ValueError("Too many rows have invalid dates (%d skipped, %d parsed). Samples: %s" %
                          (len(skipped_dates), len(out), " | ".join(skipped_dates[:3])))

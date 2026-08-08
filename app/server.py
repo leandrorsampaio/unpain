@@ -3,10 +3,15 @@
 Run:  .venv/bin/uvicorn app.server:app --reload --port 8765
 Then open http://localhost:8765 (reachable on the home network via the Mac's IP).
 """
+import contextlib
 import csv
 import hashlib
 import importlib
+import io
+import math
+import os
 import secrets
+import tempfile
 import shutil
 import sys
 import time
@@ -16,6 +21,7 @@ from typing import Optional
 
 import re
 
+import anyio
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,8 +29,8 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline import anchors, balances, closings, coverage, doctor, fx, ingest, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
-from pipeline.util import DATA, INBOX, ROOT, RULES, cents, load_config, read_json, write_json, load_accounts  # noqa: E402
+from pipeline import anchors, balances, closings, coverage, doctor, extraction, fx, ingest, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
+from pipeline.util import DATA, ICON_NAME, INBOX, ROOT, RULES, cents, load_config, read_json, write_json, load_accounts  # noqa: E402
 
 app = FastAPI(title="FamilyAccountability")
 STATIC = Path(__file__).parent / "static"
@@ -103,6 +109,27 @@ def _new_session_response(payload):
     resp = JSONResponse(payload)
     resp.set_cookie(_SESSION_COOKIE, token, httponly=True, samesite="lax", path="/")
     return resp
+
+
+# Read-modify-write is the shape of almost every write here: read decisions.json, change
+# one entry, write the whole document back. Two of those at once — two browser tabs, or the
+# second device that LAN mode exists for — both read the old document, and the later write
+# discards the earlier one's decision without a word. These handlers are sync, so FastAPI
+# runs them in a threadpool and they really do overlap.
+#
+# For a local two-person app the complete fix is also the cheap one: one mutation at a time.
+# Reads stay parallel. Holding the lock around the whole handler makes each endpoint's
+# read-modify-write atomic without every endpoint having to remember to be.
+_WRITE_LOCK = anyio.Lock()
+_CONCURRENT_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+@app.middleware("http")
+async def serialize_writes(request: Request, call_next):
+    if request.method in _CONCURRENT_METHODS:
+        return await call_next(request)
+    async with _WRITE_LOCK:
+        return await call_next(request)
 
 
 @app.middleware("http")
@@ -456,12 +483,30 @@ def settings_get():
     return load_config()
 
 
+def _icon_name(value, where):
+    """An icon is a Material Symbol name, checked in one place for every field that holds one.
+
+    Category, partner, shared and app-bar icons all end up between <md-icon> tags in the
+    page. Only the app-bar field used to check what it was storing; the rest accepted any
+    string, which made a settings field a way to put markup into every screen that renders
+    that icon."""
+    name = str(value or "").strip()
+    if not ICON_NAME.match(name):
+        raise HTTPException(400, "%s must be a Material Symbol name (lowercase letters, digits "
+                                 "and underscores)" % where)
+    return name
+
+
 @app.post("/api/settings-update")
 def settings_update(s: SettingsUpdate):
     cfg = load_config()
     people = cfg["people"]
     if set(s.reference_ratio) != set(people):
         raise HTTPException(400, "reference_ratio must have exactly the keys %s" % people)
+    # Summing to 1 is not enough on its own: {-0.2, 1.2} sums to 1 and then hands one
+    # person a negative share of every shared cost. A share is a fraction of a whole.
+    if any(not math.isfinite(v) or not 0 <= v <= 1 for v in s.reference_ratio.values()):
+        raise HTTPException(400, "each reference_ratio share must be between 0% and 100%")
     if cents(sum(s.reference_ratio.values())) != 100:          # ratio stored as fractions summing to 1
         raise HTTPException(400, "reference_ratio must sum to 100%")
     if not set(s.person_labels) <= set(people) or any(not v.strip() for v in s.person_labels.values()):
@@ -501,7 +546,7 @@ def settings_update(s: SettingsUpdate):
                 raise HTTPException(400, "person_styles color must be a #rrggbb hex")
             clean["color"] = st["color"]
         if st.get("icon"):
-            clean["icon"] = str(st["icon"]).strip()
+            clean["icon"] = _icon_name(st["icon"], "person_styles")
         if clean:
             styles[slug] = clean
     if styles:
@@ -515,7 +560,7 @@ def settings_update(s: SettingsUpdate):
                 raise HTTPException(400, "shared_style color must be a #rrggbb hex")
             shared["color"] = s.shared_style["color"]
         if s.shared_style.get("icon"):
-            shared["icon"] = str(s.shared_style["icon"]).strip()
+            shared["icon"] = _icon_name(s.shared_style["icon"], "shared_style")
     if shared:
         cfg["shared_style"] = shared
     else:
@@ -527,9 +572,7 @@ def settings_update(s: SettingsUpdate):
                 raise HTTPException(400, "brand_style color must be a #rrggbb hex")
             brand["color"] = s.brand_style["color"]
         if s.brand_style.get("icon"):
-            if not re.match(r"^[a-z0-9_]+$", str(s.brand_style["icon"])):
-                raise HTTPException(400, "brand_style icon must be a material symbol name")
-            brand["icon"] = str(s.brand_style["icon"]).strip()
+            brand["icon"] = _icon_name(s.brand_style["icon"], "brand_style")
     if brand:
         cfg["brand_style"] = brand
     else:
@@ -1021,24 +1064,35 @@ def set_ratio_override(o: RatioOverride):
     # one person owes the other without touching a single transaction. That made it a
     # way to rewrite a settled period in silence: no transaction changed, no total
     # changed, and the month lock never saw it.
+    # An override key is 'annual' or a bare month number ('3'); month state is keyed
+    # 'YYYY-MM'. Looking '3' up in {'2026-03': 'closed'} never matched, so the lock
+    # this block exists to enforce silently passed every monthly override it saw.
+    annual = o.key in (None, "", "annual")
+    # settle.ratio_override() looks monthly overrides up as str(month) and the annual one
+    # as 'annual'. Any other key would be stored and then read by nothing, so it is an
+    # error rather than a no-op that looks like it worked.
+    key = "annual" if annual else o.key
+    if not annual:
+        if not re.fullmatch(r"[1-9]|1[0-2]", o.key):
+            raise HTTPException(400, "key must be 'annual' or a month number 1-12")
+        month_key = "%d-%02d" % (o.year, int(o.key))
     months = store.months_state(o.year)
-    locked = ([key for key, state in months.items() if state == "closed"]
-              if o.key in (None, "", "annual") else
-              [o.key] if months.get(o.key) == "closed" else [])
+    locked = ([month for month, state in months.items() if state == "closed"] if annual else
+              [month_key] if months.get(month_key) == "closed" else [])
     if locked:
-        raise HTTPException(409, "Month %s is closed. Reopen it first."
-                            % (o.key if o.key not in (None, "", "annual") else sorted(locked)[0]))
+        raise HTTPException(409, "Month %s is closed. Reopen it first." % sorted(locked)[0])
     path = DATA / str(o.year) / "ratio-overrides.json"
     data = read_json(path, default={})
     if o.ratio is None:
-        data.pop(o.key, None)
+        data.pop(key, None)
     else:
         if not all(p in o.ratio for p in people):
             raise HTTPException(400, "ratio must include all people: %s" % people)
         values = {p: float(o.ratio[p]) for p in people}
-        if any(value < 0 for value in values.values()) or sum(values.values()) <= 0:
-            raise HTTPException(400, "ratio values must be non-negative and sum to more than zero")
-        data[o.key] = values
+        if any(not math.isfinite(value) or value < 0 for value in values.values()) \
+                or sum(values.values()) <= 0:
+            raise HTTPException(400, "ratio values must be finite, non-negative and sum to more than zero")
+        data[key] = values
     write_json(path, data)
     return {"ok": True, "overrides": data}
 
@@ -1189,8 +1243,17 @@ BACKUP_PARTS = {
 
 
 def _selected_parts(parts: str):
+    """No selection means everything; a selection means exactly what it says.
+
+    Dropping unrecognised tokens and then falling back to "all" turned `parts=dta`
+    into a request for the whole tree — a typo silently widened a backup or, worse,
+    a restore."""
     requested = [p for p in parts.split(",") if p]
-    return [p for p in requested if p in BACKUP_PARTS] or list(BACKUP_PARTS)  # empty → all
+    unknown = [p for p in requested if p not in BACKUP_PARTS]
+    if unknown:
+        raise HTTPException(400, "unknown part(s): %s. Valid parts: %s" %
+                            (", ".join(sorted(unknown)), ", ".join(sorted(BACKUP_PARTS))))
+    return requested or list(BACKUP_PARTS)
 
 
 def _write_backup(prefix: str, selected):
@@ -1782,11 +1845,52 @@ class RulePayload(BaseModel):
     scope: str = "family"  # family | <person>
 
 
+RULE_MATCH_FIELDS = ("counterparty", "purpose", "any")
+RULE_MIN_PATTERN = 3      # same floor as the UI: shorter patterns over-match the whole history
+
+
+def _validate_rule(*, pattern=None, field=None, category=None, sharing=None,
+                   tax_bucket=None, action=None, scope=None):
+    """One definition of a valid rule, shared by create and update.
+
+    A rule is retroactive by nature — it applies to every transaction already in the
+    store and every one still to come. Creation used to check `scope` and nothing
+    else, so an empty pattern (a substring of every string) reclassified the whole
+    history in one POST, and a category that does not exist could be written into a
+    rule that every screen then had to cope with. Update checked all of it. The two
+    paths write the same file, so they answer to the same rules.
+
+    Every argument is optional because update is a patch: None means "not being set".
+    """
+    people = _people()
+    if scope is not None and scope not in ["family"] + people:
+        raise HTTPException(400, "scope must be 'family' or one of %s" % people)
+    if pattern is not None and len((pattern or "").strip()) < RULE_MIN_PATTERN:
+        raise HTTPException(400, "pattern must contain at least %d characters" % RULE_MIN_PATTERN)
+    if field is not None and field not in RULE_MATCH_FIELDS:
+        raise HTTPException(400, "field must be counterparty, purpose or any")
+    if sharing is not None and sharing not in {"shared", "out-of-scope"} | {"personal:" + p for p in people}:
+        raise HTTPException(400, "sharing must be shared, out-of-scope, or personal:<person>")
+    if category:
+        categories, _, _, _ = _decision_options()
+        if category not in categories:
+            raise HTTPException(400, "category '%s' does not exist" % category)
+    if tax_bucket:
+        tax_slugs = {bucket["slug"] for bucket in read_json(RULES / "tax-buckets.json")["buckets"]}
+        if tax_bucket not in tax_slugs:
+            raise HTTPException(400, "Unknown tax bucket '%s'" % tax_bucket)
+    if action is not None and action not in ("review", ""):
+        raise HTTPException(400, "action must be 'review' or empty")
+
+
 @app.post("/api/rule")
 def add_rule(r: RulePayload):
-    people = _people()
-    if r.scope not in ["family"] + people:
-        raise HTTPException(400, "scope must be 'family' or one of %s" % people)
+    _validate_rule(pattern=r.pattern, field=r.field, sharing=r.sharing, scope=r.scope,
+                   action=r.action,
+                   # A rule either routes to Review or classifies, never both, so the
+                   # classification fields are only validated when they will be stored.
+                   category=None if r.action == "review" else r.category,
+                   tax_bucket=None if r.action == "review" else r.tax_bucket)
     slug = re.sub(r"[^a-z0-9]+", "-", r.pattern.lower()).strip("-")[:40] or "rule"
     base_id = "ui-%s-%s" % (r.scope, slug)
     existing_ids = {item["id"] for item in rules_engine.load_rules()}
@@ -1796,7 +1900,7 @@ def add_rule(r: RulePayload):
         suffix += 1
     rule = {
         "id": rule_id,
-        "match": {"field": r.field, "contains": r.pattern},
+        "match": {"field": r.field, "contains": r.pattern.strip()},
         "sharing": r.sharing,
         "scope": r.scope,
     }
@@ -1908,41 +2012,24 @@ class RuleUpdate(BaseModel):
 
 @app.post("/api/rule-update")
 def rule_update(r: RuleUpdate):
+    _validate_rule(pattern=r.pattern, field=r.field, category=r.category, sharing=r.sharing,
+                   tax_bucket=r.tax_bucket, action=r.action, scope=r.scope)
     fields = {}
-    people = _people()
     if r.scope is not None:
-        if r.scope not in ["family"] + people:
-            raise HTTPException(400, "bad scope")
         fields["scope"] = r.scope
     if r.note is not None:
         fields["note"] = r.note or None  # empty string clears the note
     if r.field is not None:
-        if r.field not in ("counterparty", "purpose", "any"):
-            raise HTTPException(400, "field must be counterparty, purpose or any")
         fields["field"] = r.field
     if r.pattern is not None:
-        pattern = r.pattern.strip()
-        if len(pattern) < 3:
-            # Same floor as the UI: shorter patterns over-match the whole history.
-            raise HTTPException(400, "pattern must contain at least 3 characters")
-        fields["contains"] = pattern
+        fields["contains"] = r.pattern.strip()
     if r.sharing is not None:
-        if r.sharing not in {"shared", "out-of-scope"} | {"personal:" + p for p in people}:
-            raise HTTPException(400, "sharing must be shared, out-of-scope, or personal:<person>")
         fields["sharing"] = r.sharing
     if r.category is not None:
-        categories, _, _, _ = _decision_options()
-        if r.category and r.category not in categories:
-            raise HTTPException(400, "category '%s' does not exist" % r.category)
         fields["category"] = r.category or None
     if r.tax_bucket is not None:
-        tax_buckets = {b["slug"] for b in read_json(RULES / "tax-buckets.json")["buckets"]}
-        if r.tax_bucket and r.tax_bucket not in tax_buckets:
-            raise HTTPException(400, "Unknown tax bucket '%s'" % r.tax_bucket)
         fields["tax_bucket"] = r.tax_bucket or None
     if r.action is not None:
-        if r.action not in ("review", ""):
-            raise HTTPException(400, "action must be 'review' or empty")
         fields["action"] = r.action or None
     # A rule either routes to Review or classifies — never both.
     if fields.get("action") == "review":
@@ -2148,12 +2235,59 @@ def _cash_rows():
     return rows[0], rows[1:]
 
 
+def _publish_bytes(path, payload):
+    """Replace a file in one step, so no reader ever sees it half-written."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, path)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
+
+
 def _write_cash_rows(header, body):
+    """Publish cash.csv — the source of truth for every cash entry — atomically.
+
+    Writing in place truncates the file first, so a failure part-way through leaves a
+    cash ledger missing whatever had not been written yet."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(header)
+    writer.writerows(body)
+    _publish_bytes(INBOX / "cash.csv", buffer.getvalue().encode("utf-8"))
+
+
+@contextlib.contextmanager
+def _cash_transaction(header, body):
+    """Write cash.csv and rebuild the ledger from it, or change neither.
+
+    cash.csv is the source and the JSONL under data/ is derived from it, so between
+    the CSV write and the regeneration that follows they disagree by construction. A
+    failure in that window — an unknown currency, a full disk, transfer re-detection
+    raising — used to leave the new row in the CSV with no trace of it in the ledger,
+    and the next ingest would then adopt it as if a human had approved it. Putting the
+    old CSV back makes the two move together.
+    """
     path = INBOX / "cash.csv"
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(header)
-        writer.writerows(body)
+    previous = path.read_bytes() if path.exists() else None
+    _write_cash_rows(header, body)
+    try:
+        yield
+    except BaseException:
+        try:
+            if previous is None:
+                path.unlink(missing_ok=True)
+            else:
+                _publish_bytes(path, previous)
+            ingest.regenerate_cash(mark_transfers=False)
+        except Exception:
+            pass    # the failure that got us here is the one worth reporting
+        raise
 
 
 def _assert_cash_ledger_valid():
@@ -2227,11 +2361,11 @@ def cash(e: CashEntry):
     old_cash = _cash_snapshot()
     header, body = _cash_rows()
     body.append([e.date, e.account, e.amount, e.currency.upper(), e.description.strip(), e.category])
-    _write_cash_rows(header, body)
-    new_cash = ingest.regenerate_cash(mark_transfers=False)
-    added = new_cash[-1]
-    carried = {"category": e.category, "sharing": "shared"} if e.category else None
-    _rekey_cash_decisions(old_cash, new_cash, explicit=(added, carried))
+    with _cash_transaction(header, body):
+        new_cash = ingest.regenerate_cash(mark_transfers=False)
+        added = new_cash[-1]
+        carried = {"category": e.category, "sharing": "shared"} if e.category else None
+        _rekey_cash_decisions(old_cash, new_cash, explicit=(added, carried))
     return {"ok": True, "result": "1 new transaction", "id": added["id"]}
 
 
@@ -2249,9 +2383,9 @@ def cash_delete(d: CashDelete):
     _assert_cash_month_open(target["date"])
     header, body = _cash_rows()
     del body[_cash_row_index(body, target)]
-    _write_cash_rows(header, body)
-    new_cash = ingest.regenerate_cash(mark_transfers=False)
-    _rekey_cash_decisions(old_cash, new_cash, removed_ids={target["id"]})
+    with _cash_transaction(header, body):
+        new_cash = ingest.regenerate_cash(mark_transfers=False)
+        _rekey_cash_decisions(old_cash, new_cash, removed_ids={target["id"]})
     return {"ok": True}
 
 
@@ -2287,10 +2421,10 @@ def cash_edit(e: CashEdit):
     header, body = _cash_rows()
     row_index = _cash_row_index(body, target)
     body[row_index] = [e.date, e.account, e.amount, e.currency.upper(), e.description.strip(), e.category]
-    _write_cash_rows(header, body)
-    new_cash = ingest.regenerate_cash(mark_transfers=False)
-    edited = new_cash[row_index]
-    _rekey_cash_decisions(old_cash, new_cash, removed_ids={target["id"]}, explicit=(edited, carried))
+    with _cash_transaction(header, body):
+        new_cash = ingest.regenerate_cash(mark_transfers=False)
+        edited = new_cash[row_index]
+        _rekey_cash_decisions(old_cash, new_cash, removed_ids={target["id"]}, explicit=(edited, carried))
     preserved = sorted(k for k in carried if k not in ("category", "account"))
     return {"ok": True, "id": edited["id"], "carried_over": preserved}
 
@@ -2519,13 +2653,21 @@ def ingest_process():
                 # gate still protects data integrity), so honor the account the user chose here.
                 extracted = STAGING / (e["stored"] + ".extracted.csv")
                 report = extractor["extract"](src, extracted, bool(e.get("allow_review")))
-                e["extraction"] = report
-                if report["status"] != "ok":
-                    e["error"] = "Extraction failed reconciliation. No data was imported."
+                e["extraction"] = extraction.storable(report)
+                # The extractor saying "ok" is the extractor's opinion of its own work.
+                # extraction.admit re-runs opening + rows == closing here, over the file
+                # that is actually about to be imported, so a plugin that reports success
+                # it did not earn cannot put a transaction in the store.
+                try:
+                    e["admission"] = extraction.admit(report, extracted)
+                except extraction.ExtractionRejected as rejected:
+                    extracted.unlink(missing_ok=True)
+                    e["error"] = "Extraction failed reconciliation: %s. No data was imported." % rejected
                     results.append({"file": e["original_name"], "status": "error", "detail": e["error"]})
                     continue
                 source_stem = "%s__%s" % (acct, e["id"])
-                stats = ingest.ingest_upload(extracted, acct, source_stem, original_name=e["original_name"])
+                stats = ingest.ingest_upload(extracted, acct, source_stem,
+                                             original_name=e["original_name"], admitted=True)
                 extracted.unlink(missing_ok=True)
                 # The extractor proved these balances against the statement's own
                 # arithmetic; recording them turns each import into a checkpoint the
@@ -2536,6 +2678,11 @@ def ingest_process():
                     anchor_result = anchors.record(acct, report["balance_anchors"],
                                                    e["original_name"] or "statement.pdf",
                                                    upload=source_stem)
+                    # anchors.record() reports what it did with them; how many there were to
+                    # begin with is the caller's to add, and omitting it raised KeyError here —
+                    # after the transactions were already stored, so the failure was then
+                    # reported as "No data was imported" while the data sat in the store.
+                    anchor_result["found"] = len(report["balance_anchors"])
                     stats["anchors"] = anchor_result
                     stats["anchor_message"] = ingest._anchor_message(anchor_result)
                 safe = re.sub(r"[^A-Za-z0-9._-]", "_", e["original_name"] or "statement.pdf")
@@ -2544,13 +2691,13 @@ def ingest_process():
                 dest = processed_dir / ("%s__%s__%s" % (acct, e["id"], safe))
                 shutil.move(str(src), str(dest))
                 log_path = dest.with_suffix(".extract-log.json")
-                write_json(log_path, report)
+                write_json(log_path, e["extraction"])
                 uploads.append({
                     "id": e["id"], "original_name": e["original_name"], "account": acct,
                     "owner": owner, "comment": e.get("comment", ""), "file_hash": e["hash"],
                     "kind": "pdf", "status": "processed", "source_stem": source_stem,
                     "format": "pdf:%s" % e["extractor"], "extractor": e["extractor"],
-                    "extraction": report, "processed_pdf": dest.name, "extraction_log": log_path.name,
+                    "extraction": e["extraction"], "processed_pdf": dest.name, "extraction_log": log_path.name,
                     "processed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                     "added": stats["added"], "duplicates": stats["duplicates"], "total": stats["total"],
                     "years": stats["years"], "date_min": stats["date_min"], "date_max": stats["date_max"],
@@ -2842,7 +2989,7 @@ def category_style(s: CategoryStyle):
             raise HTTPException(400, "color must be a #rrggbb hex")
         g["color"] = s.color
     if s.icon is not None:
-        g["icon"] = s.icon.strip()
+        g["icon"] = _icon_name(s.icon, "category icon")
     write_json(RULES / "categories.json", data)
     return {"ok": True}
 
