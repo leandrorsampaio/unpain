@@ -13,39 +13,24 @@ Conventions:
 - settlement ratio: income in subcategories flagged ratio_income (salary),
   income_owner 'couple' counts half to each person
 """
-import math
 from collections import defaultdict
 
-from . import store
+from . import money, store
 from .util import DATA, RULES, cents, load_accounts, load_config, read_json
 
 
 def allocate_cents(total_cents, weights, keys):
-    """Split an integer amount by weight so the parts add back to the whole.
+    """Split an integer amount between named people so the parts add back to the whole.
 
-    Rounding each share on its own creates and destroys money: at 50/50 a single
-    cent becomes two cents (0.005 rounds up twice), and any ratio that is not a
-    clean fraction leaves a cent stranded between the two people. Largest remainder
-    hands out the floor of every share, then gives the leftover cents one each to
-    the largest fractional parts, so the parts sum to `total_cents` exactly and
-    `sum(paid) - sum(fair_share)` is exactly zero rather than nearly zero.
-
-    Ties break on `keys` order, which is the order people are configured in, so the
-    same statement always produces the same split.
+    The arithmetic lives in `money.allocate_cents` — largest remainder over exact
+    fractions — because allocation is the operation that most easily loses a cent and
+    there must be exactly one of it. This is the keyed wrapper the settlement wants:
+    ties break on `keys` order, which is the order people are configured in, so the same
+    statement always produces the same split.
     """
-    total_weight = sum(weights[key] for key in keys)
-    if total_weight <= 0:
-        return {key: 0 for key in keys}
-    exact = {key: total_cents * weights[key] / total_weight for key in keys}
-    parts = {key: int(math.floor(exact[key])) for key in keys}
-    # floor never overshoots, so the leftover is between 0 and len(keys)-1 whatever
-    # the sign of total_cents — a negative total (a refund larger than the spend)
-    # allocates the same way.
-    leftover = total_cents - sum(parts.values())
-    order = sorted(keys, key=lambda key: (-(exact[key] - parts[key]), keys.index(key)))
-    for key in order[:leftover]:
-        parts[key] += 1
-    return parts
+    ordered = list(keys)
+    parts = money.allocate_cents(total_cents, [weights[key] for key in ordered])
+    return dict(zip(ordered, parts))
 
 
 def _overrides_path(year):
@@ -182,26 +167,27 @@ def _year_cost_summary(txns, scope="all", accounts=None):
     if accounts is None:
         accounts, _ = load_accounts()
     income_cats = income_categories()
-    by_category = defaultdict(float)
-    income_by_owner = defaultdict(float)
-    income = expense = 0.0
+    by_category = defaultdict(int)
+    income_by_owner = defaultdict(int)
+    income = expense = 0
     ids = set()
     for e in entries(txns):
         if not e["year_cost"] or not in_scope(e, scope, income_cats, accounts):
             continue
+        amount = cents(e["amount"])
         ids.add(e["txn"]["id"])
-        by_category[e["category"] or "uncategorized"] += e["amount"]
+        by_category[e["category"] or "uncategorized"] += amount
         if _is_income(e, income_cats):
-            income += e["amount"]
-            income_by_owner[_entry_owner(e, accounts)] += e["amount"]
+            income += amount
+            income_by_owner[_entry_owner(e, accounts)] += amount
         else:
-            expense += e["amount"]
+            expense += amount
     return {
-        "income": round(income, 2),
-        "expenses": round(expense, 2),
-        "savings": round(income + expense, 2),
-        "by_category": {k: round(v, 2) for k, v in sorted(by_category.items())},
-        "income_by_owner": {k: round(v, 2) for k, v in sorted(income_by_owner.items())},
+        "income": money.from_cents(income),
+        "expenses": money.from_cents(expense),
+        "savings": money.from_cents(income + expense),
+        "by_category": {k: money.from_cents(v) for k, v in sorted(by_category.items())},
+        "income_by_owner": {k: money.from_cents(v) for k, v in sorted(income_by_owner.items())},
         "transactions": len(ids),
     }
 
@@ -216,27 +202,32 @@ def _summary(txns, monthly, scope="all", accounts=None):
     # as covering more than they do — the count and the totals have to be about the
     # same set of money, or the count is quietly answering a different question.
     counted = [e for e in es if not (monthly and e["year_cost"])]
-    by_category = defaultdict(float)
-    income_by_owner = defaultdict(float)
-    income = expense = year_costs = 0.0
+    # Integer cents throughout. Every line is converted once and the totals are sums of
+    # integers, so a year of transactions cannot accumulate the float error that lets
+    # two screens disagree about the same euro. Floats reappear on the way out, for the
+    # API, and nowhere before it.
+    by_category = defaultdict(int)
+    income_by_owner = defaultdict(int)
+    income = expense = year_costs = 0
     for e in es:
+        amount = cents(e["amount"])
         if monthly and e["year_cost"]:
-            year_costs += e["amount"]
+            year_costs += amount
             continue
-        by_category[e["category"] or "uncategorized"] += e["amount"]
+        by_category[e["category"] or "uncategorized"] += amount
         if _is_income(e, income_cats):
-            income += e["amount"]
-            income_by_owner[_entry_owner(e, accounts)] += e["amount"]
+            income += amount
+            income_by_owner[_entry_owner(e, accounts)] += amount
         else:
-            expense += e["amount"]
+            expense += amount
     needs_review = sum(1 for t in txns if t["status"] == "needs_review")
     return {
-        "income": round(income, 2),
-        "expenses": round(expense, 2),
-        "savings": round(income + expense, 2),
-        "year_costs_excluded": round(year_costs, 2),
-        "by_category": {k: round(v, 2) for k, v in sorted(by_category.items())},
-        "income_by_owner": {k: round(v, 2) for k, v in sorted(income_by_owner.items())},
+        "income": money.from_cents(income),
+        "expenses": money.from_cents(expense),
+        "savings": money.from_cents(income + expense),
+        "year_costs_excluded": money.from_cents(year_costs),
+        "by_category": {k: money.from_cents(v) for k, v in sorted(by_category.items())},
+        "income_by_owner": {k: money.from_cents(v) for k, v in sorted(income_by_owner.items())},
         "transactions": len({e["txn"]["id"] for e in counted}),
         "needs_review": needs_review,
     }
@@ -390,15 +381,17 @@ def tax_report(year):
         report.append({
             "bucket": slug,
             "name": buckets.get(slug, {}).get("name", slug),
-            "total": round(sum(x["amount"] for x in all_items), 2),
-            "confirmed_total": round(sum(x["amount"] for x in all_items if x["confirmed"]), 2),
+            "total": money.from_cents(money.sum_cents(x["amount"] for x in all_items)),
+            "confirmed_total": money.from_cents(
+                money.sum_cents(x["amount"] for x in all_items if x["confirmed"])),
             "candidate_count": sum(not x["confirmed"] for x in all_items),
             "confirmed_count": sum(x["confirmed"] for x in all_items),
             "ready_count": sum(x["ready"] for x in all_items),
             "missing_evidence_count": sum(x["confirmed"] and not x["ready"] for x in all_items),
             "owners": {o: {
-                "total": round(sum(x["amount"] for x in items), 2),
-                "confirmed_total": round(sum(x["amount"] for x in items if x["confirmed"]), 2),
+                "total": money.from_cents(money.sum_cents(x["amount"] for x in items)),
+                "confirmed_total": money.from_cents(
+                    money.sum_cents(x["amount"] for x in items if x["confirmed"])),
                 "items": items,
             }
                        for o, items in per_owner.items()},

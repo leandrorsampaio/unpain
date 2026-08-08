@@ -66,11 +66,15 @@ def write_json(path, obj):
 
 
 def cents(amount):
-    """Money comparison must never use float equality."""
-    value = float(amount)
-    if not math.isfinite(value):
-        raise ValueError("amount %r is not a finite number" % (amount,))
-    return int(round(value * 100))
+    """Money comparison must never use float equality.
+
+    Kept as the name everything already calls; the implementation lives in
+    pipeline/money.py, which is the one place that decides how a number becomes an
+    amount and which rounding it uses. Imported lazily because money.py is a leaf and
+    util is imported by everything, including money's own dependencies.
+    """
+    from .money import to_cents
+    return to_cents(amount)
 
 
 def parse_amount(raw, decimal="comma", sign=1):

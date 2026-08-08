@@ -9,6 +9,26 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **One money representation** (IMP-01). `pipeline/money.py` is the only place a number becomes an
+  amount. Every monetary figure is integer cents while it is being calculated; floats appear when
+  reading a bank file and when writing an API response, and nowhere in between. The monthly, yearly,
+  overview, tax, recurring and net-worth totals no longer sum floats and round afterwards — a year of
+  transactions is thousands of rows, and that is where two screens start disagreeing about the same
+  euro.
+
+  Ratios, percentages and exchange rates are explicitly **not** money: rounding a proportion to cents
+  is a category error, and doing it is how a three-cent joint salary once produced a 57/43 income
+  split. Those stay exact.
+
+  The rounding policy is now named, versioned and **deliberately unchanged**: banker's rounding, half
+  to even, which is what Python's `round()` has always done here. Half-up looks more natural and would
+  have been the easy choice — it also moves every historical half-cent figure. Writing the module
+  against half-up first and diffing it against the old implementation is how the real policy was
+  found. The before/after report the decision needs, measured rather than assumed: **zero
+  differences** across every year, category, settlement field and tax bucket on the real store, and
+  zero across 200,000 random two-decimal amounts. `tests/test_money.py` also runs the browser's
+  `cents()` against the same fixture, because the two are used on the same numbers on the same screen.
+
 - **A bank format definition is code, and now it has a compiler** (IMP-07).
   `pipeline/format_lint.py` checks every manifest in `pipeline/formats/`: the delimiter is one
   character, the decimal style is one of two, the sign is 1 or -1, the date pattern actually parses,

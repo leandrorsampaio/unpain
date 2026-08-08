@@ -18,7 +18,8 @@ year's — exactly as the dashboard does.
 """
 from datetime import date as date_type
 
-from . import settle, store
+from . import money, settle, store
+from .util import cents
 
 
 def _elapsed_months(year, today):
@@ -38,7 +39,7 @@ def series(scope="all", today=None):
     today = today or date_type.today()
     years = store.years()
     out_years = []
-    totals = {"income": 0.0, "expenses": 0.0, "savings": 0.0, "transactions": 0, "needs_review": 0}
+    totals = {"income": 0, "expenses": 0, "savings": 0, "transactions": 0, "needs_review": 0}
     by_category = {}
 
     for year in years:
@@ -57,15 +58,18 @@ def series(scope="all", today=None):
             "months": [{"year": year, "month": m["month"], "income": m["income"],
                         "expenses": m["expenses"], "savings": m["savings"]} for m in s["months"]],
         })
+        # Cents, added as integers. Each year's figure is already exact to the cent, so
+        # summing them as floats would be the one place a whole-history total could drift
+        # away from the years printed beside it.
         for key in ("income", "expenses", "savings"):
-            totals[key] += s[key]
+            totals[key] += cents(s[key])
         totals["transactions"] += s["transactions"]
         totals["needs_review"] += s["needs_review"]
         for slug, value in s["by_category"].items():
-            by_category[slug] = by_category.get(slug, 0.0) + value
+            by_category[slug] = by_category.get(slug, 0) + cents(value)
 
     for key in ("income", "expenses", "savings"):
-        totals[key] = round(totals[key], 2)
+        totals[key] = money.from_cents(totals[key])
     # A savings rate needs income to be a rate of; with none, say so rather than print 0 %.
     totals["savings_rate"] = (round(totals["savings"] / totals["income"], 4)
                               if totals["income"] > 0 else None)
@@ -74,7 +78,7 @@ def series(scope="all", today=None):
         "scope": scope,
         "years": out_years,
         "totals": totals,
-        "by_category": {k: round(v, 2) for k, v in sorted(by_category.items())},
+        "by_category": {k: money.from_cents(v) for k, v in sorted(by_category.items())},
         "first_year": years[0] if years else None,
         "last_year": years[-1] if years else None,
     }

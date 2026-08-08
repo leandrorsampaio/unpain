@@ -15,8 +15,8 @@ import statistics
 from collections import defaultdict
 from datetime import date
 
-from .util import RULES, read_json, write_json
-from . import settle, store
+from .util import RULES, cents, read_json, write_json
+from . import money, settle, store
 
 OVERRIDES_PATH = RULES / "recurring-overrides.json"
 
@@ -159,7 +159,8 @@ def detect(year, scope="all"):
     candidates.sort(key=lambda r: -r["median_amount"])
     return {
         "items": out,
-        "fixed_monthly_base": round(sum(r["monthly_equivalent"] for r in out), 2),
+        "fixed_monthly_base": money.from_cents(
+            money.sum_cents(r["monthly_equivalent"] for r in out)),
         "history": _history(year, recurring_keys, scope),
         "candidates": candidates,
         "overrides": ov,
@@ -172,14 +173,14 @@ def _history(year, recurring_keys, scope="all"):
     for months that simply haven't happened yet). Returns [{ym, total}]."""
     if not recurring_keys:
         return []
-    per_month = defaultdict(float)
+    per_month = defaultdict(int)
     for t in _occurrences(year, scope):
         if _merchant_key(t) in recurring_keys:
-            per_month[int(t["date"][5:7])] += abs(t["amount_eur"])
+            per_month[int(t["date"][5:7])] += abs(cents(t["amount_eur"]))
     if not per_month:
         return []
     last = max(per_month)
-    return [{"ym": "%04d-%02d" % (year, m), "total": round(per_month.get(m, 0.0), 2)}
+    return [{"ym": "%04d-%02d" % (year, m), "total": money.from_cents(per_month.get(m, 0))}
             for m in range(1, last + 1)]
 
 

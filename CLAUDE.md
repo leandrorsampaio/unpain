@@ -72,6 +72,12 @@ add/save/delete buttons.
   `scripts/*` PDF extractor passes through it; the skill's `*.extracted.csv` may only be ingested with
   its `*.extracted.report.json`. An extractor returning `status: "ok"` proves nothing on its own.
 - Money comparisons use `util.cents()`, never float equality. German CSVs use comma decimals.
+  **`pipeline/money.py` is the only place a number becomes an amount** — `util.cents()` delegates to
+  it. Money is integer cents while it is being calculated; floats exist at two boundaries only
+  (reading a bank file, writing an API response). Never sum floats and round afterwards. Ratios,
+  percentages and FX rates are not money and stay exact. The rounding policy is banker's (half to
+  even), named and versioned in that module: changing it moves historical figures and is a migration
+  with a before/after report, not a refactor.
   **Settlement is integer cents end to end** and splits by largest remainder (`settle.allocate_cents`):
   rounding each person's share on its own creates and destroys cents, so `sum(paid)`,
   `sum(fair_share)` and `sum(balances)` are asserted against the shared total before returning. A

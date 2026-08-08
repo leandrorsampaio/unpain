@@ -11,7 +11,7 @@ uncovered rather than silently dropped from the total.
 """
 from datetime import date as date_type, timedelta
 
-from . import anchors, fx, store
+from . import anchors, fx, money, store
 from .util import cents, load_accounts
 
 # Account types excluded from net worth: cash is petty; credit-card is a liability we drop.
@@ -106,7 +106,7 @@ def series(today=None, year=None):
     acct_points = {aid: [] for aid in covered}
     points = []
     for day in sample_dates:
-        covered_here, uncovered_here, total = [], [], 0.0
+        covered_here, uncovered_here, total = [], [], 0
         for aid in covered:
             data = per_acct[aid]
             native = _native_at(day, data["anchors"], data["txns"])
@@ -115,12 +115,12 @@ def series(today=None, year=None):
                 uncovered_here.append(aid)
                 continue
             acct_points[aid].append({"date": day, "native": round(native, 2), "eur": eur})
-            total += eur
+            total += cents(eur)
             covered_here.append(aid)
-        points.append({"date": day, "total_eur": round(total, 2),
+        points.append({"date": day, "total_eur": money.from_cents(total),
                        "covered": covered_here, "uncovered": uncovered_here})
 
-    accounts_out, current_accounts, current_total = [], [], 0.0
+    accounts_out, current_accounts, current_total = [], [], 0
     for aid in covered:
         data = per_acct[aid]
         spans = anchors.verify_loaded(aid, data["account"], data["anchors"], raw_by_year)
@@ -139,7 +139,7 @@ def series(today=None, year=None):
         native_now = _native_at(today, data["anchors"], data["txns"])
         eur_now = _eur_at(native_now, data["account"].get("currency"), today)
         if eur_now is not None:
-            current_total += eur_now
+            current_total += cents(eur_now)
             current_accounts.append({
                 "id": aid, "label": data["account"].get("label") or aid,
                 "native": round(native_now, 2), "eur": eur_now,
@@ -148,5 +148,5 @@ def series(today=None, year=None):
             })
 
     return {"as_of": today, "currency": "EUR", "points": points, "accounts": accounts_out,
-            "current": {"total_eur": round(current_total, 2), "accounts": current_accounts},
+            "current": {"total_eur": money.from_cents(current_total), "accounts": current_accounts},
             "excluded": excluded, "uncovered": uncovered}
