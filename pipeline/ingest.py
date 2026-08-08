@@ -121,6 +121,24 @@ def _run_locked(verbose=True):
     return results
 
 
+def converted(amount, currency, day):
+    """The FX fields every stored transaction carries, from one helper.
+
+    Three ingestion paths used to each write `fx_rate` from their own `fx.to_eur`
+    call, which was fine while the rate was the only fact recorded. It is not: the
+    ECB publishes on business days, so the rate that converted a Saturday booking
+    belongs to the Friday before it, and without that date an audit cannot reproduce
+    the conversion — it can only guess which day was used. EUR rows carry no rate,
+    no date and no source, because nothing converted them.
+    """
+    if (currency or "EUR").upper() == "EUR":
+        return {"amount_eur": round(float(amount), 2), "fx_rate": None,
+                "fx_rate_date": None, "fx_rate_source": None}
+    details = fx.to_eur_details(amount, currency, day)
+    return {"amount_eur": details["eur"], "fx_rate": details["rate"],
+            "fx_rate_date": details["rate_date"], "fx_rate_source": "ECB"}
+
+
 def report_path_for(path):
     """Where the reconciliation report for an extracted CSV lives."""
     return path.with_name(path.stem + REPORT_SUFFIX)
@@ -162,7 +180,7 @@ def _ingest_file(path, account_id, accounts):
         if acct not in accounts:
             raise ValueError("row references unknown account '%s'" % acct)
         currency = (r["currency"] or "EUR").upper()
-        eur, rate = (r["amount"], None) if currency == "EUR" else fx.to_eur(r["amount"], currency, r["date"])
+        money = converted(r["amount"], currency, r["date"])
         base = txn_hash(acct, r["date"], r["amount"], currency, r["counterparty"], r["purpose"])
         occurrence[base] += 1
         txn = {
@@ -171,8 +189,7 @@ def _ingest_file(path, account_id, accounts):
             "date": r["date"],
             "amount_original": r["amount"],
             "currency": currency,
-            "amount_eur": eur,
-            "fx_rate": rate,
+            **money,
             "counterparty": r["counterparty"],
             "purpose": r["purpose"],
             "counterparty_iban": r.get("counterparty_iban", ""),
@@ -227,11 +244,11 @@ def regenerate_cash(mark_transfers=True):
     txns = []
     for r, acct, txn_id in cash_rows_with_ids():
         currency = (r["currency"] or "EUR").upper()
-        eur, rate = (r["amount"], None) if currency == "EUR" else fx.to_eur(r["amount"], currency, r["date"])
+        money = converted(r["amount"], currency, r["date"])
         txns.append({
                 "id": txn_id,
                 "account": acct, "date": r["date"], "amount_original": r["amount"],
-                "currency": currency, "amount_eur": eur, "fx_rate": rate,
+                "currency": currency, **money,
                 "counterparty": r["counterparty"], "purpose": r["purpose"],
                 "counterparty_iban": r.get("counterparty_iban", ""),
                 "force_review": r.get("force_review", False), "kind": "normal",
@@ -298,7 +315,7 @@ def ingest_upload(path, account_id, source_stem, original_name=None, admitted=Fa
         if acct not in accounts:
             raise ValueError("row references unknown account '%s'" % acct)
         currency = (r["currency"] or "EUR").upper()
-        eur, rate = (r["amount"], None) if currency == "EUR" else fx.to_eur(r["amount"], currency, r["date"])
+        money = converted(r["amount"], currency, r["date"])
         base = txn_hash(acct, r["date"], r["amount"], currency, r["counterparty"], r["purpose"])
         occurrence[base] += 1
         txn = {
@@ -307,8 +324,7 @@ def ingest_upload(path, account_id, source_stem, original_name=None, admitted=Fa
             "date": r["date"],
             "amount_original": r["amount"],
             "currency": currency,
-            "amount_eur": eur,
-            "fx_rate": rate,
+            **money,
             "counterparty": r["counterparty"],
             "purpose": r["purpose"],
             "counterparty_iban": r.get("counterparty_iban", ""),

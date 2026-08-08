@@ -29,7 +29,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline import anchors, balances, closings, coverage, doctor, extraction, fx, ingest, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
+from pipeline import anchors, balances, closings, coverage, doctor, extraction, fx_audit, ingest, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
 from pipeline.mutation_lock import async_mutation_lock  # noqa: E402
 from pipeline.util import DATA, ICON_NAME, INBOX, ROOT, RULES, cents, load_config, read_json, write_json, load_accounts  # noqa: E402
 
@@ -1198,6 +1198,16 @@ def recurring_view(year: int, scope: str = "all"):
     return recurring.detect(year, scope=_check_scope(scope))
 
 
+@app.get("/api/fx-audit")
+def fx_audit_view(year: int, scope: str = "all"):
+    """Explain every foreign-currency conversion in a year. Read-only, offline.
+
+    A missing or incomplete rate cache is reported through item statuses, never as a
+    500 and never by quietly downloading — an audit that can change the cache it is
+    auditing against is not one."""
+    return fx_audit.audit_year(year, scope=_check_scope(scope))
+
+
 class RecurringOverride(BaseModel):
     key: str
     state: str  # force | never | auto
@@ -2212,7 +2222,10 @@ def _validate_cash_values(e):
     if currency not in allowed:
         raise HTTPException(400, "currency must be one of %s (edit 'currencies' in Settings to add more)" % ", ".join(allowed))
     try:
-        eur, rate = (float(e.amount), None) if currency == "EUR" else fx.to_eur(e.amount, currency, e.date)
+        # The same conversion helper the ingestion paths use, so a manual cash entry
+        # records the rate's publication date exactly as an imported row does.
+        money = ingest.converted(e.amount, currency, e.date)
+        eur, rate = money["amount_eur"], money["fx_rate"]
     except Exception as ex:
         raise HTTPException(400, "cannot convert cash amount: %s" % ex)
     if e.category:

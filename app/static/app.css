@@ -217,6 +217,33 @@ h2 { font-size: var(--type-title-size); line-height: var(--type-title-line); fon
 .chip-bad     { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); border-color: transparent; }
 .chip-good    { background: var(--good-container); color: var(--on-good-container); border-color: transparent; }
 .chip-warn    { background: var(--warn-container); color: var(--on-warn-container); border-color: transparent; }
+
+/* ---- shared audit presentation (FX audit, suggestions, "What changed?") ----
+   Layout only: colours, spacing and type come from the M3 tokens and the semantic
+   type roles. One set of classes so three evidence views cannot drift apart. */
+.audit-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 32px 16px; text-align: center; color: var(--ink2);
+}
+.audit-empty md-icon { font-size: 40px; width: 40px; height: 40px; color: var(--good); }
+.txn-link {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--primary); font: inherit; text-decoration: underline;
+}
+.fx-cache {
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 10px 12px; border-radius: 8px;
+  background: var(--md-sys-color-surface-variant); color: var(--ink2);
+}
+.fx-cache md-icon { flex: none; font-size: 20px; }
+.fx-currency-table { overflow-x: auto; }
+.fx-audit-row { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.fx-audit-row:last-child { border-bottom: none; }
+/* Key/value rather than a wide table: an audit row has ten fields and a phone has
+   none of the width a table would need. */
+.fx-kv { display: flex; justify-content: space-between; gap: 16px; padding: 1px 0; }
+.fx-kv > span { color: var(--ink2); }
+.fx-kv > b { text-align: right; }
 .chip-neutral { background: var(--md-sys-color-surface-container-high); color: var(--ink2); }
 /* Filter toggle: a clickable .chip that changes colour when active (no checkmark). */
 button.chip { appearance: none; -webkit-appearance: none; background: var(--md-sys-color-surface); color: var(--ink); cursor: pointer; font-family: var(--typeface); }

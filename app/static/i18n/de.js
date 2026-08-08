@@ -1078,4 +1078,43 @@ I18N.register('de', {
   'Close year {year}?': 'Jahr {year} abschließen?',
   'No statement was ingested for these accounts:':
     'Für diese Konten wurde kein Kontoauszug eingelesen:',
+  // ---- FX audit (FEAT-08) ----
+  'FX audit': 'Wechselkurs-Prüfung',
+  'FX audit — {year}': 'Wechselkurs-Prüfung — {year}',
+  'Nothing to audit': 'Nichts zu prüfen',
+  'No foreign-currency transactions in this year. Everything was already in euros.':
+    'In diesem Jahr gibt es keine Fremdwährungsbuchungen. Alles war bereits in Euro.',
+  'Foreign transactions': 'Fremdwährungsbuchungen',
+  'Stored in euros': 'Gespeichert in Euro',
+  'Recomputed': 'Neu berechnet',
+  'Discrepancies': 'Abweichungen',
+  'These are the ECB reference conversions UnPAIN books its totals on. Your bank or card issuer converts at its own rate, so a difference from your statement is not an error here. Nothing on this screen changes a stored amount.':
+    'Dies sind die EZB-Referenzumrechnungen, auf denen UnPAIN seine Summen aufbaut. Deine Bank oder dein Kartenanbieter rechnet mit eigenem Kurs um — eine Abweichung von deinem Kontoauszug ist hier also kein Fehler. Nichts auf diesem Bildschirm ändert einen gespeicherten Betrag.',
+  'ECB cache holds rates up to {date} ({n} days), read {when}.':
+    'Der EZB-Zwischenspeicher enthält Kurse bis {date} ({n} Tage), gelesen am {when}.',
+  'No local ECB cache. Run fx-update to fetch rates.':
+    'Kein lokaler EZB-Zwischenspeicher. Führe fx-update aus, um Kurse zu laden.',
+  'Rates already published never change, so an old cache does not make past conversions wrong — it only limits new imports.':
+    'Bereits veröffentlichte Kurse ändern sich nie. Ein alter Zwischenspeicher macht frühere Umrechnungen also nicht falsch — er begrenzt nur neue Importe.',
+  'All ({n})': 'Alle ({n})',
+  'Currency': 'Währung',
+  'Rows': 'Zeilen',
+  'Stored': 'Gespeichert',
+  'Rate dates used': 'Verwendete Kurstage',
+  'Open': 'Öffnen',
+  'Original amount': 'Originalbetrag',
+  'ECB rate date used': 'Verwendeter EZB-Kurstag',
+  'derived, not recorded at import': 'abgeleitet, nicht beim Import gespeichert',
+  '{n} day(s) back from the booking date': '{n} Tag(e) vor dem Buchungstag',
+  'Rate applied': 'Angewendeter Kurs',
+  'Rate in the cache today': 'Kurs im Zwischenspeicher heute',
+  'Exact quotient': 'Exakter Quotient',
+  'Rounding': 'Rundung',
+  '{n} thousandths of a cent': '{n} Tausendstel Cent',
+  'From statement': 'Aus Kontoauszug',
+  'reproduces exactly': 'exakt reproduzierbar',
+  'rate date derived': 'Kurstag abgeleitet',
+  'rate differs from cache': 'Kurs weicht vom Zwischenspeicher ab',
+  'stored euros differ': 'gespeicherte Euro weichen ab',
+  'no cached rate': 'kein Kurs im Zwischenspeicher',
 });

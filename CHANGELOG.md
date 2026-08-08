@@ -7,6 +7,28 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **FX audit — how a foreign amount became the euro amount the totals use** (FEAT-08). Every non-EUR
+  row carried a euro figure that dashboards, settlement and tax all consumed and nothing could
+  explain. The Transactions toolbar now offers **FX audit** (only when the year has foreign rows),
+  showing per transaction: the original amount, the ECB rate, **the date that rate was actually
+  published**, the exact unrounded quotient, the stored euros, and the rounding between them — in
+  thousandths of a cent. Per currency and per year it reconciles to the same integer cents the
+  dashboards use.
+
+  It keeps three things apart that are easy to collapse into a confident wrong answer: a transaction
+  date is not a publication date (a Saturday purchase is converted at Friday's rate, and the FX
+  tooltip used to name the booking date — wrong about two days in seven); an ECB bookkeeping
+  conversion is not what your card issuer charged; and a stale rate cache is a reason to run
+  `fx-update` before importing, not evidence that past conversions are wrong.
+
+  New imports now store `fx_rate_date` and `fx_rate_source` alongside the rate, through **one**
+  conversion helper shared by all three ingestion paths and the manual cash form. Existing rows need
+  no migration: the audit re-derives their rate date from the read-only cache and labels it
+  `rate date derived` rather than pretending it was recorded at import. The endpoint never downloads,
+  never writes, and never revalues anything — a discrepancy is reported for a human to act on.
+
 ### Fixed (review follow-up)
 
 - **The cross-process write lock stopped the app starting on Windows.** It is built on `fcntl`,

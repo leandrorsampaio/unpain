@@ -726,14 +726,141 @@ function shareBadge(sharing, extraClass = '') {
    country flag (currency ≠ country, and flag emoji don't render on Windows). */
 function fxBadge(t) {
   if (!t || !t.currency || t.currency === 'EUR' || t.fx_rate == null) return '';
+  // The rate's own publication date, not the booking date. The ECB publishes on
+  // business days, so a Saturday purchase is converted at Friday's rate — naming the
+  // booking date here was simply wrong about two days in seven. Rows imported before
+  // fx_rate_date was stored fall back to the booking date, which is the best this can
+  // honestly say about them; the FX audit derives and labels the real one.
   const tip = T('Converted from {orig} · ECB rate 1 € = {rate} {cur} · {date}', {
     orig: fmtCur(t.amount_original, t.currency),
     rate: t.fx_rate.toLocaleString('en-DE', { maximumFractionDigits: 4 }),
     cur: t.currency,
-    date: fmtDate(t.date, true),
+    date: fmtDate(t.fx_rate_date || t.date, true),
   });
   return `<md-icon class="fx-badge" ${tooltip(tip)}>currency_exchange</md-icon>`;
 }
+/* ---------- FX audit: how a foreign amount became this euro amount ----------
+   Read-only. It explains what UnPAIN stored — the ECB reference conversion its
+   totals are built on — and never claims that is what a card issuer charged. */
+const FX_STATUS_TONE = { ok: 'good', 'legacy-date-derived': 'neutral', 'rate-mismatch': 'warn',
+  'amount-mismatch': 'bad', 'missing-rate': 'warn' };
+const FX_STATUS_LABEL = {
+  ok: 'reproduces exactly',
+  'legacy-date-derived': 'rate date derived',
+  'rate-mismatch': 'rate differs from cache',
+  'amount-mismatch': 'stored euros differ',
+  'missing-rate': 'no cached rate',
+};
+
+async function openFxAudit() {
+  const year = state.year;
+  openModal({
+    title: T('FX audit — {year}', { year }),
+    width: '900px',
+    body: `<div class="fx-audit-body"><div class="flex justify-center p-8"><md-circular-progress indeterminate></md-circular-progress></div></div>`,
+    actions: `<md-text-button class="fx-close">${T('Close')}</md-text-button>`,
+    onMount: async root => {
+      root.querySelector('.fx-close').onclick = () => root._close();
+      const body = root.querySelector('.fx-audit-body');
+      try {
+        const data = await api(`/api/fx-audit?year=${year}&scope=${state.scope || 'all'}`);
+        body.innerHTML = fxAuditHtml(data);
+        const filter = body.querySelector('#fx-status');
+        if (filter) {
+          filter.addEventListener('click', () => {
+            const chosen = readSeg(body, 'fx-status');
+            body.querySelectorAll('[data-fx-status]').forEach(row => {
+              row.style.display = (chosen === 'all' || row.dataset.fxStatus === chosen) ? '' : 'none';
+            });
+          });
+        }
+      } catch (error) {
+        body.innerHTML = `<div class="type-body-small" style="color:var(--bad)">${esc(String(error))}</div>`;
+      }
+    },
+  });
+}
+
+function fxAuditHtml(data) {
+  if (!data.items.length) {
+    return auditEmptyState('currency_exchange', T('Nothing to audit'),
+      T('No foreign-currency transactions in this year. Everything was already in euros.'));
+  }
+  const money = c => fmt(c / 100);
+  const reconciles = data.summary.stored_eur_cents === data.summary.expected_eur_cents;
+  const cache = data.cache;
+  const statuses = [...new Set(data.items.map(i => i.status))];
+  const options = [['all', T('All ({n})', { n: data.items.length })]].concat(
+    statuses.map(s => [s, `${T(FX_STATUS_LABEL[s] || s)} (${data.items.filter(i => i.status === s).length})`]));
+  return `
+    <div class="flex flex-wrap gap-3 mb-4">
+      ${statTile(T('Foreign transactions'), String(data.summary.transactions))}
+      ${statTile(T('Stored in euros'), money(data.summary.stored_eur_cents))}
+      ${statTile(T('Recomputed'), money(data.summary.expected_eur_cents),
+    reconciles ? 'var(--good)' : 'var(--bad)')}
+      ${statTile(T('Discrepancies'), String(data.summary.discrepancies),
+    data.summary.discrepancies ? 'var(--bad)' : 'var(--good)')}
+    </div>
+    <p class="type-body-small mb-3" style="color:var(--ink2)">
+      ${T('These are the ECB reference conversions UnPAIN books its totals on. Your bank or card issuer converts at its own rate, so a difference from your statement is not an error here. Nothing on this screen changes a stored amount.')}
+    </p>
+    <div class="fx-cache type-body-small mb-4">
+      <md-icon>${cache.coverage_complete ? 'cloud_done' : 'cloud_off'}</md-icon>
+      <span>${cache.present
+    ? T('ECB cache holds rates up to {date} ({n} days), read {when}.', {
+      date: fmtDate(cache.newest_rate_date, true), n: cache.days,
+      when: esc((cache.modified_at || '').slice(0, 10)) })
+    : T('No local ECB cache. Run fx-update to fetch rates.')}
+        ${T('Rates already published never change, so an old cache does not make past conversions wrong — it only limits new imports.')}</span>
+    </div>
+    <div class="mb-3">${segControl('fx-status', options, 'all')}</div>
+    <div class="fx-currency-table mb-4">
+      <table class="w-full type-body-small">
+        <tr style="color:var(--ink2)"><td>${T('Currency')}</td><td class="text-right">${T('Rows')}</td>
+          <td class="text-right">${T('Stored')}</td><td class="text-right">${T('Recomputed')}</td>
+          <td class="text-right">${T('Rate dates used')}</td></tr>
+        ${data.by_currency.map(c => `<tr>
+          <td class="py-1 font-medium">${esc(c.currency)}</td>
+          <td class="text-right">${c.transactions}</td>
+          <td class="text-right">${money(c.stored_eur_cents)}</td>
+          <td class="text-right" style="color:${c.stored_eur_cents === c.expected_eur_cents ? 'var(--good)' : 'var(--bad)'}">${money(c.expected_eur_cents)}</td>
+          <td class="text-right">${esc(fmtDate(c.rate_date_min, true))} – ${esc(fmtDate(c.rate_date_max, true))}</td>
+        </tr>`).join('')}
+      </table>
+    </div>
+    <div class="fx-audit-rows">${data.items.map(item => fxAuditRow(item, data.year)).join('')}</div>`;
+}
+
+/* One conversion, written out so it can be checked by hand. Stacked key/value rather
+   than a wide table, because this has to stay readable on a phone. */
+function fxAuditRow(item, year) {
+  const tone = FX_STATUS_TONE[item.status] || 'neutral';
+  const delta = item.rounding_delta_millicents;
+  const line = (label, value) => `<div class="fx-kv"><span>${label}</span><b>${value}</b></div>`;
+  return `<div class="fx-audit-row" data-fx-status="${esc(item.status)}">
+    <div class="flex items-center gap-2 flex-wrap mb-1">
+      <b>${esc(item.counterparty || item.purpose || item.id)}</b>
+      <span class="type-caption" style="color:var(--ink2)">${esc(fmtDate(item.date, true))}</span>
+      ${auditStatusChip(tone, T(FX_STATUS_LABEL[item.status] || item.status))}
+      <span class="flex-1"></span>
+      ${transactionLink(item.id, T('Open'), year)}
+    </div>
+    ${line(T('Original amount'), esc(fmtCur(item.amount_original, item.currency)))}
+    ${line(T('ECB rate date used'), `${esc(fmtDate(item.rate_date, true))}${item.rate_date_derived
+    ? ` <span class="type-caption" style="color:var(--ink2)">(${T('derived, not recorded at import')})</span>` : ''}${
+  item.fallback_days ? ` <span class="type-caption" style="color:var(--ink2)">(${T('{n} day(s) back from the booking date', { n: item.fallback_days })})</span>` : ''}`)}
+    ${line(T('Rate applied'), item.stored_rate == null ? '–'
+    : `1 € = ${esc(item.stored_rate.toLocaleString('en-DE', { maximumFractionDigits: 4 }))} ${esc(item.currency)}`)}
+    ${item.cached_rate != null && item.stored_rate != null && item.cached_rate !== item.stored_rate
+    ? line(T('Rate in the cache today'), `1 € = ${esc(item.cached_rate.toLocaleString('en-DE', { maximumFractionDigits: 4 }))} ${esc(item.currency)}`) : ''}
+    ${line(T('Exact quotient'), esc(item.exact_eur || '–'))}
+    ${line(T('Stored in euros'), fmt(item.stored_eur_cents / 100))}
+    ${delta != null ? line(T('Rounding'), T('{n} thousandths of a cent', { n: delta })) : ''}
+    ${item.source_file ? line(T('From statement'), esc(item.source_file)) : ''}
+    ${item.lookup_error ? `<div class="type-caption" style="color:var(--bad)">${esc(item.lookup_error)}</div>` : ''}
+  </div>`;
+}
+
 /* The ONE "possible internal transfer" hint chip (transactions list + review queue). */
 function transferHintChip(t) {
   if (!t.possible_transfer) return '';
@@ -1398,6 +1525,42 @@ function statTile(label, value, color) {
   return `<div class="card p-5 flex-1" style="min-width:150px">
     <div class="stat-label">${label}</div>
     <div class="stat-value" style="color:${color || 'var(--ink)'}">${value}</div></div>`;
+}
+
+/* ---------- shared audit presentation ----------
+   Evidence views (FX audit, anomaly suggestions, "What changed?") all need the same
+   three things: a verdict chip, a way back to the transaction, and something to say
+   when there is nothing to report. They live here once so three features cannot grow
+   three chip designs — the mistake AGENTS.md exists to prevent. */
+
+/* Verdict on a piece of evidence. `tone`: good | warn | bad | neutral. */
+function auditStatusChip(tone, label) {
+  const cls = { good: 'chip-good', warn: 'chip-warn', bad: 'chip-bad' }[tone] || '';
+  return `<span class="chip ${cls}">${esc(label)}</span>`;
+}
+
+/* A link from evidence back to the row it is about. Closes any open modal, switches to
+   Transactions for the right year, and highlights the row. */
+function transactionLink(id, label, year) {
+  return `<button type="button" class="txn-link" data-txn-id="${esc(id)}" data-txn-year="${esc(String(year || state.year))}"
+    onclick="goToTransaction(this.dataset.txnId, this.dataset.txnYear)">${esc(label || id)}</button>`;
+}
+
+function goToTransaction(id, year) {
+  document.querySelectorAll('md-dialog.app-dialog').forEach(d => d._close && d._close());
+  state.highlightTxn = id;
+  const target = Number(year);
+  if (target && target !== state.year) { state.year = target; rememberYear(target); }
+  if (location.hash === '#transactions') render(); else location.hash = '#transactions';
+}
+
+/* Nothing to report is a result, not a blank panel. */
+function auditEmptyState(icon, title, explanation) {
+  return `<div class="audit-empty">
+    <md-icon>${safeIcon(icon, 'check_circle')}</md-icon>
+    <div class="type-title font-medium">${esc(title)}</div>
+    <div class="type-body-small" style="color:var(--ink2)">${esc(explanation)}</div>
+  </div>`;
 }
 
 /* ---------- building blocks shared by the Dashboard (one year) and the Overview (all years)
@@ -2527,6 +2690,7 @@ async function renderTransactions(renderId = state.renderId) {
         <md-outlined-button onclick="openAccountFilter()"><md-icon slot="icon">account_balance</md-icon>${T('Account…')}</md-outlined-button>
         <md-outlined-button class="clear-btn" onclick="clearTxnFilters()" ${anyFilter ? '' : 'disabled'}><md-icon slot="icon">filter_alt_off</md-icon>${T('Clear filters')}</md-outlined-button>
         <div class="ml-auto flex items-center gap-2">
+          <span id="fx-audit-wrap"></span>
           <md-outlined-button onclick="toggleTxnOrder()"><md-icon slot="icon">${state.txnSortAsc ? 'arrow_upward' : 'arrow_downward'}</md-icon>${state.txnSortAsc ? T('Oldest first') : T('Newest first')}</md-outlined-button>
           <span id="expand-toggle-wrap"></span>
         </div>
@@ -2560,6 +2724,15 @@ async function renderTransactions(renderId = state.renderId) {
     });
     if (q) rows = rows.filter(t => ((t.counterparty || '') + ' ' + (t.purpose || '')).toLowerCase().includes(q));
     rows.sort((a, b) => state.txnSortAsc ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date));
+
+    // Offer the FX audit only where there is something to audit — a household with no
+    // foreign account should not carry a button that always opens an empty table.
+    const fxWrap = $('#fx-audit-wrap');
+    if (fxWrap) {
+      fxWrap.innerHTML = items.some(t => t.currency && t.currency !== 'EUR')
+        ? `<md-outlined-button onclick="openFxAudit()"><md-icon slot="icon">currency_exchange</md-icon>${T('FX audit')}</md-outlined-button>`
+        : '';
+    }
 
     const nonT = items.filter(t => t.sharing !== 'out-of-scope');
     const inc = nonT.filter(t => t.amount_eur > 0).reduce((a, t) => a + t.amount_eur, 0);
