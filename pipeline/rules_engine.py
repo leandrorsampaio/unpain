@@ -50,8 +50,13 @@ def remove_rule(rule_id):
 
 
 def _matches(rule, txn):
-    m = rule["match"]
-    needle = m["contains"].lower()
+    # A rule with no pattern cannot match anything. It used to raise KeyError instead,
+    # from inside the effective view — so one malformed rule made every screen and the
+    # integrity check that would have reported it fail together.
+    m = rule.get("match") or {}
+    if not m.get("contains"):
+        return False
+    needle = str(m["contains"]).lower()
     field = m.get("field", "any")
     if field == "any":
         hay = " ".join([txn.get("counterparty") or "", txn.get("purpose") or ""])
@@ -202,7 +207,13 @@ def effective(txn, decision, rules, owner=None, config=None, tax_buckets=None):
     if t.get("force_review") and t.get("sharing") != "out-of-scope":
         t["status"] = "needs_review"
 
-    if t["status"] == "needs_review" and t["amount_eur"] > 0 and t.get("category") is None:
+    # A stored row that is missing its amount, or holds text where money belongs, is
+    # damaged data — which the doctor exists to report. Reading it with t["amount_eur"]
+    # and comparing it to 0 took the whole effective view down first, so nothing could
+    # report anything. Treat an unreadable amount as "not positive" and move on.
+    amount = t.get("amount_eur")
+    positive = isinstance(amount, (int, float)) and not isinstance(amount, bool) and amount > 0
+    if t["status"] == "needs_review" and positive and t.get("category") is None:
         t.setdefault("income_owner", None)
 
     return t

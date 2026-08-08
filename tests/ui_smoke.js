@@ -193,6 +193,80 @@ async function main() {
       await savedToast.locator('.toast-close').click();
       await savedToast.waitFor({ state: 'detached', timeout: 5000 });
 
+      // --- the figures on screen are the figures the server computed ---------------
+      // Rendering without an error proves the page loaded, not that it is telling the
+      // truth. A chart drawn from the wrong field, a tile reading `expenses` where it
+      // means `-expenses`, or a settlement showing last year's transfer all render
+      // perfectly. These compare what is painted against what /api returns.
+      activeTab = 'settlement';
+      await page.goto(`${baseUrl}/?smoke=settlement#settlement`, { waitUntil: 'networkidle', timeout: 15000 });
+      await page.locator('.settle-table').first().waitFor({ timeout: 10000 });
+      const settlementShown = await page.evaluate(async () => {
+        const api = await (await fetch('/api/settlement?year=2026')).json();
+        const text = document.querySelector('#main').innerText;
+        const money = v => Math.abs(v).toLocaleString('en-DE',
+          { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return {
+          api,
+          totalShown: text.includes(money(api.total_shared_expenses)),
+          transferShown: !api.transfer || text.includes(money(api.transfer.amount)),
+          paidShown: Object.values(api.paid).every(v => text.includes(money(v))),
+          ratioShown: text.includes((api.ratio[Object.keys(api.ratio)[0]] * 100).toFixed(1)),
+        };
+      });
+      for (const [what, ok] of Object.entries(settlementShown)) {
+        if (what !== 'api' && !ok) {
+          throw new Error(`settlement page does not show its own ${what}: ${JSON.stringify(settlementShown.api)}`);
+        }
+      }
+
+      activeTab = 'dashboard';
+      await page.goto(`${baseUrl}/?smoke=figures#dashboard`, { waitUntil: 'networkidle', timeout: 15000 });
+      await page.locator('.stat-value').first().waitFor({ timeout: 10000 });
+      const tilesAgree = await page.evaluate(async () => {
+        const api = await (await fetch('/api/summary?year=2026&scope=all')).json();
+        const shown = [...document.querySelectorAll('.stat-value')].map(el => el.textContent.trim());
+        const money = v => Math.abs(v).toLocaleString('en-DE',
+          { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const has = v => shown.some(text => text.includes(money(v)));
+        return { income: has(api.income), expenses: has(api.expenses), savings: has(api.savings), shown };
+      });
+      if (!tilesAgree.income || !tilesAgree.expenses || !tilesAgree.savings) {
+        throw new Error(`dashboard tiles disagree with /api/summary: ${JSON.stringify(tilesAgree)}`);
+      }
+
+      // --- a category name is text, never markup -----------------------------------
+      // Category names are free text and reach innerHTML on six screens. This renames one
+      // to a payload through the real endpoint and asserts the app shows it rather than
+      // runs it — the regression that shipped once already.
+      activeTab = 'categories';
+      const PAYLOAD = 'Health <img src=x onerror="window.__xss=1"> & "quoted"';
+      await page.goto(`${baseUrl}/?smoke=escaping#categories`, { waitUntil: 'networkidle', timeout: 15000 });
+      const renamed = await page.evaluate(async payload => {
+        const meta = await (await fetch('/api/meta')).json();
+        const slug = meta.categories.find(c => !c.archived).slug;
+        await fetch('/api/category-rename', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug, name: payload }) });
+        return slug;
+      }, PAYLOAD);
+      await page.reload({ waitUntil: 'networkidle' });
+      await page.locator('.cat-card').first().waitFor({ timeout: 10000 });
+      const escaping = await page.evaluate(() => ({
+        executed: !!window.__xss,
+        injected: document.querySelectorAll('img[src="x"]').length,
+        asText: document.body.innerText.includes('<img src=x onerror='),
+      }));
+      if (escaping.executed || escaping.injected) {
+        throw new Error(`a category name executed as markup: ${JSON.stringify(escaping)}`);
+      }
+      if (!escaping.asText) throw new Error('the payload was neither executed nor shown as text');
+      await page.screenshot({ path: path.join(SCREENSHOTS, 'category-name-escaped.png'), fullPage: false, animations: 'disabled' });
+      await page.evaluate(async slug => {
+        await fetch('/api/category-rename', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug, name: 'Health' }) });
+      }, renamed);
+
+      activeTab = 'dashboard';
       // Restore a genuinely clean store for the first doctor run: reopen June
       // and replace the deliberately mismatched screenshot anchor with its real balance.
       await page.evaluate(async () => {

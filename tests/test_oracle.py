@@ -121,7 +121,62 @@ for y_str, exp in expected.items():
     act_oos = sum(1 for t in txns if t["sharing"] == "out-of-scope" and t["kind"] != "internal-transfer")
     check(f"{y} out_of_scope counts in effective view", act_oos == exp["counts"]["out_of_scope"], f"got {act_oos}, expected {exp['counts']['out_of_scope']}")
 
-MIN_CHECKS = 130
+# --- the scenarios this oracle exists to cover, by name ---
+# A count proves volume, not meaning: a generator that stopped emitting couple-owned
+# salary, or split parts, or the reimbursement that offsets a category, would still
+# produce hundreds of green checks about the years it did emit. Each entry below is a
+# financial branch someone decided was worth guaranteeing, asserted to be *present in
+# the fixture* — so removing the scenario fails the suite instead of shrinking it
+# quietly. Add to this list when you add a branch; removing one is a decision to stop
+# guaranteeing it, and should look like one in the diff.
+print("== required scenarios")
+all_years = [int(k) for k in expected]
+effective = {y: store.effective_year(y) for y in all_years}
+decisions_by_year = {y: store.decisions(y) for y in all_years}
+raw_by_year = {y: store.load_year_raw(y) for y in all_years}
+accounts = {a["id"]: a for a in json.load(open(tmp / "data" / "accounts.json"))["accounts"]}
+every = [t for y in all_years for t in effective[y]]
+every_decision = [d for y in all_years for d in decisions_by_year[y].values()]
+ratio_cats = settle.ratio_income_categories()
+
+
+def any_txn(predicate):
+    return any(predicate(t) for t in every)
+
+
+REQUIRED_SCENARIOS = {
+    "multi-year history": lambda: len(all_years) >= 5,
+    "couple-owned account pays shared costs":
+        lambda: any_txn(lambda t: accounts.get(t["account"], {}).get("owner") == "couple"
+                        and t["sharing"] == "shared" and t["amount_eur"] < 0),
+    "couple-owned salary splits 50/50":
+        lambda: any_txn(lambda t: t.get("category") in ratio_cats
+                        and (t.get("income_owner") or accounts.get(t["account"], {}).get("owner")) == "couple"),
+    "salary drives the ratio": lambda: any_txn(lambda t: t.get("category") in ratio_cats),
+    "non-ratio income exists and must not move the ratio":
+        lambda: any_txn(lambda t: t.get("category") in settle.income_categories() - ratio_cats),
+    "internal transfers are detected": lambda: any_txn(lambda t: t["kind"] == "internal-transfer"),
+    "out-of-scope lines exist": lambda: any_txn(lambda t: t["sharing"] == "out-of-scope"
+                                                and t["kind"] != "internal-transfer"),
+    "personal (non-shared) expenses exist":
+        lambda: any_txn(lambda t: str(t["sharing"]).startswith("personal:")),
+    "year costs exist": lambda: any_txn(lambda t: t.get("year_cost")),
+    "split parts exist": lambda: any(d.get("splits") for d in every_decision),
+    "a reimbursement offsets its expense category":
+        lambda: any_txn(lambda t: t["amount_eur"] > 0 and t.get("category")
+                        and t["category"] not in settle.income_categories()),
+    "foreign currency is converted":
+        lambda: any(t.get("currency") != "EUR" and t.get("fx_rate")
+                    for y in all_years for t in raw_by_year[y]),
+    "more than one account owner pays":
+        lambda: len({accounts.get(t["account"], {}).get("owner") for t in every}) >= 3,
+    "a settlement transfer is actually owed":
+        lambda: any(settle.settlement(y)["transfer"] for y in all_years),
+}
+for name, present in sorted(REQUIRED_SCENARIOS.items()):
+    check("fixture still covers: %s" % name, present())
+
+MIN_CHECKS = 144
 check("suite did not shrink", total_checks >= MIN_CHECKS, f"total_checks={total_checks} < {MIN_CHECKS}")
 
 shutil.rmtree(tmp)

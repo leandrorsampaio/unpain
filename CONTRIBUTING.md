@@ -40,7 +40,10 @@ header-to-field mapping). To add yours:
    error prints the exact headers it saw.
 2. Copy the closest existing file in `pipeline/formats/` (e.g. `dkb.json`, `n26.json`). Adjust the
    header mapping, `delimiter`, `decimal` (`comma` or `dot`), and `date_format`.
-3. Re-ingest until it parses. Add a small fixture under `tests/fixtures/` if you can.
+3. Re-ingest until it parses, then **add your format to `tests/test_format_matrix.py`** — one
+   sanitized two-row statement and the column indexes for its date and amount. The suite fails on a
+   format with no fixture, and it will run the whole mutation table (broken amounts, impossible
+   dates, the wrong decimal style) against yours for free. Use synthetic rows.
 4. Open a PR that describes the bank and country. Use **synthetic** rows in fixtures. Never use real
    statement data or IBANs.
 

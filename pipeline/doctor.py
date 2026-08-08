@@ -20,7 +20,16 @@ def _context(year):
                   for group in categories_doc["categories"] for sub in group.get("subs", [])}
     rules = read_json(RULES / "merchant-rules.json")["rules"]
     config = load_config()
-    files_by_year = {item: store.load_year_by_file(item) for item in all_years}
+    # A file that cannot be read is the loudest possible integrity finding, so it must
+    # arrive as a finding rather than as the traceback that stops every other check from
+    # running. The audit then continues over what it *could* read, and says so.
+    files_by_year, unreadable = {}, []
+    for item in all_years:
+        try:
+            files_by_year[item] = store.load_year_by_file(item)
+        except store.StoreCorrupt as exc:
+            files_by_year[item] = {}
+            unreadable.append((item, str(exc)))
     raw_by_year = {item: [txn for rows in files_by_year[item].values() for txn in rows]
                    for item in all_years}
     decisions = {item: store.decisions(item) for item in years}
@@ -39,11 +48,30 @@ def _context(year):
         "all_decisions": {item: store.decisions(item) for item in all_years},
         # The view the totals are actually computed from. Checks that read only
         # decisions are blind to everything a merchant rule decides.
-        "effective": {item: store.effective_year(item) for item in years},
+        "effective": {item: _effective_or_empty(item, unreadable) for item in years},
+        "unreadable": unreadable,
         "months": months, "anchors": anchor_rows, "conflicts": conflicts,
         "budgets": read_json(RULES / "budgets.json", default={"budgets": {}}).get("budgets", {}),
         "uploads": read_json(DATA / "uploads.json", default={"uploads": []}).get("uploads", []),
     }
+
+
+def _effective_or_empty(year, unreadable):
+    """The effective view, or nothing plus a recorded reason. See _context."""
+    try:
+        return store.effective_year(year)
+    except store.StoreCorrupt as exc:
+        if not any(item == year for item, _ in unreadable):
+            unreadable.append((year, str(exc)))
+        return []
+
+
+def _unreadable_files(ctx):
+    return [_finding("error", "unreadable-file", year,
+                     "%s. Every other check below ran on the rows that could still be read, "
+                     "so this audit is incomplete until that file is repaired or removed."
+                     % message)
+            for year, message in ctx.get("unreadable", [])]
 
 
 def _orphan_decisions(ctx):
@@ -594,7 +622,7 @@ def _orphan_transfer_marks(ctx):
 
 
 CHECKS = (
-    _orphan_decisions, _unknown_accounts, _unknown_categories, _bad_splits,
+    _unreadable_files, _orphan_decisions, _unknown_accounts, _unknown_categories, _bad_splits,
     _duplicate_ids, _unknown_sharing_and_owner, _anchor_findings, _cash_desync,
     _review_in_closed_month, _unpaired_markers, _orphan_budgets, _stale_upload_refs,
     _account_currency_mismatch, _anchor_currency_drift, _fx_cache_sanity, _out_of_scope_drift,

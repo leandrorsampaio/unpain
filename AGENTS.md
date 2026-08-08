@@ -150,3 +150,13 @@ which page called it. A chart that appears on both pages goes here or it will dr
       (The `MIN_CHECKS` counters in `tests/test_pipeline.py` / `tests/test_oracle.py`, the
       real-data tripwire in `run-tests.sh`, and GitHub Actions CI enforce this mechanically;
       `MIN_CHECKS` may only ever be raised.)
+- [ ] A **new bank format** brings a fixture and a mutation row in `tests/test_format_matrix.py` —
+      the suite fails on a `pipeline/formats/*.json` nobody has ever read a statement with.
+- [ ] A **new write endpoint** is listed in `tests/test_closed_period.py`, as either covered by the
+      closed-month matrix or explicitly irrelevant to a settled period. The suite fails until
+      somebody decides which.
+- [ ] A **new financial branch** in the fixture generator is named in the oracle's
+      `REQUIRED_SCENARIOS`. A check count proves volume; the manifest proves meaning.
+- [ ] Money arithmetic that rounds gets a property, not an example. `tests/test_settlement_properties.py`
+      is the pattern: assert conservation exactly *and* faithfulness against an independent
+      `Fraction` computation, so a wrong answer that happens to add up still fails.

@@ -44,6 +44,8 @@ for t in tests/test_pipeline.py tests/test_oracle.py tests/test_feedback.py \
          tests/test_asset_versions.py \
          tests/test_security.py \
          tests/test_ingest_pdf_flow.py tests/test_integrity_gates.py \
+         tests/test_settlement_properties.py tests/test_format_matrix.py \
+         tests/test_closed_period.py tests/test_http_contract.py \
          tests/test_review_count.py \
          tests/test_transfer_review.py \
          tests/test_rules_engine.py tests/test_recurring.py tests/test_fx.py \

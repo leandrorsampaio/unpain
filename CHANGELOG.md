@@ -7,6 +7,53 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed (found by the new tests)
+
+- **Settlement rounded per transaction, so every odd cent went to the same person.** Halving a
+  couple-owned payment as it arrived rounded once per payment instead of once per year, and the bias
+  accumulated: a year of joint groceries walked one person's "paid" figure away from the truth.
+  Couple-owned money is now pooled and halved once.
+- **The settlement ratio was derived from rounded figures.** Seven cents of joint salary produced a
+  57/43 income ratio instead of 50/50. The ratio is a proportion, so it is now computed from
+  unrounded half-cents; rounding happens in exactly one place, the fair-share allocation.
+- **The doctor crashed on the data it exists to find.** A row missing its account or amount, an
+  amount holding text, a JSONL line that is not JSON, or a rule with no pattern each took down the
+  whole effective view — so the integrity check died alongside the corruption it was run to report,
+  and a damaged store looked like a broken app. Each is now a finding. An unreadable file is reported
+  as `unreadable-file`, and the audit says it ran on partial data.
+- **`store.rewrite_year` published the canonical ledger through a shared `.tmp` name** and assumed
+  the year directory existed — the same defect already fixed in `write_json`.
+
+### Added (test coverage)
+
+- **`tests/test_settlement_properties.py`** — 1200+ checks over 133 scenarios of deliberately awkward
+  money (one-cent totals, odd cents on joint accounts, 1/99 and 1/3 ratios, refunds larger than the
+  spend, negative payroll corrections). It asserts conservation exactly and *faithfulness* — every
+  reported figure within one cent of the exact `Fraction` value — so conservation cannot be bought by
+  handing one person everything. Both settlement bugs above were found by it.
+- **`tests/test_format_matrix.py`** — a sanitized statement for all 10 declared formats (`volksbank`
+  and `nubank-conta` had none at all), each read field by field, then a mutation table applied to
+  every one: text/NaN/Infinity/formula where money belongs, an impossible year, the wrong decimal
+  style. Every mutation must refuse the whole file. Also BOM, CP1252, quoted delimiters and embedded
+  newlines, trailers, zero rows and empty statements. A new `pipeline/formats/*.json` without a
+  fixture now fails the build.
+- **`tests/test_closed_period.py`** — the closed-month write matrix: nine operations asserted refused
+  with the stored bytes unchanged, and the one that is allowed by design (a merchant rule) asserted
+  to surface its drift both on the dashboard and in the integrity check. A new write endpoint that is
+  neither listed as irrelevant nor covered fails the suite.
+- **`tests/test_http_contract.py`** — the app over a real socket rather than as a bag of functions:
+  malformed bodies, the status codes the UI branches on, uploads, the lock middleware and its session
+  cookie, path traversal, and 36 concurrent writes across two documents asserted to all survive.
+- Extraction, doctor-robustness, extractor-truncation and FX cent-boundary cases added to
+  `tests/test_integrity_gates.py` and `tests/test_fx.py`; the oracle now protects a **manifest of
+  named financial scenarios** (couple income, split parts, reimbursements, year costs, foreign
+  currency…) so removing a branch fails the suite instead of shrinking it quietly.
+- The browser smoke now checks that **displayed figures equal computed ones** (settlement and
+  dashboard tiles against their APIs) and renames a category to an XSS payload to prove the app shows
+  it rather than runs it.
+- The real-data tripwire hashes file **contents**, not just mtime and size — a same-length,
+  timestamp-preserving edit used to pass it.
+
 ### Security
 
 - **A category name or icon could put working script into every screen that showed it.** Names are

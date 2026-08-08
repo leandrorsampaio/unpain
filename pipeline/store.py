@@ -7,11 +7,18 @@ decision > merchant rule > needs_review — so rule changes apply to history
 automatically and nothing goes stale.
 """
 import json
+import os
 import re
 import copy
+import tempfile
+from pathlib import Path
 
 from . import rules_engine
 from .util import DATA, ROOT, RULES, load_accounts, load_config, read_json, write_json, year_dir
+
+
+class StoreCorrupt(ValueError):
+    """A stored file cannot be read. The message names the file and the line."""
 
 
 _EFFECTIVE_CACHE = {}
@@ -30,17 +37,34 @@ def years():
     return sorted(int(p.name) for p in DATA.iterdir() if p.is_dir() and re.match(r"^\d{4}$", p.name))
 
 
+def read_jsonl(path):
+    """Read one transactions file, naming the line when it cannot be read.
+
+    A line that is not JSON is a damaged store, and a damaged store is exactly when
+    the doctor has to run. Letting the raw JSONDecodeError out took the diagnostic
+    tool down with the data it was sent to diagnose, and said nothing about which
+    file or line to look at."""
+    rows = []
+    with open(path, encoding="utf-8") as fh:
+        for number, line in enumerate(fh, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except ValueError as exc:
+                raise StoreCorrupt("%s line %d is not readable JSON: %s"
+                                   % (Path(path).name, number, exc)) from exc
+    return rows
+
+
 def load_year_raw(year):
     txns = []
     tdir = DATA / str(year) / "transactions"
     if not tdir.exists():
         return txns
     for f in sorted(tdir.glob("*.jsonl")):
-        with open(f, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if line:
-                    txns.append(json.loads(line))
+        txns.extend(read_jsonl(f))
     return txns
 
 
@@ -60,15 +84,27 @@ def append_transactions(year, source_name, txns):
 
 
 def rewrite_year(year, txns_by_file):
-    """Used by the transfer pass to persist 'kind' updates (idempotent)."""
-    tdir = DATA / str(year) / "transactions"
+    """Used by the transfer pass to persist 'kind' updates (idempotent).
+
+    This rewrites the canonical ledger, so it publishes the same way write_json does:
+    a temporary name unique to this writer (a shared '<name>.tmp' lets two writers
+    interleave into one scratch file and publish the mixture), fsynced before the
+    replace so the file that becomes the ledger is on the disk and not only in the
+    page cache."""
+    tdir = year_dir(year) / "transactions"
     for fname, txns in txns_by_file.items():
         path = tdir / fname
-        tmp = path.with_suffix(".tmp")
-        with open(tmp, "w", encoding="utf-8") as f:
-            for t in txns:
-                f.write(json.dumps(t, ensure_ascii=False) + "\n")
-        tmp.replace(path)
+        fd, tmp_name = tempfile.mkstemp(dir=str(tdir), prefix=path.name + ".", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                for t in txns:
+                    f.write(json.dumps(t, ensure_ascii=False) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_name, path)
+        except BaseException:
+            Path(tmp_name).unlink(missing_ok=True)
+            raise
 
 
 EDITABLE_RAW_FIELDS = ("date", "counterparty", "amount_eur", "amount_original", "account")
@@ -118,8 +154,7 @@ def load_year_by_file(year):
     if not tdir.exists():
         return out
     for f in sorted(tdir.glob("*.jsonl")):
-        with open(f, encoding="utf-8") as fh:
-            out[f.name] = [json.loads(line) for line in fh if line.strip()]
+        out[f.name] = read_jsonl(f)
     return out
 
 
@@ -153,9 +188,11 @@ def effective_year(year):
     accounts, _ = load_accounts()
     out = []
     for t in raw:
-        d = decs.get(t["id"])
-        # a decision can reassign the account; owner then follows the new account
-        acct = (d or {}).get("account") or t["account"]
+        d = decs.get(t.get("id"))
+        # a decision can reassign the account; owner then follows the new account.
+        # A row with no account at all is damaged data the doctor reports — but only if
+        # building this view survives long enough to be asked.
+        acct = (d or {}).get("account") or t.get("account")
         out.append(rules_engine.effective(t, d, rules, owner=accounts.get(acct, {}).get("owner"),
                                           config=config, tax_buckets=tax_buckets))
     _EFFECTIVE_CACHE[year] = (fingerprint, copy.deepcopy(out))

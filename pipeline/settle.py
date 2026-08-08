@@ -264,9 +264,17 @@ def settlement(year, month=None):
 
     # Everything below is integer cents until the moment it is reported. Money one
     # person owes the other has to add up exactly, and a float can only get close.
+    #
+    # Couple-owned money is pooled and halved ONCE, at the end. Halving each payment
+    # as it arrives rounds a hundred times instead of once, and every odd cent lands
+    # on the same side of the split: a year of joint groceries quietly walks one
+    # person's "paid" figure away from the truth, and seven cents of joint salary
+    # produced a 57/43 income ratio instead of 50/50. One rounding of the pool is off
+    # by at most a cent no matter how many payments went into it.
     half = {p: 1 for p in people}
     shared_paid = {p: 0 for p in people}
     ratio_income = {p: 0 for p in people}
+    couple_paid = couple_ratio_income = 0
     total_shared = 0
     for e in es:
         t = e["txn"]
@@ -275,23 +283,32 @@ def settlement(year, month=None):
             if e["category"] in ratio_cats:
                 owner = _entry_owner(e, accounts)
                 if owner == "couple":
-                    for p, share in allocate_cents(amount, half, people).items():
-                        ratio_income[p] += share
+                    couple_ratio_income += amount
                 else:
                     ratio_income[owner] += amount
         elif e["sharing"] == "shared":
             spent = -amount
             owner = payer_account(t)["owner"]
             if owner == "couple":
-                for p, share in allocate_cents(spent, half, people).items():
-                    shared_paid[p] += share
+                couple_paid += spent
             else:
                 shared_paid[owner] += spent
             total_shared += spent
+    for p, share in allocate_cents(couple_paid, half, people).items():
+        shared_paid[p] += share
 
-    total_income = sum(ratio_income.values())
+    # The ratio is a proportion, not an amount, so it is derived from half-cents that
+    # were never rounded — a person's own salary doubled, plus the whole couple pool,
+    # which is that pool's half in these units. Deriving it from the rounded display
+    # figures instead turned a three-cent joint salary, exactly 50/50, into 67/33.
+    # Rounding now happens in exactly one place: the fair-share allocation below.
+    income_half = {p: 2 * ratio_income[p] + couple_ratio_income for p in people}
+    for p, share in allocate_cents(couple_ratio_income, half, people).items():
+        ratio_income[p] += share      # display only; the ratio above does not use it
+
+    total_income = sum(income_half.values())
     override = ratio_override(year, month, people)
-    negative_income = [p for p in people if ratio_income[p] < 0]
+    negative_income = [p for p in people if income_half[p] < 0]
     ratio_problem = None
     if override:
         ratio = override
@@ -309,7 +326,7 @@ def settlement(year, month=None):
         ratio_problem = {"kind": "negative-ratio-income", "people": sorted(negative_income)}
         ratio_source = "reference ratio (salary income is negative — see the warning)"
     elif total_income > 0:
-        ratio = {p: ratio_income[p] / total_income for p in people}
+        ratio = {p: income_half[p] / total_income for p in people}
         ratio_source = "actual salary income"
     else:
         ratio = cfg["reference_ratio"]

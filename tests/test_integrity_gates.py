@@ -400,6 +400,58 @@ check("and a decision that does not move it is not reported",
               for f in doctor.run(dup_year)["findings"]))
 
 
+# ---------------------------------------------------------------- doctor robustness
+print("== the doctor survives the data it exists to find")
+# An integrity check that throws on corrupt data is no use: corrupt data is the only
+# situation it is for. Each corruption below is seeded on its own and the doctor must
+# come back with structured findings rather than a traceback — a crash reads to a user
+# as "the tool is broken", not "your data is broken".
+probe_dir = tmp / "data" / str(dup_year) / "transactions"
+probe_file = probe_dir / "gates-corrupt.jsonl"
+CORRUPTIONS = {
+    "a row with no id": dict(row, id=None),
+    "a row with no date": {k: v for k, v in row.items() if k != "date"},
+    "a row with no account": {k: v for k, v in row.items() if k != "account"},
+    "a row whose account does not exist": dict(row, id="c1", account="ghost-account"),
+    "a row with no amount": {k: v for k, v in dict(row, id="c2").items() if k != "amount_eur"},
+    "a row whose amount is a string": dict(row, id="c3", amount_eur="lots"),
+    "a row with an impossible date": dict(row, id="c4", date="not-a-date"),
+    "a row with an unknown kind": dict(row, id="c5", kind="teleport"),
+}
+for label, corrupt in CORRUPTIONS.items():
+    probe_file.write_text(json.dumps(corrupt, ensure_ascii=False) + "\n", encoding="utf-8")
+    try:
+        result = doctor.run(dup_year)
+        check("doctor survives %s" % label, isinstance(result.get("findings"), list))
+    except Exception as exc:                       # noqa: BLE001 - a crash is the failure
+        check("doctor survives %s" % label, False, "%s: %s" % (type(exc).__name__, exc))
+
+probe_file.write_text('{"id": "broken", not json at all\n', encoding="utf-8")
+try:
+    result = doctor.run(dup_year)
+    check("doctor reports a JSONL file it cannot parse rather than crashing",
+          isinstance(result.get("findings"), list) and result["findings"], "no finding")
+except Exception as exc:                           # noqa: BLE001
+    check("doctor reports a JSONL file it cannot parse rather than crashing", False,
+          "%s: %s" % (type(exc).__name__, exc))
+probe_file.unlink()
+
+# The rules file is the other document every screen depends on.
+rules_path = tmp / "rules" / "merchant-rules.json"
+saved_rules = rules_path.read_text()
+write_json(rules_path, {"rules": [{"id": "broken", "match": {"field": "counterparty"},
+                                   "category": "no/such-category"}]})
+try:
+    check("doctor reports a rule pointing at a category that does not exist",
+          any(f["check"] == "unknown-category" or "categor" in f["message"].lower()
+              for f in doctor.run(dup_year)["findings"]),
+          str([f["check"] for f in doctor.run(dup_year)["findings"]]))
+except Exception as exc:                           # noqa: BLE001
+    check("doctor reports a rule pointing at a category that does not exist", False,
+          "%s: %s" % (type(exc).__name__, exc))
+rules_path.write_text(saved_rules)
+
+
 # ---------------------------------------------------------------- extractor completeness
 print("== a self-derived balance chain is not proof of completeness")
 
@@ -424,10 +476,41 @@ check("a day with rows but no printed close cannot be checked, and says so",
           full + [{"date": "2025-12-30", "order": (1, 30), "amount_cents": 100,
                    "balance_cents": 128100, "counterparty": "third"}], closes) != [])
 
+# Truncation at either end is the case the chain alone cannot see: the opening balance
+# is derived from the first row that survived, so a document missing its earliest block
+# reconciles perfectly against itself. Only the bank's own printed closes disagree.
+two_days = [
+    {"date": "2025-12-28", "order": (1, 10), "amount_cents": 50000, "balance_cents": 100000,
+     "counterparty": "oldest"},
+    {"date": "2025-12-29", "order": (1, 20), "amount_cents": 10000, "balance_cents": 110000,
+     "counterparty": "middle"},
+    {"date": "2025-12-29", "order": (1, 30), "amount_cents": 18000, "balance_cents": 128000,
+     "counterparty": "newest"},
+]
+all_closes = [{"page": 1, "date": "2025-12-28", "balance_cents": 100000},
+              {"page": 1, "date": "2025-12-29", "balance_cents": 128000}]
+check("the whole statement passes", rendimento.verify_checkpoints(two_days, all_closes) == [])
+check("dropping the OLDEST block is caught, though the chain still balances",
+      rendimento.verify_checkpoints(two_days[1:], all_closes) != [])
+check("dropping the NEWEST row is caught", rendimento.verify_checkpoints(two_days[:2], all_closes) != [])
+# The two gates divide the document between them, and each covers what the other
+# cannot: the printed closes catch truncation at the edges of a day, and the chain walk
+# catches a hole inside one. A row missing from the middle leaves both of its day's
+# printed closes correct, so only the chain sees it.
+middle_gone = [two_days[0], two_days[2]]
+check("a row missing from the middle leaves the day's printed close intact",
+      rendimento.verify_checkpoints(middle_gone, all_closes) == [])
+check("so the chain walk is what catches it", rendimento.verify_chain(middle_gone)[2] != [])
+check("and together they leave no gap uncovered",
+      all(rendimento.verify_checkpoints(rows, all_closes) or rendimento.verify_chain(rows)[2]
+          for rows in ([two_days[1:], two_days[:2], middle_gone])))
+check("an empty statement produces no anchors to record",
+      rendimento.balance_anchors([], None, None) == [])
+
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 76
+MIN_CHECKS = 93
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 
