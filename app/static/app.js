@@ -1,7 +1,7 @@
 /* Family Accountability UI — vanilla JS, talks to the FastAPI endpoints. */
 'use strict';
 
-const state = { meta: null, year: null, tab: 'overview', renderId: 0, yearCache: new Map(), lastRendered: null, reviewBatches: 1,
+const state = { meta: null, year: null, tab: 'overview', renderId: 0, yearCache: new Map(), lastRendered: null, reviewBatches: 1, showLowConfidence: false,
   spreadYearCosts: (() => { try { return localStorage.getItem('fa-spread-year-costs') !== '0'; } catch (_) { return true; } })() };
 const $ = sel => document.querySelector(sel);
 const fmt = v => (v == null ? '–' : (v === 0 ? 0 : v).toLocaleString('en-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'); // v===0 normalizes -0 -> 0
@@ -4403,20 +4403,134 @@ async function confirmTransfer(id, confirmed) {
   render();
 }
 
+/* ---------- review suggestions (FEAT-09) ----------
+   Seven detectors, ONE card. Type-specific evidence is a small formatter below, not a
+   seventh copy of the card markup — the mistake AGENTS.md exists to stop.
+
+   Everything here is a suggestion. No card offers to delete, merge or recategorize
+   anything: the only write available is dismissing the suggestion itself. */
+const ANOMALY_TITLES = {
+  'exact-duplicate': 'Possible duplicate charge',
+  'near-duplicate': 'Possible duplicate charge',
+  'amount-spike': 'Unusual amount',
+  'missing-recurring': 'Expected recurring charge not seen',
+  'unexpected-sign': 'Unusual direction for this merchant',
+  'new-account-currency': 'First transaction in a new currency',
+  'outside-statement-period': 'Dated outside its statement period',
+};
+
+/* Plain-language evidence, per check. Returns [label, value] pairs.
+
+   The card deliberately does NOT render the backend's `message`: it repeats the title
+   ("Unusual amount: … is normally around …" under a heading that already says Unusual
+   amount) and, being an English sentence assembled in Python, it is the one string on
+   the screen that could never be translated. Everything it said is here as a labelled
+   row instead, and every label goes through T(). The API keeps `message` for the CLI. */
+function anomalyEvidenceRows(item) {
+  const e = item.evidence || {};
+  const money = c => fmt((c || 0) / 100);
+  switch (item.check) {
+    case 'exact-duplicate':
+      return [[T('Merchant'), esc(e.merchant || '')], [T('Date'), esc(fmtDate(e.date, true))],
+        [T('Identical charges'), String(e.count)],
+        [T('From statement'), esc((e.sources || []).filter(Boolean).join(', ') || '–')]];
+    case 'near-duplicate':
+      return [[T('Merchant'), esc(e.merchant || '')],
+        [T('Dates'), esc((e.dates || []).map(d => fmtDate(d, true)).join(' · '))],
+        [T('Days apart'), String(e.days_apart)]];
+    case 'amount-spike':
+      return [[T('Merchant'), esc(e.merchant || '')], [T('This charge'), money(e.amount_cents)],
+        [T('Usually around'), money(e.median_cents)],
+        [T('Normal range'), `${money(e.normal_low_cents)} – ${money(e.normal_high_cents)}`],
+        [T('Based on'), T('{n} earlier charges', { n: e.sample_size })]];
+    case 'missing-recurring':
+      return [[T('Merchant'), esc(e.merchant || '')], [T('Last seen'), esc(fmtDate(e.last_seen, true))],
+        [T('Normally every'), T('{n} days', { n: Math.round(e.average_gap_days || 30) })],
+        [T('Usual amount'), money(Math.abs(e.median_cents || 0))],
+        [T('Expected by'), esc(fmtDate(e.expected_by, true))]];
+    case 'unexpected-sign':
+      return [[T('Merchant'), esc(e.merchant || '')],
+        [T('Normally'), e.usual_sign === 'income' ? T('Income') : T('Expenses')],
+        [T('This entry'), money(e.amount_cents)],
+        [T('Based on'), T('{n} earlier charges', { n: e.prior_occurrences })]];
+    case 'new-account-currency':
+      return [[T('Account'), esc(accountLabel(e.account) || e.account || '')],
+        [T('Account currency'), esc(e.declared_currency || '')],
+        [T('This transaction'), esc(e.currency || '')]];
+    case 'outside-statement-period':
+      return [[T('Transaction date'), esc(fmtDate(e.date, true))],
+        [T('Statement covers'), `${esc(fmtDate(e.period_start, true))} – ${esc(fmtDate(e.period_end, true))}`],
+        [T('Statement'), esc(e.statement || '')]];
+    default:
+      return [];
+  }
+}
+
+function anomalyCardHtml(item) {
+  const rows = anomalyEvidenceRows(item);
+  const tone = item.confidence === 'high' ? 'warn' : 'neutral';
+  return `<div class="anomaly-card" data-anomaly-id="${esc(item.id)}" data-anomaly-fp="${esc(item.fingerprint)}">
+    <div class="flex items-center gap-2 flex-wrap mb-1">
+      <b>${T(ANOMALY_TITLES[item.check] || item.check)}</b>
+      ${auditStatusChip(tone, item.confidence === 'high' ? T('high confidence') : T('worth a look'))}
+      <span class="flex-1"></span>
+      ${item.math_impact_cents ? `<span class="type-body-small" style="color:var(--ink2)">${T('Affects {amount}', { amount: fmt(item.math_impact_cents / 100) })}</span>` : ''}
+    </div>
+    ${rows.map(([label, value]) => `<div class="fx-kv"><span>${label}</span><b>${value}</b></div>`).join('')}
+    <div class="flex gap-2 mt-2 flex-wrap">
+      ${(item.transaction_ids || []).map((id, i) =>
+    transactionLink(id, T('Open transaction {n}', { n: i + 1 }), state.year)).join('')}
+      <span class="flex-1"></span>
+      <md-text-button class="anomaly-dismiss">${T('Dismiss suggestion')}</md-text-button>
+    </div>
+  </div>`;
+}
+
+function anomalyReviewSection(data) {
+  if (!data || !data.items.length) return '';
+  const showAll = state.showLowConfidence;
+  const shown = showAll ? data.items : data.items.filter(i => i.confidence === 'high');
+  const hidden = data.items.length - shown.length;
+  if (!shown.length && !hidden) return '';
+  return `<div class="card p-5 mb-4 anomaly-section">
+    <div class="flex items-center gap-2 flex-wrap mb-2">
+      <h2 class="font-medium flex-1">${T('Suggestions')}</h2>
+      <span class="chip">${T('{n} high confidence', { n: data.counts.high })}</span>
+      ${data.counts.medium ? `<span class="chip">${T('{n} worth a look', { n: data.counts.medium })}</span>` : ''}
+    </div>
+    <p class="type-body-small mb-3" style="color:var(--ink2)">${T('Things that look unlike their neighbours. Nothing here has changed a transaction — these are questions, not findings.')}</p>
+    ${shown.length ? shown.map(anomalyCardHtml).join('')
+    : `<div class="type-body-small" style="color:var(--ink2)">${T('No high-confidence suggestions.')}</div>`}
+    ${hidden || showAll ? `<div class="mt-3">${switchField({ id: 'anomaly-low', label: T('Show lower-confidence suggestions'), on: !!showAll })}</div>` : ''}
+  </div>`;
+}
+
+async function dismissAnomaly(card) {
+  const id = card.dataset.anomalyId;
+  await api('/api/anomaly-dismiss', { id, fingerprint: card.dataset.anomalyFp, year: state.year });
+  invalidateYearCache();
+  render();
+}
+
 async function renderReview(renderId = state.renderId) {
   const tab = 'review';
   const year = state.year;
   window._reviewExpanded = window._reviewExpanded || new Set();
   window._decided = {};   // ids split / out-of-scoped in this render (skipped by applyGroup)
-  const [{ items }, transfers] = await Promise.all([
+  const [{ items }, transfers, suggestions] = await Promise.all([
     cachedYearData('review', `/api/review?year=${year}`),
     cachedYearData('transfers', `/api/transfers?year=${year}`),
+    cachedYearData('anomalies', `/api/anomalies?year=${year}`),
   ]);
   if (!renderIsCurrent(renderId, tab, year)) return;
-  setReviewBadge(items.length + transfers.pending);
+  // Only high-confidence suggestions reach the badge. Lower-confidence signals are
+  // worth offering and not worth a permanent number on the navigation — a badge that
+  // never reaches zero stops being read (plan Decision 8).
+  setReviewBadge(items.length + transfers.pending + suggestions.counts.high);
   const transferSection = transfersReviewSection(transfers);
+  const suggestionSection = anomalyReviewSection(suggestions);
   if (!items.length) {
-    $('#main').innerHTML = transferSection ||
+    $('#main').innerHTML = (transferSection || '') + (suggestionSection || '') ||
       `<div class="card p-8 text-center" style="color:var(--good)">✓ ${T('Nothing to review.')}</div>`;
     return;
   }
@@ -4424,11 +4538,29 @@ async function renderReview(renderId = state.renderId) {
   items.forEach(t => (groups[groupKey(t)] = groups[groupKey(t)] || []).push(t));
   const sorted = Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
   window._groups = sorted;
-  $('#main').innerHTML = `${transferSection || ''}<div class="mb-4 type-body-small" style="color:var(--ink2)">${T('{items} transactions in {groups} groups. Showing {shown} at a time. Pick a category once per group — “Apply + rule” books everything matching and remembers it forever.', { items: items.length, groups: sorted.length, shown: Math.min(REVIEW_BATCH_SIZE, sorted.length) })}</div>
+  $('#main').innerHTML = `${transferSection || ''}${suggestionSection || ''}<div class="mb-4 type-body-small" style="color:var(--ink2)">${T('{items} transactions in {groups} groups. Showing {shown} at a time. Pick a category once per group — “Apply + rule” books everything matching and remembers it forever.', { items: items.length, groups: sorted.length, shown: Math.min(REVIEW_BATCH_SIZE, sorted.length) })}</div>
     <div id="review-groups" data-rendered="0"></div>
     <div class="flex justify-center mt-4"><md-outlined-button id="review-more" onclick="appendReviewGroups()"></md-outlined-button></div>`;
   for (let batch = Math.max(1, state.reviewBatches); batch > 0; batch--) {
     if (!appendReviewGroups()) break;
+  }
+  wireAnomalySection();
+}
+
+/* One delegated listener for every suggestion card, wired after each review render. */
+function wireAnomalySection() {
+  const section = $('.anomaly-section');
+  if (!section) return;
+  section.addEventListener('click', event => {
+    const button = event.target.closest('.anomaly-dismiss');
+    if (button) dismissAnomaly(button.closest('.anomaly-card'));
+  });
+  const toggle = $('#anomaly-low');
+  if (toggle) {
+    toggle.addEventListener('change', event => {
+      state.showLowConfidence = !!event.target.selected;
+      render();
+    });
   }
 }
 

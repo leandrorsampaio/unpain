@@ -41,7 +41,7 @@ for t in tests/test_pipeline.py tests/test_oracle.py tests/test_feedback.py \
          tests/test_config_validation.py tests/test_setup_wizard.py tests/test_settings.py \
          tests/test_restore.py tests/test_delete_year.py tests/test_cash_orphan.py \
          tests/test_networth.py tests/test_balances.py tests/test_overview.py \
-         tests/test_fx_audit.py \
+         tests/test_fx_audit.py tests/test_anomalies.py \
          tests/test_asset_versions.py \
          tests/test_security.py \
          tests/test_ingest_pdf_flow.py tests/test_integrity_gates.py \

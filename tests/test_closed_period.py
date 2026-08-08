@@ -232,6 +232,26 @@ check("and reopening dropped the baseline it was measured against",
       not closings.load(YEAR).get(KEY), str(closings.load(YEAR).get(KEY)))
 
 
+print("== dismissing a suggestion is metadata, not money")
+# /api/anomaly-dismiss writes, so the matrix demands a decision about it. It is
+# classified as irrelevant to a closed period — but classified, not assumed: the claim
+# is that it moves no figure, so that is what gets checked.
+close_month()
+before_figures = closings.figures(YEAR, MONTH)
+scan = server.anomalies_view(year=YEAR, scope="all")
+if scan["items"]:
+    first = scan["items"][0]
+    status, _ = outcome(lambda: server.anomaly_dismiss(server.AnomalyDismiss(
+        id=first["id"], fingerprint=first["fingerprint"], year=YEAR)))
+    check("a dismissal is accepted in a closed month", status == 200, "status %s" % (status,))
+check("and it moves no figure the close recorded",
+      closings.figures(YEAR, MONTH) == before_figures,
+      str((before_figures, closings.figures(YEAR, MONTH))))
+check("so the closed month is not reported as drifted",
+      not (server.summary(year=YEAR).get("drift") or {}).get(KEY),
+      str(server.summary(year=YEAR).get("drift")))
+
+
 print("== every write endpoint is accounted for")
 # A new endpoint that can move a settled figure is exactly the kind of thing that gets
 # added without anyone asking what a closed month should do about it. This does not
@@ -256,7 +276,7 @@ NON_FINANCIAL = {
 }
 COVERED = {"/api/decision", "/api/decisions-bulk", "/api/decision-clear",
            "/api/decisions-clear-bulk", "/api/ratio-override", "/api/cash",
-           "/api/cash-delete", "/api/cash-edit", "/api/rule", "/api/rule-update",
+           "/api/cash-delete", "/api/cash-edit", "/api/anomaly-dismiss", "/api/rule", "/api/rule-update",
            "/api/rule-delete", "/api/transaction-edit", "/api/transaction-edit-reset",
            "/api/transfer-confirm", "/api/account-update", "/api/settings-update",
            "/api/ingest", "/api/ingest/process", "/api/ingest/upload-delete"}
@@ -267,7 +287,7 @@ check("no write endpoint is unaccounted for", not unaccounted,
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 34
+MIN_CHECKS = 37
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

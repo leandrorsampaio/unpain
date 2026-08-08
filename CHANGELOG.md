@@ -9,6 +9,31 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Review suggestions — transactions worth a second look** (FEAT-09). The Review page gains a
+  **Suggestions** section fed by seven deterministic checks: possible duplicate charges (same day, or
+  one to three days apart), an amount unlike a merchant's usual ones, an expected recurring charge
+  that has not arrived, a merchant billing in the unusual direction, an account's first transaction
+  in a new currency, and a row dated outside its own statement's period.
+
+  It is a review assistant, not a fraud detector, and says so: *Possible duplicate*, never
+  *Duplicate*. **Nothing it produces can change a transaction** — no categorize, merge, delete or
+  transfer mark, and no total, settlement or tax figure is computed from any of it. The only write is
+  dismissing a suggestion, which is tied to a fingerprint of the evidence: dismiss it and it stays
+  gone, until one of the facts behind it changes and the question is genuinely new.
+
+  Every threshold is a deliberate floor, because a list that flags ordinary purchases gets ignored
+  and then hides the real signals: six prior charges before any amount is judged, median and
+  median-absolute-deviation rather than mean and standard deviation, and three separate floors (4×MAD,
+  50% of the median, and €20) that must all be cleared. A missing recurring charge is only raised
+  after four months of history, a complete month, statement coverage proving the month was actually
+  imported, and a seven-day grace period. Out-of-scope lines, internal transfers and the uncounted
+  part of a split produce no suggestions about spending. Only high-confidence suggestions reach the
+  Review badge; the rest are behind a switch.
+
+  Scans take an explicit `as_of`, so the same store gives byte-identical results and a test never
+  depends on the clock. `recurring._merchant_key` became the public `recurring.merchant_key` shared by
+  both modules, so the two cannot disagree about what one merchant is.
+
 - **FX audit — how a foreign amount became the euro amount the totals use** (FEAT-08). Every non-EUR
   row carried a euro figure that dashboards, settlement and tax all consumed and nothing could
   explain. The Transactions toolbar now offers **FX audit** (only when the year has foreign rows),

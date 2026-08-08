@@ -29,7 +29,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline import anchors, balances, closings, coverage, doctor, extraction, fx_audit, ingest, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
+from pipeline import anchors, anomalies, balances, closings, coverage, doctor, extraction, fx_audit, ingest, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
 from pipeline.mutation_lock import async_mutation_lock  # noqa: E402
 from pipeline.util import DATA, ICON_NAME, INBOX, ROOT, RULES, cents, load_config, read_json, write_json, load_accounts  # noqa: E402
 
@@ -1196,6 +1196,39 @@ def attachment_delete(a: AttachmentDelete):
 @app.get("/api/recurring")
 def recurring_view(year: int, scope: str = "all"):
     return recurring.detect(year, scope=_check_scope(scope))
+
+
+@app.get("/api/anomalies")
+def anomalies_view(year: int, scope: str = "all", include_dismissed: bool = False):
+    """Review suggestions for one year. Read-only; never touches a transaction."""
+    return anomalies.scan(year, scope=_check_scope(scope), include_dismissed=include_dismissed)
+
+
+class AnomalyDismiss(BaseModel):
+    id: str
+    fingerprint: str
+    year: int
+    scope: str = "all"
+
+
+@app.post("/api/anomaly-dismiss")
+def anomaly_dismiss(d: AnomalyDismiss):
+    """Hide one suggestion while the evidence behind it stays as it is.
+
+    The id and fingerprint must both belong to a suggestion the current scan actually
+    produces. Accepting anything else would let a typo write permanent state that
+    matches nothing and can never be cleaned up — and a dismissal file full of
+    meaningless keys is how a suppression list stops being trustworthy.
+    """
+    scan = anomalies.scan(d.year, scope=_check_scope(d.scope), include_dismissed=True)
+    match = next((item for item in scan["items"] if item["id"] == d.id), None)
+    if not match:
+        raise HTTPException(404, "no current suggestion has that id")
+    if match["fingerprint"] != d.fingerprint:
+        raise HTTPException(409, "that suggestion's evidence has changed since it was shown; "
+                                 "reload the review queue and look at it again")
+    anomalies.dismiss(d.id, d.fingerprint)
+    return {"ok": True, "dismissed": d.id}
 
 
 @app.get("/api/fx-audit")

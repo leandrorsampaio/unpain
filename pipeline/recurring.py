@@ -21,10 +21,24 @@ from . import settle, store
 OVERRIDES_PATH = RULES / "recurring-overrides.json"
 
 
-def _merchant_key(t):
+def merchant_key(t):
+    """The normalized name two charges from the same merchant share.
+
+    Public because anomaly detection has to group charges the same way recurring
+    does — a second, subtly different normalization would let one module call two
+    rows the same merchant while the other calls them different, and the "expected
+    charge not seen" suggestion would then fire against a merchant that recurring
+    never tracked. One definition, two readers.
+
+    Digits are stripped because terminal ids and invoice numbers ride along in the
+    counterparty field (REWE MARKT 4711 / REWE MARKT 4712 are one merchant).
+    """
     name = (t.get("counterparty") or t.get("purpose") or "").upper()
     name = re.sub(r"[0-9]", "", name)
     return re.sub(r"\s+", " ", name).strip()[:32]
+
+
+_merchant_key = merchant_key      # the old private name, kept for in-module callers
 
 
 def load_overrides():
@@ -133,6 +147,12 @@ def detect(year, scope="all"):
             "cadence": cadence,
             "monthly_equivalent": round(monthly, 2),
             "last_date": dates[-1],
+            # Evidence a caller needs to judge whether an *expected* charge is
+            # missing, published rather than scraped back out of the display fields:
+            # which months were seen, the typical gap, and the accounts it arrives on.
+            "months_seen": months,
+            "average_gap_days": round(avg_gap, 1),
+            "accounts": sorted({t.get("account") for t in ts if t.get("account")}),
         })
     out.sort(key=lambda r: -r["monthly_equivalent"])
     recurring_keys = {r["key"] for r in out}
