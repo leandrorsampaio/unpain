@@ -40,11 +40,16 @@ header-to-field mapping). To add yours:
    error prints the exact headers it saw.
 2. Copy the closest existing file in `pipeline/formats/` (e.g. `dkb.json`, `n26.json`). Adjust the
    header mapping, `delimiter`, `decimal` (`comma` or `dot`), and `date_format`.
-3. Re-ingest until it parses, then **add your format to `tests/test_format_matrix.py`** — one
+3. Declare how well you know it: `"verification_status"` is `verified-real` (you checked it against
+   a real export from that bank), `verified-sanitized` (it reads a sanitized fixture correctly) or
+   `best-guess`. Best-guess formats warn the user in the import preview. Add `"fixture"` naming your
+   matrix entry. `./run-tests.sh` runs `pipeline.cli formats-lint`, which rejects a manifest that is
+   malformed, unattested, fixtureless, or whose signature overlaps another format's.
+4. Re-ingest until it parses, then **add your format to `tests/test_format_matrix.py`** — one
    sanitized two-row statement and the column indexes for its date and amount. The suite fails on a
    format with no fixture, and it will run the whole mutation table (broken amounts, impossible
    dates, the wrong decimal style) against yours for free. Use synthetic rows.
-4. Open a PR that describes the bank and country. Use **synthetic** rows in fixtures. Never use real
+5. Open a PR that describes the bank and country. Use **synthetic** rows in fixtures. Never use real
    statement data or IBANs.
 
 ## Code style and invariants

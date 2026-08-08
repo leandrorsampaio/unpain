@@ -39,6 +39,10 @@ def preview_file(path):
     dates = [r["date"] for r in rows]
     currencies = sorted({(r.get("currency") or "EUR").upper() for r in rows})
     return {"format": cfg["name"], "transactions": len(rows), "skipped": stats["skipped"],
+            # How well this format is actually known. A definition written from a
+            # screenshot and one checked against a real export are different claims, and
+            # the preview is where somebody decides whether to trust the numbers below.
+            "verification_status": cfg.get("verification_status"),
             "anchors": len(stats["anchors"]),
             "date_min": min(dates) if dates else None,
             "date_max": max(dates) if dates else None,

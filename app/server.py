@@ -29,7 +29,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline import anchors, anomalies, audit, balances, closings, coverage, doctor, extraction, fx_audit, ingest, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
+from pipeline import anchors, anomalies, audit, balances, closings, coverage, doctor, extraction, format_lint, fx_audit, ingest, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
 from pipeline.mutation_lock import async_mutation_lock, mutation_lock  # noqa: E402
 from pipeline.util import DATA, ICON_NAME, INBOX, ROOT, RULES, cents, load_config, read_json, write_json, load_accounts  # noqa: E402
 
@@ -2599,6 +2599,11 @@ def _discover_pdf_extractors():
 
 
 PDF_EXTRACTORS = _discover_pdf_extractors()
+
+# Refuse to start on a broken format catalogue rather than serving a half-valid one.
+# A manifest with no amount column, or two that both match the same file, does not fail
+# at startup — it fails at import time, on somebody's statement, as wrong numbers.
+format_lint.assert_clean()
 
 
 def _uploads():

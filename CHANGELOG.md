@@ -9,6 +9,28 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A bank format definition is code, and now it has a compiler** (IMP-07).
+  `pipeline/format_lint.py` checks every manifest in `pipeline/formats/`: the delimiter is one
+  character, the decimal style is one of two, the sign is 1 or -1, the date pattern actually parses,
+  exactly one amount model is declared, and no key is misspelled. A mistake in one of these files is
+  not a crash — it is a statement that imports cleanly with every amount wrong by a factor of a
+  hundred.
+
+  **Detection no longer guesses.** It used to return the first manifest that matched in directory
+  order, so two overlapping signatures meant the *filename* decided which parser read your bank
+  statement, and adding a format could silently change how an existing bank was read. Every signature
+  is now evaluated and anything but exactly one match is refused, naming the candidates. The linter
+  also finds overlapping definitions before runtime.
+
+  Each manifest declares **how well it is actually known** — `verified-real`, `verified-sanitized` or
+  `best-guess` — set from evidence, not optimism: the four formats your real store has actually
+  parsed statements with are `verified-real`, Barclays is `best-guess` as its own note always said,
+  and the rest are verified against sanitized fixtures. A best-guess format now carries a visible
+  warning in the ingest preview, where somebody decides whether to trust the row count.
+
+  Runs as `pipeline.cli formats-lint`, in `run-tests.sh`, in CI, and **at server startup** — a broken
+  catalogue fails to start rather than failing later on somebody's statement, as wrong numbers.
+
 - **One authoritative schema per persisted object** (IMP-03). `pipeline/schemas.py` defines what a
   transaction, decision, split part, account, balance anchor and merchant rule are allowed to be, and
   everything that reads or writes them asks it. Validation used to live wherever a reader happened to

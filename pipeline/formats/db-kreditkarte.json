@@ -26,5 +26,8 @@
   "statement_total": {
     "match": "Saldo",
     "amount_column": 6
-  }
+  },
+  "verification_status": "verified-real",
+  "verified_at": "2025-12-31",
+  "fixture": "deutsche-bank-kreditkarte"
 }

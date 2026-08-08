@@ -3012,6 +3012,11 @@ function stagingRow(f, extractors) {
     : f.kind === 'pdf' ? T('PDF · extractor required') : T('Awaiting validation');
   const extraction = f.extraction
     ? `<div class="type-caption" style="color:var(--ink2)">${T('{n} rows found', { n: f.extraction.transactions_extracted || 0 })} · ${T('discrepancy {amount}', { amount: fmt(f.extraction.discrepancy || 0) })}</div>` : '';
+  // A format written from documentation and one checked against a real export are not
+  // the same claim. This is where somebody decides whether to trust the row count above,
+  // so it is where the difference has to be visible.
+  const unverified = f.preview && f.preview.verification_status === 'best-guess'
+    ? `<div class="type-caption flex items-center gap-1" style="color:var(--ink2)"><md-icon style="font-size:16px;color:var(--on-warn-container)">warning</md-icon>${T('This format has never been checked against a real statement from this bank. Review the transactions after importing.')}</div>` : '';
   let incompatible = '';
   if (f.kind === 'pdf' && f.account && f.extractor && !pdfAccountCompatible(f, extractors)) {
     const ex = extractors.find(x => x.id === f.extractor);
@@ -3025,6 +3030,7 @@ function stagingRow(f, extractors) {
         <div class="truncate type-body-small font-medium">${esc(f.original_name)}</div>
         <div class="type-caption" style="color:var(--ink2)">${(f.size / 1024).toFixed(0)} KB · ${esc(preview)}</div>
         ${extraction}
+        ${unverified}
         ${incompatible}
         ${f.error ? `<div class="type-caption text-negative"><md-icon style="font-size:1em">error</md-icon> ${esc(f.error)}</div>` : ''}
       </div>

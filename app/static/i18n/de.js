@@ -1178,4 +1178,6 @@ I18N.register('de', {
   'Month close': 'Monatsabschluss',
   'Statement import': 'Import',
   'Backup made': 'Backup',
+  'This format has never been checked against a real statement from this bank. Review the transactions after importing.':
+    'Dieses Format wurde nie gegen einen echten Kontoauszug dieser Bank geprüft. Prüfe die Buchungen nach dem Import.',
 });

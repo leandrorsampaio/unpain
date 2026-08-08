@@ -1,6 +1,10 @@
 {
   "name": "nubank-card",
-  "signature": ["date", "title", "amount"],
+  "signature": [
+    "date",
+    "title",
+    "amount"
+  ],
   "delimiter": ",",
   "decimal": "comma",
   "date_format": "%Y-%m-%d",
@@ -12,5 +16,8 @@
     "counterparty": "title",
     "purpose": "title"
   },
-  "currency": "BRL"
+  "currency": "BRL",
+  "verification_status": "verified-real",
+  "verified_at": "2025-12-31",
+  "fixture": "nubank-card"
 }

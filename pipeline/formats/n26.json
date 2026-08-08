@@ -1,6 +1,10 @@
 {
   "name": "n26",
-  "signature": ["Booking Date", "Partner Name", "Amount (EUR)"],
+  "signature": [
+    "Booking Date",
+    "Partner Name",
+    "Amount (EUR)"
+  ],
   "delimiter": ",",
   "decimal": "dot",
   "date_format": "%Y-%m-%d",
@@ -11,5 +15,8 @@
     "purpose": "Payment Reference",
     "iban": "Partner Iban"
   },
-  "currency": "EUR"
+  "currency": "EUR",
+  "verification_status": "verified-sanitized",
+  "verified_at": "2026-08-08",
+  "fixture": "n26"
 }

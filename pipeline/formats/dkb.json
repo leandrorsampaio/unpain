@@ -1,6 +1,10 @@
 {
   "name": "dkb-giro",
-  "signature": ["Buchungsdatum", "Zahlungsempfänger*in", "Verwendungszweck"],
+  "signature": [
+    "Buchungsdatum",
+    "Zahlungsempfänger*in",
+    "Verwendungszweck"
+  ],
   "delimiter": ";",
   "decimal": "comma",
   "date_format": "%d.%m.%y",
@@ -11,5 +15,8 @@
     "purpose": "Verwendungszweck",
     "iban": "IBAN"
   },
-  "currency": "EUR"
+  "currency": "EUR",
+  "verification_status": "verified-sanitized",
+  "verified_at": "2026-08-08",
+  "fixture": "dkb-giro"
 }

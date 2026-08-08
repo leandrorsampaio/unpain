@@ -1,6 +1,11 @@
 {
   "name": "deutsche-bank-giro",
-  "signature": ["Buchungstag", "Verwendungszweck", "Betrag", "Währung"],
+  "signature": [
+    "Buchungstag",
+    "Verwendungszweck",
+    "Betrag",
+    "Währung"
+  ],
   "delimiter": ";",
   "decimal": "comma",
   "date_format": "%d.%m.%Y",
@@ -17,5 +22,8 @@
     "purpose": "Verwendungszweck",
     "iban": "IBAN / Kontonummer",
     "currency": "Währung"
-  }
+  },
+  "verification_status": "verified-real",
+  "verified_at": "2026-07-01",
+  "fixture": "deutsche-bank-giro"
 }

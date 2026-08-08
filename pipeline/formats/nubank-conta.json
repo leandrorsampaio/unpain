@@ -1,6 +1,11 @@
 {
   "name": "nubank-conta",
-  "signature": ["Data", "Valor", "Identificador", "Descrição"],
+  "signature": [
+    "Data",
+    "Valor",
+    "Identificador",
+    "Descrição"
+  ],
   "delimiter": ",",
   "decimal": "dot",
   "date_format": "%d/%m/%Y",
@@ -10,5 +15,8 @@
     "counterparty": "Descrição",
     "purpose": "Descrição"
   },
-  "currency": "BRL"
+  "currency": "BRL",
+  "verification_status": "verified-sanitized",
+  "verified_at": "2026-08-08",
+  "fixture": "nubank-conta"
 }

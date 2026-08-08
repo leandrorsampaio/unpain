@@ -1,6 +1,12 @@
 {
   "name": "generic-extracted",
-  "signature": ["date", "amount", "currency", "counterparty", "purpose"],
+  "signature": [
+    "date",
+    "amount",
+    "currency",
+    "counterparty",
+    "purpose"
+  ],
   "delimiter": ",",
   "decimal": "dot",
   "date_format": "%Y-%m-%d",
@@ -13,5 +19,8 @@
     "purpose": "purpose",
     "iban": "counterparty_iban",
     "force_review": "force_review"
-  }
+  },
+  "verification_status": "verified-real",
+  "verified_at": "2026-08-08",
+  "fixture": "generic-extracted"
 }

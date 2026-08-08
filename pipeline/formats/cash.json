@@ -1,6 +1,11 @@
 {
   "name": "cash",
-  "signature": ["date", "account", "amount", "description"],
+  "signature": [
+    "date",
+    "account",
+    "amount",
+    "description"
+  ],
   "delimiter": ",",
   "decimal": "dot",
   "date_format": "%Y-%m-%d",
@@ -13,5 +18,8 @@
     "counterparty": "description",
     "purpose": "description"
   },
-  "currency": "EUR"
+  "currency": "EUR",
+  "verification_status": "verified-sanitized",
+  "verified_at": "2026-08-08",
+  "fixture": "cash"
 }

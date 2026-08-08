@@ -1,6 +1,10 @@
 {
   "name": "volksbank",
-  "signature": ["Buchungstag", "Name Zahlungsbeteiligter", "Betrag"],
+  "signature": [
+    "Buchungstag",
+    "Name Zahlungsbeteiligter",
+    "Betrag"
+  ],
   "delimiter": ";",
   "decimal": "comma",
   "date_format": "%d.%m.%Y",
@@ -11,5 +15,8 @@
     "purpose": "Verwendungszweck",
     "iban": "IBAN Zahlungsbeteiligter",
     "currency": "Waehrung"
-  }
+  },
+  "verification_status": "verified-sanitized",
+  "verified_at": "2026-08-08",
+  "fixture": "volksbank"
 }

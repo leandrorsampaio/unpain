@@ -1,6 +1,10 @@
 {
   "name": "barclays-de",
-  "signature": ["Referenznummer", "Buchungsdatum", "Betrag"],
+  "signature": [
+    "Referenznummer",
+    "Buchungsdatum",
+    "Betrag"
+  ],
   "delimiter": ";",
   "decimal": "comma",
   "date_format": "%d.%m.%Y",
@@ -11,5 +15,7 @@
     "counterparty": "Beschreibung",
     "purpose": "Beschreibung"
   },
-  "currency": "EUR"
+  "currency": "EUR",
+  "verification_status": "best-guess",
+  "fixture": "barclays-de"
 }

@@ -17,7 +17,10 @@ FORMATS_DIR = Path(__file__).parent / "formats"
 
 
 def load_formats():
-    return [read_json(p) for p in sorted(FORMATS_DIR.glob("*.json"))]
+    # A schema that describes manifests is not itself a manifest — loading one as a
+    # format would give it a signature of None and a vote in every detection.
+    return [read_json(p) for p in sorted(FORMATS_DIR.glob("*.json"))
+            if not p.name.endswith(".schema.json")]
 
 
 def _read_lines(path):
@@ -49,16 +52,33 @@ def _rows_for(path, cfg):
 
 
 def detect(path):
-    """Return the matching format config, or raise with the headers we saw."""
+    """The one format that matches this file — or an error naming why not.
+
+    This used to return the first manifest that matched, in directory order. Two
+    manifests can both match one file (one signature being a subset of another), and
+    then the parser was chosen by filename: adding a format could silently change how
+    an existing bank's statements were read, and nothing would say so. Every enabled
+    signature is now evaluated, and anything other than exactly one match is refused.
+    """
     seen = []
+    matched = []
     for cfg in load_formats():
         rows = _rows_for(path, cfg)
         for row in rows[:30]:
             cells = [c.strip() for c in row]
             if all(sig in cells for sig in cfg["signature"]):
-                return cfg
+                matched.append(cfg)
+                break
             if row and len(seen) < 30:
                 seen.append(";".join(cells)[:200])
+    if len(matched) == 1:
+        return matched[0]
+    if matched:
+        raise ValueError(
+            "%s matches %d formats at once (%s), so which parser reads it would depend on "
+            "filename order. Narrow one of their signatures in pipeline/formats/ before "
+            "importing this file."
+            % (path, len(matched), ", ".join(sorted(cfg["name"] for cfg in matched))))
     raise ValueError(
         "No format matched %s.\nFirst lines seen:\n%s\n"
         "Add a config in pipeline/formats/ describing this layout." % (path, "\n".join(seen[:8]))

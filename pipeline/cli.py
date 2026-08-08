@@ -3,7 +3,7 @@ import argparse
 import json
 import sys
 
-from . import closings, doctor, fx, ingest, settle, store
+from . import closings, doctor, format_lint, fx, ingest, settle, store
 from .mutation_lock import mutation_lock
 from .util import ConfigError, load_config
 
@@ -22,6 +22,7 @@ def main():
     sp = sub.add_parser("tax", help="tax evidence pack for a year")
     sp.add_argument("year", type=int)
     sub.add_parser("fx-update", help="refresh ECB rates cache")
+    sub.add_parser("formats-lint", help="check every bank format manifest")
     sp = sub.add_parser("doctor", help="read-only data integrity check")
     sp.add_argument("year", nargs="?", type=int)
     sp = sub.add_parser("close-baseline",
@@ -30,6 +31,18 @@ def main():
     args = p.parse_args()
     load_config()  # fail fast with a clear message if config.json is missing/invalid
 
+    if args.cmd == "formats-lint":
+        report = format_lint.lint()
+        for problem in report["problems"]:
+            print("  %s" % problem)
+        if report["best_guess"]:
+            print("  note: %s %s not been verified against a real statement."
+                  % (", ".join(report["best_guess"]),
+                     "has" if len(report["best_guess"]) == 1 else "have"))
+        print("%d format manifest(s): %s" %
+              (report["manifests"], "all valid" if report["ok"]
+               else "%d problem(s)" % len(report["problems"])))
+        return 0 if report["ok"] else 1
     if args.cmd == "ingest":
         print("Ingesting inbox/ ...")
         ingest.run()
