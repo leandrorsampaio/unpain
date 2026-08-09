@@ -57,17 +57,25 @@ def generation_time(as_of=None):
 
 
 def app_version():
-    """The build this came from. `unknown` is a fine answer; a wrong one is not."""
+    """The build this came from. `unknown` is a fine answer; a wrong one is not.
+
+    Prefers the release tag: a workbook that says `v1.5.0` tells a reader something they can
+    look up, where a bare commit hash tells them only that a commit existed. `git describe`
+    keeps both — a release built from a later commit reads `v1.5.0-3-gabc1234`, which is
+    honest about being past the tag rather than pretending to be it.
+    """
     declared = os.environ.get("UNPAIN_VERSION")
     if declared:
         return declared
-    try:
-        result = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
-                                capture_output=True, text=True, timeout=5)
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except Exception:                       # noqa: BLE001 - no git, no network, no problem
-        pass
+    for command in (["describe", "--tags", "--always", "--dirty"],
+                    ["rev-parse", "--short", "HEAD"]):
+        try:
+            result = subprocess.run(["git", "-C", str(ROOT)] + command,
+                                    capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except Exception:                   # noqa: BLE001 - no git, no network, no problem
+            continue
     return "unknown"
 
 

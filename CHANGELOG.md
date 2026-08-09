@@ -5,7 +5,40 @@ This file documents all notable changes to UnPAIN.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). UnPAIN aims to
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
 ## [Unreleased]
+
+## [1.5.0] - 2026-08-09
+
+The integrity release. 1.0 could compute a household's finances; 1.5 can show its work, and
+be told when it is wrong.
+
+Three external code reviews were run against this release, each one probing the code rather
+than reading it, and each one found real defects — including several in the fixes for the
+previous round. Everything they found is in **Fixed** below, stated plainly. Two of those
+findings had been sitting behind tests that asserted the right property but could not have
+observed its absence, which is the failure mode this release spent most of its effort on.
+
+What changed, in one paragraph each:
+
+- **One place where a number becomes money** (`pipeline/money.py`), with the rounding policy
+  named and versioned. The app had always used banker's rounding while claiming half-up; that
+  is now documented rather than silently "fixed", because changing it moves historical figures.
+- **One authoritative schema per persisted file**, enforced on the way in and on the way out,
+  so corruption is caught where it happens instead of surfacing later inside a total.
+- **An auditor that does not take the code's word for it.** `doctor` recomputes the totals the
+  long way, without calling the functions it is auditing, and checks identities that are true of
+  any correct ledger — including who owes whom, not just that the cents add up.
+- **Exports that can prove where they came from**, and a `export-verify` command that separates
+  "this spreadsheet is out of date" from "this spreadsheet was edited".
+- **Restore that validates before it destroys**, and multi-file operations that either land whole
+  or roll back — with a journal that outlives the process.
+- **Evidence you can read**: FX audit, review suggestions, and "What changed?" for a period whose
+  figures have moved since it was settled. None of it is ever read back to compute a figure.
+
+Upgrading from 1.0 needs no migration. Existing exported workbooks will report `STALE` against
+`export-verify`, because the provenance digest now covers more inputs than it did; re-export and
+they verify.
 
 ### Added
 
@@ -62,109 +95,6 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the report — it is a fact about the installed software rather than this household's data, it never
   clears, and a finding that cannot be resolved teaches people to scroll past the ones that can.
 
-### Changed
-
-- **IMP-04 was partly reinstated, because the reason for declining it was wrong.** The
-  changelog previously said "every persisted write already publishes atomically" and used
-  that to justify skipping the mutation work. `store.append_transactions` was the exception,
-  and it writes the canonical ledger: a plain append with no fsync and no rename, where an
-  interruption leaves a half-written line in the file every total is computed from. It now
-  publishes like everything else.
-
-  The rest of the argument was also too broad. Each individual write is atomic; the
-  *sequences* are not, and those are what fail: closing a month writes the lock and then the
-  baseline, and a month locked without its baseline is one whose drift detection silently
-  does nothing. So `pipeline/bundle.py` is the scoped version of the declined framework —
-  name the paths an operation will touch, and they are copied aside first; the body either
-  finishes or every path goes back exactly as it was, with a journal that outlives the
-  process so a crash is rolled back at the next start. It is wired into closing a month,
-  closing a year, and importing (the widest multi-file write there is: transactions across
-  any number of years, anchors, transfer marks and the upload log).
-
-  What is still declined, and why, is the full version's startup recovery over *every*
-  endpoint: it has to decide which half-written state to roll forward, and a wrong answer
-  discards good data — a worse failure than the one it prevents. Both recoveries here only
-  ever roll *back*, to a state that certainly existed, which is why they are safe to run
-  unattended. IMP-09 (a tamper-evident journal of every mutation) remains declined: it is an
-  action-history product feature, not an integrity fix, and "What changed?" must not be
-  described as one.
-
-### Fixed (external review follow-up)
-
-An external review probed this release's work rather than reading it, and every finding it
-raised was reproduced and is fixed here. They are listed together because they share a
-shape: in each case a test asserted the property but could not have observed its absence.
-
-- **Restore's rollback could delete the data it was protecting.** The guard was
-  `if not target.exists()`, which is false for an area already replaced — so a failure
-  part-way through left the tree half old and half new, and the displaced original was
-  removed with the staging directory it was being kept inside. The originals now live under
-  the root, every rename is journalled before it happens, and `recover()` undoes an
-  interrupted swap on the next start. Six fault-injection points assert the tree ends up
-  entirely old, never a mixture.
-- **The settlement could hand the odd cent to the wrong person.** Exact integer income
-  weights were divided into a float ratio before allocation, so largest-remainder broke ties
-  on binary rounding error instead of on the rule: at weights 1:5 over 3 cents the float path
-  paid 0/3 where exact fractions pay 1/2. Conservation cannot see this — every cent is still
-  handed out — which is why the property suite passed. It now compares against exact
-  allocation. Across 36,504 small cases the two disagreed 164 times, always by one cent. The
-  real 2025 settlement is unchanged.
-- **Binary reproducibility was never actually implemented.** openpyxl re-stamps
-  `dcterms:modified` inside `save()`, overwriting what the properties object was set to, and
-  every zip member carries its own clock. The test built both workbooks in the same second
-  and so saw neither.
-- **`export-verify` verified the store, not the workbook.** An amount edited inside a
-  spreadsheet, with the Metadata sheet untouched, still printed VERIFIED.
-- **The source digest missed most of its inputs.** A category rename changed every label in
-  the export and moved nothing. The argument that the row digest covered it was unsound,
-  because nothing ever checked the row digest.
-- **Schema coverage was five families wide and called complete.** `validate_graph` accepted
-  `{"2026-13": "banana"}` as a month lock, an uploads document that was a string, and a tax
-  bucket list that was not a list — which restore, whose whole safety argument is that gate,
-  would have accepted too.
-- **The doctor checked settlement conservation only in aggregate**, so a compensating
-  ±1 cent between two fair shares passed silently.
-- **FX conversion bypassed the versioned rounding policy**, disagreeing with it by a cent on
-  boundary values. Checked against every converted row in the real store before changing it:
-  152 rows, 0 would change.
-- **Export metadata degraded silently to `-`**, which reads exactly like "none needed"
-  rather than "this could not be determined".
-- **A near-duplicate suggestion reported the purpose text as the amount** (`key[2]` for
-  `key[3]`).
-- **The format linter accepted any non-empty fixture name**, so a manifest could point at
-  another format's statement, or at one that does not exist.
-- **The admission gate could be skipped by asserting it had run.** `ingest_upload` took
-  `admitted=True`, a boolean the caller declared and nothing could check — and which named
-  no file, so a statement could be reconciled, edited, and then imported. It now takes the
-  receipt `extraction.admit()` returns, which carries the SHA-256 of the exact bytes that
-  were reconciled and is refused if they are not the bytes about to be read.
-
-### Security
-
-- **Restore no longer deletes your data before deciding whether it can proceed** (IMP-08). It used to
-  write a safety backup, `shutil.rmtree` the live `data/`, `rules/` and `config.json`, and *then* copy
-  the archive in one plain file at a time. Everything after that delete was unprotected: restoring a
-  subtly corrupt backup replaced good data with bad, and a crash halfway left neither.
-
-  The order is now inverted. A complete candidate tree is assembled beside the live one, validated
-  against every schema and cross-reference the app has (`validate_graph`, built in the schema work
-  for exactly this), and only then are the finished directories swapped in — moving the live ones
-  aside rather than deleting them, so a failure part-way through can still be undone. **"Replace" now
-  means the candidate does not carry the old contents unless the archive supplies them**, not "delete
-  the live area first"; that reading is what made the operation destructive before it had decided
-  anything. The pre-restore safety backup is taken only once the candidate has passed — a safety copy
-  of a restore that was never going to happen is just clutter.
-
-  An uploaded zip is the only file in this app that comes from outside it, so it is now refused for:
-  traversal in either separator style, absolute and drive-letter paths, symlinks and device nodes,
-  duplicate or case-colliding entries, CRC failures, and decompression bombs by ratio, entry size,
-  total size or entry count. Every rejection is asserted to leave the live tree **byte-for-byte
-  identical**, with no staging folder left behind.
-
-  Restore logic moved to `pipeline/restore.py`; the endpoint is request parsing and response
-  formatting.
-
-### Added
 
 - **One money representation** (IMP-01). `pipeline/money.py` is the only place a number becomes an
   amount. Every monetary figure is integer cents while it is being calculated; floats appear when
@@ -302,54 +232,6 @@ shape: in each case a test asserted the property but could not have observed its
   `rate date derived` rather than pretending it was recorded at import. The endpoint never downloads,
   never writes, and never revalues anything — a discrepancy is reported for a human to act on.
 
-### Fixed (review follow-up)
-
-- **The cross-process write lock stopped the app starting on Windows.** It is built on `fcntl`,
-  which is POSIX-only, and importing it unconditionally meant `app.server` raised
-  `ModuleNotFoundError` on the platform the README documents installation for — the app failed to
-  start rather than failing to lock, which is a much worse answer to a race nobody had reported.
-  The file lock now degrades to a no-op where it cannot exist, so Windows keeps exactly the
-  protection it had before (two browser tabs are still serialized; a simultaneous CLI run is not),
-  and POSIX keeps the full guarantee. A test hides `fcntl` and asserts the app still imports.
-- **Ingest preview could promise a normalized extraction that Process would refuse.** Preview now
-  applies the same reconciliation gate, so an extracted CSV without its sidecar fails immediately.
-- **PDF rollback copied the entire data tree and could overwrite a concurrent CLI import.** Web and
-  CLI mutations now share a cross-process lock, while rollback snapshots only transaction years,
-  adjacent transfer-matching years and anchor years that the statement can actually change.
-- Banco Rendimento's derived-opening rejection now names the exact prior-day date and balance the
-  user must record, including actionable guidance when an existing manual balance contradicts it.
-- **Normalized extracted CSVs could bypass reconciliation by being renamed.** Admission now keys
-  on the detected format, not a filename suffix, and the financial oracle uses a real Nubank export
-  shape instead of relying on the normalized extractor format.
-- **A failed PDF import could leave transactions behind while reporting that nothing was imported.**
-  Statement processing now rolls back the canonical ledger, anchors, upload metadata and moved
-  source file as one operation when any publication step fails.
-- **Banco Rendimento could not prove the oldest statement boundary.** Its self-derived opening now
-  requires a matching manual prior-day balance, and daily printed closes verify every later boundary.
-- **The doctor tolerated malformed canonical rows without identifying them.** Missing or invalid
-  ids, dates, accounts, monetary values, currencies, kinds and sources are now explicit findings;
-  JSONL values that are not transaction objects are reported as unreadable store data.
-- The real-data tripwire now hashes every byte of large files, and closed-period coverage now tests
-  rule updates/deletes and account ownership changes as retroactive financial operations.
-
-### Fixed (found by the new tests)
-
-- **Settlement rounded per transaction, so every odd cent went to the same person.** Halving a
-  couple-owned payment as it arrived rounded once per payment instead of once per year, and the bias
-  accumulated: a year of joint groceries walked one person's "paid" figure away from the truth.
-  Couple-owned money is now pooled and halved once.
-- **The settlement ratio was derived from rounded figures.** Seven cents of joint salary produced a
-  57/43 income ratio instead of 50/50. The ratio is a proportion, so it is now computed from
-  unrounded half-cents; rounding happens in exactly one place, the fair-share allocation.
-- **The doctor crashed on the data it exists to find.** A row missing its account or amount, an
-  amount holding text, a JSONL line that is not JSON, or a rule with no pattern each took down the
-  whole effective view — so the integrity check died alongside the corruption it was run to report,
-  and a damaged store looked like a broken app. Each is now a finding. An unreadable file is reported
-  as `unreadable-file`, and the audit says it ran on partial data.
-- **`store.rewrite_year` published the canonical ledger through a shared `.tmp` name** and assumed
-  the year directory existed — the same defect already fixed in `write_json`.
-
-### Added (test coverage)
 
 - **`tests/test_settlement_properties.py`** — 1200+ checks over 133 scenarios of deliberately awkward
   money (one-cent totals, odd cents on joint accounts, 1/99 and 1/3 ratios, refunds larger than the
@@ -379,19 +261,182 @@ shape: in each case a test asserted the property but could not have observed its
 - The real-data tripwire hashes file **contents**, not just mtime and size — a same-length,
   timestamp-preserving edit used to pass it.
 
-### Security
 
-- **A category name or icon could put working script into every screen that showed it.** Names are
-  free text and were interpolated straight into markup; icons were free text rendered between
-  `<md-icon>` tags. Renaming a category was therefore enough to run code in the app — for anyone on
-  the network in LAN mode, and through an imported config or a restored backup. Names are now escaped
-  at every HTML sink (they stay unescaped in `catName()` itself, because chart labels are drawn to a
-  canvas and would otherwise show `&amp;`), and **every icon passes through one validator**,
-  `safeIcon()`, instead of being escaped at each of a dozen sinks — the dozenth is the one that gets
-  forgotten. The server refuses a non-Material-Symbol icon on the way in as well. A browser test
-  plants a payload and asserts it renders as text.
+- **An Overview page across every year on record, and the app now opens on it.** Four figures
+  (income, expenses, savings, savings rate), liquid net worth over every month, income vs expenses
+  by month, and where the money goes. Reachable any time from the home icon beside the year
+  selector — it sits there rather than in the tab row because it is the one page the year selector
+  does not apply to. The figures are the same `year_summary` the Dashboard shows, added up: widening
+  the window must not change what a euro means. Year costs can be spread across the months of the
+  year they belong to, never across another year's, using the same switch and the same caveat as the
+  Dashboard. A second "where the money goes" breaks the same total down by **subcategory**: the 15
+  biggest are named and everything smaller is collapsed into one Other slice, because thirty named
+  slivers is a legend, not a chart. Subcategories inherit their category's colour, so each one steps
+  along a light-to-dark ramp inside its family — the grouping still reads and the slices stay apart.
+
+- **Settings › Balances**: a year grid of recorded account balances — months down, accounts across, with
+  a per-month total. Each cell is either a balance recorded from a statement (carrying its reconciliation
+  verdict) or the figure the ledger computes, shown so you can check it against your bank. Entry is a
+  per-account-year dialog: type a balance, press Enter, move to the next month. Correcting a recorded
+  figure now needs an explicit `replace` (`POST /api/anchor`), so a contradiction still conflicts by default.
+- **Bulk actions ask before they write.** The confirmation lists the fields it is about to change,
+  built from the same object that gets sent, and lives inside `bulkRun` so a bulk action added later
+  cannot skip it.
+- **Year costs can be spread across the months** in the dashboard's income-vs-expenses chart, with a
+  switch that defaults on. Without it the twelve months summed to less than the year totals printed
+  above them and nothing said so. The caption always names which of the two views is on screen, and the
+  divisor is the months that have happened, so a running year is not amortized into its own future.
+
+### Changed
+
+- **IMP-04 was partly reinstated, because the reason for declining it was wrong.** The
+  changelog previously said "every persisted write already publishes atomically" and used
+  that to justify skipping the mutation work. `store.append_transactions` was the exception,
+  and it writes the canonical ledger: a plain append with no fsync and no rename, where an
+  interruption leaves a half-written line in the file every total is computed from. It now
+  publishes like everything else.
+
+  The rest of the argument was also too broad. Each individual write is atomic; the
+  *sequences* are not, and those are what fail: closing a month writes the lock and then the
+  baseline, and a month locked without its baseline is one whose drift detection silently
+  does nothing. So `pipeline/bundle.py` is the scoped version of the declined framework —
+  name the paths an operation will touch, and they are copied aside first; the body either
+  finishes or every path goes back exactly as it was, with a journal that outlives the
+  process so a crash is rolled back at the next start. It is wired into closing a month,
+  closing a year, and importing (the widest multi-file write there is: transactions across
+  any number of years, anchors, transfer marks and the upload log).
+
+  What is still declined, and why, is the full version's startup recovery over *every*
+  endpoint: it has to decide which half-written state to roll forward, and a wrong answer
+  discards good data — a worse failure than the one it prevents. Both recoveries here only
+  ever roll *back*, to a state that certainly existed, which is why they are safe to run
+  unattended. IMP-09 (a tamper-evident journal of every mutation) remains declined: it is an
+  action-history product feature, not an integrity fix, and "What changed?" must not be
+  described as one.
+
+
+- **An extraction now has to prove itself, not assert itself.** The server admitted any PDF whose
+  extractor returned `status: "ok"` and imported whatever CSV was beside it, which made the project's
+  one safety invariant a convention each producer was trusted to keep. `pipeline/extraction.py` re-runs
+  `opening + sum(rows) == closing` in integer cents over the file that is actually about to be
+  imported, and holds the report to its own claims about that file. The `extract-statement` skill
+  writes `<name>.extracted.csv` plus a reconciliation report, and the pipeline refuses the first
+  without the second. Its instruction to "extract anyway and flag the output as unreconciled" when a
+  document prints no balances is gone — there was nothing to reconcile against and nothing downstream
+  read the flag.
+- **The Banco Rendimento extractor no longer reconciles against itself.** Its opening balance is
+  derived from the first row it read, so a statement truncated at either end balanced perfectly. The
+  `Saldo Final` line closing each date section — written by the bank, read independently of the
+  transaction rows — is now checked against the rows, and a document that prints none is refused.
+- The doctor reports a decision that reassigns a transaction's account, because settlement and
+  coverage follow it while balance reconciliation and net worth read the imported account.
+
+
+- The dashboard net-worth chart shows the selected year only (January to December) instead of the whole
+  history, and is renamed **Liquid net worth** — it charts recorded account balances, not total wealth.
+  Outside the running year the heading reads "End of &lt;year&gt;" rather than "Now".
+- **Writes confirm themselves with a toast.** `showMessage` was a modal with an OK button, so every
+  saved edit cost a click; it is now a transient message in the corner. Confirmation moved into `api()`
+  — every POST reports — so feedback no longer depends on which screen you are on. Errors stay up
+  longer and keep a close button.
+- Settings spans the full app width like every other page. Content keeps a readable measure; sections
+  holding a data grid opt out of it.
 
 ### Fixed
+
+An external review probed this release's work rather than reading it, and every finding it
+raised was reproduced and is fixed here. They are listed together because they share a
+shape: in each case a test asserted the property but could not have observed its absence.
+
+- **Restore's rollback could delete the data it was protecting.** The guard was
+  `if not target.exists()`, which is false for an area already replaced — so a failure
+  part-way through left the tree half old and half new, and the displaced original was
+  removed with the staging directory it was being kept inside. The originals now live under
+  the root, every rename is journalled before it happens, and `recover()` undoes an
+  interrupted swap on the next start. Six fault-injection points assert the tree ends up
+  entirely old, never a mixture.
+- **The settlement could hand the odd cent to the wrong person.** Exact integer income
+  weights were divided into a float ratio before allocation, so largest-remainder broke ties
+  on binary rounding error instead of on the rule: at weights 1:5 over 3 cents the float path
+  paid 0/3 where exact fractions pay 1/2. Conservation cannot see this — every cent is still
+  handed out — which is why the property suite passed. It now compares against exact
+  allocation. Across 36,504 small cases the two disagreed 164 times, always by one cent. The
+  real 2025 settlement is unchanged.
+- **Binary reproducibility was never actually implemented.** openpyxl re-stamps
+  `dcterms:modified` inside `save()`, overwriting what the properties object was set to, and
+  every zip member carries its own clock. The test built both workbooks in the same second
+  and so saw neither.
+- **`export-verify` verified the store, not the workbook.** An amount edited inside a
+  spreadsheet, with the Metadata sheet untouched, still printed VERIFIED.
+- **The source digest missed most of its inputs.** A category rename changed every label in
+  the export and moved nothing. The argument that the row digest covered it was unsound,
+  because nothing ever checked the row digest.
+- **Schema coverage was five families wide and called complete.** `validate_graph` accepted
+  `{"2026-13": "banana"}` as a month lock, an uploads document that was a string, and a tax
+  bucket list that was not a list — which restore, whose whole safety argument is that gate,
+  would have accepted too.
+- **The doctor checked settlement conservation only in aggregate**, so a compensating
+  ±1 cent between two fair shares passed silently.
+- **FX conversion bypassed the versioned rounding policy**, disagreeing with it by a cent on
+  boundary values. Checked against every converted row in the real store before changing it:
+  152 rows, 0 would change.
+- **Export metadata degraded silently to `-`**, which reads exactly like "none needed"
+  rather than "this could not be determined".
+- **A near-duplicate suggestion reported the purpose text as the amount** (`key[2]` for
+  `key[3]`).
+- **The format linter accepted any non-empty fixture name**, so a manifest could point at
+  another format's statement, or at one that does not exist.
+- **The admission gate could be skipped by asserting it had run.** `ingest_upload` took
+  `admitted=True`, a boolean the caller declared and nothing could check — and which named
+  no file, so a statement could be reconciled, edited, and then imported. It now takes the
+  receipt `extraction.admit()` returns, which carries the SHA-256 of the exact bytes that
+  were reconciled and is refused if they are not the bytes about to be read.
+
+
+- **The cross-process write lock stopped the app starting on Windows.** It is built on `fcntl`,
+  which is POSIX-only, and importing it unconditionally meant `app.server` raised
+  `ModuleNotFoundError` on the platform the README documents installation for — the app failed to
+  start rather than failing to lock, which is a much worse answer to a race nobody had reported.
+  The file lock now degrades to a no-op where it cannot exist, so Windows keeps exactly the
+  protection it had before (two browser tabs are still serialized; a simultaneous CLI run is not),
+  and POSIX keeps the full guarantee. A test hides `fcntl` and asserts the app still imports.
+- **Ingest preview could promise a normalized extraction that Process would refuse.** Preview now
+  applies the same reconciliation gate, so an extracted CSV without its sidecar fails immediately.
+- **PDF rollback copied the entire data tree and could overwrite a concurrent CLI import.** Web and
+  CLI mutations now share a cross-process lock, while rollback snapshots only transaction years,
+  adjacent transfer-matching years and anchor years that the statement can actually change.
+- Banco Rendimento's derived-opening rejection now names the exact prior-day date and balance the
+  user must record, including actionable guidance when an existing manual balance contradicts it.
+- **Normalized extracted CSVs could bypass reconciliation by being renamed.** Admission now keys
+  on the detected format, not a filename suffix, and the financial oracle uses a real Nubank export
+  shape instead of relying on the normalized extractor format.
+- **A failed PDF import could leave transactions behind while reporting that nothing was imported.**
+  Statement processing now rolls back the canonical ledger, anchors, upload metadata and moved
+  source file as one operation when any publication step fails.
+- **Banco Rendimento could not prove the oldest statement boundary.** Its self-derived opening now
+  requires a matching manual prior-day balance, and daily printed closes verify every later boundary.
+- **The doctor tolerated malformed canonical rows without identifying them.** Missing or invalid
+  ids, dates, accounts, monetary values, currencies, kinds and sources are now explicit findings;
+  JSONL values that are not transaction objects are reported as unreadable store data.
+- The real-data tripwire now hashes every byte of large files, and closed-period coverage now tests
+  rule updates/deletes and account ownership changes as retroactive financial operations.
+
+
+- **Settlement rounded per transaction, so every odd cent went to the same person.** Halving a
+  couple-owned payment as it arrived rounded once per payment instead of once per year, and the bias
+  accumulated: a year of joint groceries walked one person's "paid" figure away from the truth.
+  Couple-owned money is now pooled and halved once.
+- **The settlement ratio was derived from rounded figures.** Seven cents of joint salary produced a
+  57/43 income ratio instead of 50/50. The ratio is a proportion, so it is now computed from
+  unrounded half-cents; rounding happens in exactly one place, the fair-share allocation.
+- **The doctor crashed on the data it exists to find.** A row missing its account or amount, an
+  amount holding text, a JSONL line that is not JSON, or a rule with no pattern each took down the
+  whole effective view — so the integrity check died alongside the corruption it was run to report,
+  and a damaged store looked like a broken app. Each is now a finding. An unreadable file is reported
+  as `unreadable-file`, and the audit says it ran on partial data.
+- **`store.rewrite_year` published the canonical ledger through a shared `.tmp` name** and assumed
+  the year directory existed — the same defect already fixed in `write_json`.
+
 
 - **Settlement conserved cents.** Money was accumulated as floats and each person's figure rounded on
   its own, so a shared cent paid from the joint account became two cents of "paid" and two of "fair
@@ -436,68 +481,46 @@ shape: in each case a test asserted the property but could not have observed its
 - **PDF imports carrying balance anchors crashed after writing their data** and reported "No data was
   imported" — found by the new admission tests, not by the review.
 
-### Changed
-
-- **An extraction now has to prove itself, not assert itself.** The server admitted any PDF whose
-  extractor returned `status: "ok"` and imported whatever CSV was beside it, which made the project's
-  one safety invariant a convention each producer was trusted to keep. `pipeline/extraction.py` re-runs
-  `opening + sum(rows) == closing` in integer cents over the file that is actually about to be
-  imported, and holds the report to its own claims about that file. The `extract-statement` skill
-  writes `<name>.extracted.csv` plus a reconciliation report, and the pipeline refuses the first
-  without the second. Its instruction to "extract anyway and flag the output as unreconciled" when a
-  document prints no balances is gone — there was nothing to reconcile against and nothing downstream
-  read the flag.
-- **The Banco Rendimento extractor no longer reconciles against itself.** Its opening balance is
-  derived from the first row it read, so a statement truncated at either end balanced perfectly. The
-  `Saldo Final` line closing each date section — written by the bank, read independently of the
-  transaction rows — is now checked against the rows, and a document that prints none is refused.
-- The doctor reports a decision that reassigns a transaction's account, because settlement and
-  coverage follow it while balance reconciliation and net worth read the imported account.
-
-### Added
-
-- **An Overview page across every year on record, and the app now opens on it.** Four figures
-  (income, expenses, savings, savings rate), liquid net worth over every month, income vs expenses
-  by month, and where the money goes. Reachable any time from the home icon beside the year
-  selector — it sits there rather than in the tab row because it is the one page the year selector
-  does not apply to. The figures are the same `year_summary` the Dashboard shows, added up: widening
-  the window must not change what a euro means. Year costs can be spread across the months of the
-  year they belong to, never across another year's, using the same switch and the same caveat as the
-  Dashboard. A second "where the money goes" breaks the same total down by **subcategory**: the 15
-  biggest are named and everything smaller is collapsed into one Other slice, because thirty named
-  slivers is a legend, not a chart. Subcategories inherit their category's colour, so each one steps
-  along a light-to-dark ramp inside its family — the grouping still reads and the slices stay apart.
-
-- **Settings › Balances**: a year grid of recorded account balances — months down, accounts across, with
-  a per-month total. Each cell is either a balance recorded from a statement (carrying its reconciliation
-  verdict) or the figure the ledger computes, shown so you can check it against your bank. Entry is a
-  per-account-year dialog: type a balance, press Enter, move to the next month. Correcting a recorded
-  figure now needs an explicit `replace` (`POST /api/anchor`), so a contradiction still conflicts by default.
-- **Bulk actions ask before they write.** The confirmation lists the fields it is about to change,
-  built from the same object that gets sent, and lives inside `bulkRun` so a bulk action added later
-  cannot skip it.
-- **Year costs can be spread across the months** in the dashboard's income-vs-expenses chart, with a
-  switch that defaults on. Without it the twelve months summed to less than the year totals printed
-  above them and nothing said so. The caption always names which of the two views is on screen, and the
-  divisor is the months that have happened, so a running year is not amortized into its own future.
-
-### Changed
-
-- The dashboard net-worth chart shows the selected year only (January to December) instead of the whole
-  history, and is renamed **Liquid net worth** — it charts recorded account balances, not total wealth.
-  Outside the running year the heading reads "End of &lt;year&gt;" rather than "Now".
-- **Writes confirm themselves with a toast.** `showMessage` was a modal with an OK button, so every
-  saved edit cost a click; it is now a transient message in the corner. Confirmation moved into `api()`
-  — every POST reports — so feedback no longer depends on which screen you are on. Errors stay up
-  longer and keep a close button.
-- Settings spans the full app width like every other page. Content keeps a readable measure; sections
-  holding a data grid opt out of it.
-
-### Fixed
 
 - The app shell stamps its own asset versions from each file's mtime and size, instead of hand-written
   `?v=` strings in `index.html`. A forgotten bump shipped new JS with the previously cached stylesheet,
   which looks exactly like a broken page.
+
+### Security
+
+- **Restore no longer deletes your data before deciding whether it can proceed** (IMP-08). It used to
+  write a safety backup, `shutil.rmtree` the live `data/`, `rules/` and `config.json`, and *then* copy
+  the archive in one plain file at a time. Everything after that delete was unprotected: restoring a
+  subtly corrupt backup replaced good data with bad, and a crash halfway left neither.
+
+  The order is now inverted. A complete candidate tree is assembled beside the live one, validated
+  against every schema and cross-reference the app has (`validate_graph`, built in the schema work
+  for exactly this), and only then are the finished directories swapped in — moving the live ones
+  aside rather than deleting them, so a failure part-way through can still be undone. **"Replace" now
+  means the candidate does not carry the old contents unless the archive supplies them**, not "delete
+  the live area first"; that reading is what made the operation destructive before it had decided
+  anything. The pre-restore safety backup is taken only once the candidate has passed — a safety copy
+  of a restore that was never going to happen is just clutter.
+
+  An uploaded zip is the only file in this app that comes from outside it, so it is now refused for:
+  traversal in either separator style, absolute and drive-letter paths, symlinks and device nodes,
+  duplicate or case-colliding entries, CRC failures, and decompression bombs by ratio, entry size,
+  total size or entry count. Every rejection is asserted to leave the live tree **byte-for-byte
+  identical**, with no staging folder left behind.
+
+  Restore logic moved to `pipeline/restore.py`; the endpoint is request parsing and response
+  formatting.
+
+
+- **A category name or icon could put working script into every screen that showed it.** Names are
+  free text and were interpolated straight into markup; icons were free text rendered between
+  `<md-icon>` tags. Renaming a category was therefore enough to run code in the app — for anyone on
+  the network in LAN mode, and through an imported config or a restored backup. Names are now escaped
+  at every HTML sink (they stay unescaped in `catName()` itself, because chart labels are drawn to a
+  canvas and would otherwise show `&amp;`), and **every icon passes through one validator**,
+  `safeIcon()`, instead of being escaped at each of a dozen sinks — the dozenth is the one that gets
+  forgotten. The server refuses a non-Material-Symbol icon on the way in as well. A browser test
+  plants a payload and asserts it renders as text.
 
 ## [1.0.0] - 2026-07-22
 
