@@ -635,11 +635,19 @@ print("== the admission gate cannot be skipped by asserting it was passed")
 from pipeline import extraction as _extraction  # noqa: E402
 receipt_dir = Path(tempfile.mkdtemp(prefix="fa-receipt-"))
 subject = receipt_dir / "statement.csv"
-subject.write_text("date,amount\n2026-01-01,-1.00\n", encoding="utf-8")
-receipt = {"file_sha256": _extraction._file_digest(subject)}
+shutil.copy2(csv_path, subject)
+receipt = _extraction.admit(honest, subject)
 check("a receipt for these exact bytes is accepted",
       _extraction.check_admission(receipt, subject) is not None)
-subject.write_text("date,amount\n2026-01-01,-9999.00\n", encoding="utf-8")
+forged = dict(receipt)
+forged.pop("seal")
+check("a caller cannot forge admission by hashing the current bytes",
+      _rejects_admission(forged, subject),
+      "a file digest says nothing about whether reconciliation ran")
+forged = dict(receipt, rows=receipt["rows"] + 1)
+check("and signed reconciliation facts cannot be altered",
+      _rejects_admission(forged, subject))
+subject.write_bytes(subject.read_bytes() + b"\n")
 check("a file edited after reconciliation is refused",
       _rejects_admission(receipt, subject),
       "the file could be reconciled, then changed, then imported")
@@ -648,7 +656,7 @@ check("and a receipt with no digest is refused", _rejects_admission({"rows": 3},
 shutil.rmtree(receipt_dir)
 
 
-MIN_CHECKS = 109
+MIN_CHECKS = 111
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

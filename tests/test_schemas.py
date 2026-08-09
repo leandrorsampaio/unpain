@@ -25,7 +25,7 @@ os.environ["FA_ROOT"] = str(tmp)
 build_sandbox(tmp)
 
 sys.path.insert(0, str(PROJECT))
-from pipeline import ingest, schemas, store  # noqa: E402
+from pipeline import closings, ingest, schemas, store  # noqa: E402
 from pipeline.util import write_json  # noqa: E402
 
 ingest.run(verbose=False)
@@ -230,6 +230,15 @@ CORRUPTIONS = [
     ("rules/categories.json", {"categories": [{"slug": "a", "name": "A", "subs": []},
                                               {"slug": "a", "name": "Again", "subs": []}]},
      "two category groups sharing a stable id"),
+    ("rules/budgets.json", {"budgets": "not-an-object"},
+     "a budget envelope whose targets are not an object"),
+    ("rules/recurring-overrides.json", {"force": "EVERYTHING", "never": []},
+     "recurring overrides whose force list is text"),
+    ("data/anomaly-dismissals.json", {"version": 1, "dismissed": {"x": {}}},
+     "a dismissal with no evidence fingerprint"),
+    ("data/%d/audit-checkpoints.json" % year,
+     {"version": 1, "checkpoints": {"last-import": {"id": "last-import"}}},
+     "an audit checkpoint with no snapshot"),
 ]
 for relative, document, label in CORRUPTIONS:
     path = tmp / relative
@@ -280,6 +289,21 @@ check("append_transactions refuses a malformed row",
               code="not-finite") is None)
 check("and wrote no file for it",
       not (transactions / "should-not-exist.jsonl").exists())
+months_path = tmp / "data" / str(year) / "months.json"
+months_before = months_path.read_bytes() if months_path.exists() else None
+check("save_months_state validates before publishing",
+      rejects(lambda: store.save_months_state(year, {"%d-13" % year: "closed"}),
+              code="bad-key") is None)
+check("and a rejected month lock leaves the previous bytes untouched",
+      (months_path.read_bytes() if months_path.exists() else None) == months_before)
+closings_path = tmp / "data" / str(year) / "closings.json"
+closings_before = closings_path.read_bytes() if closings_path.exists() else None
+check("closings validate nested settlement money before publishing",
+      rejects(lambda: closings.save(year, {"annual": {
+          "settlement": {"paid": {PEOPLE[0]: float("nan")}}}}),
+              code="not-finite") is None)
+check("and a rejected closing leaves the previous bytes untouched",
+      (closings_path.read_bytes() if closings_path.exists() else None) == closings_before)
 
 
 print("== errors are machine-readable, not just prose")
@@ -295,7 +319,7 @@ except schemas.SchemaError as exc:
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 75
+MIN_CHECKS = 87
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

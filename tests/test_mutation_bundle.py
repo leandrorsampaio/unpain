@@ -128,13 +128,45 @@ check("the journal is cleared", not (root / bundle.JOURNAL_NAME).exists())
 check("recovering again is a no-op", bundle.recover(root) is None)
 check("recovering a clean root is a no-op", bundle.recover(root) is None)
 
+# Recovery belongs to the boundary itself. A CLI process does not run FastAPI's
+# startup hook, so its next mutation must recover the previous one before replacing
+# the journal or staging directory.
+write_json(MONTHS, {"%d-01" % YEAR: "open"})
+staging.mkdir(parents=True, exist_ok=True)
+shutil.copy2(MONTHS, staging / "000")
+bundle._write_journal(root, {
+    "stage": "running", "name": "first-cli-run", "started_at": "2026-01-01T00:00:00+00:00",
+    "entries": [{"path": str(MONTHS), "snapshot": "000", "existed": True}]})
+write_json(MONTHS, {"%d-01" % YEAR: "closed"})
+with bundle.bundle("second-cli-run", [CLOSINGS], root=root):
+    recovered_before_body = json.loads(MONTHS.read_text()).get("%d-01" % YEAR) == "open"
+    write_json(CLOSINGS, {"annual": {"income": 1}})
+check("the next mutation recovers an interrupted predecessor before its body runs",
+      recovered_before_body)
+check("and the new mutation is still allowed to complete",
+      json.loads(CLOSINGS.read_text())["annual"]["income"] == 1)
+check("the predecessor's journal and snapshots were not adopted",
+      not (root / bundle.JOURNAL_NAME).exists() and not staging.exists())
+CLOSINGS.unlink()
+
 # A journal destroyed by the same crash cannot say what to restore. Guessing is exactly
 # what this design refuses to do, so it reports instead of inventing.
 (root / bundle.JOURNAL_NAME).write_text("{half written", encoding="utf-8")
+staging.mkdir(parents=True, exist_ok=True)
+(staging / "evidence").write_text("do not erase", encoding="utf-8")
 outcome = bundle.recover(root)
 check("an unreadable journal is reported, not guessed at",
       bool(outcome) and outcome.get("unreadable"), str(outcome))
+try:
+    with bundle.bundle("must-not-start", [MONTHS], root=root):
+        pass
+    refused_unreadable = False
+except bundle.BundleRecoveryError:
+    refused_unreadable = True
+check("an unreadable predecessor blocks a new mutation without erasing evidence",
+      refused_unreadable and (staging / "evidence").read_text() == "do not erase")
 (root / bundle.JOURNAL_NAME).unlink()
+shutil.rmtree(staging)
 
 
 print("== closing a month is one unit, not three writes that hope")
@@ -214,7 +246,7 @@ check("and it fsyncs before publishing", "fsync" in appender and "os.replace" in
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 24
+MIN_CHECKS = 28
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

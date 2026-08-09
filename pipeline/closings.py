@@ -17,7 +17,7 @@ compute anything. They are only ever compared against a fresh recomputation.
 """
 from datetime import datetime, timezone
 
-from . import audit, settle, store
+from . import audit, schemas, settle, store
 from .util import cents, read_json, write_json, year_dir
 
 # The figures a person recognises. They are what the drift report quotes, but they are
@@ -76,6 +76,7 @@ def load(year):
 
 
 def save(year, obj):
+    schemas.validate_for_write(obj, schemas.closings_file, file=path(year))
     write_json(path(year), obj)
 
 

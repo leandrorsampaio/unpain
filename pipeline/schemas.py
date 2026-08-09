@@ -345,6 +345,27 @@ def closings_file(document, file=None):
         if "transactions" in record and not isinstance(record["transactions"], int):
             _fail("bad-type", "must be a whole number of transactions",
                   "%s.transactions" % key, file)
+        if record.get("closed_at") is not None:
+            text(record["closed_at"], "%s.closed_at" % key, file)
+        if record.get("digest") is not None:
+            text(record["digest"], "%s.digest" % key, file)
+        if record.get("digest_version") is not None and \
+                (isinstance(record["digest_version"], bool)
+                 or not isinstance(record["digest_version"], int)):
+            _fail("wrong-type", "must be a whole-number schema version",
+                  "%s.digest_version" % key, file)
+        settlement = record.get("settlement")
+        if settlement is not None:
+            mapping(settlement, "%s.settlement" % key, file)
+            for field in ("total_shared_expenses",):
+                if settlement.get(field) is not None:
+                    number(settlement[field], "%s.settlement.%s" % (key, field), file)
+            for field in ("ratio", "paid", "balances", "fair_share"):
+                values = settlement.get(field)
+                if values is not None:
+                    mapping(values, "%s.settlement.%s" % (key, field), file)
+                    for person, value in values.items():
+                        number(value, "%s.settlement.%s.%s" % (key, field, person), file)
     return document
 
 
@@ -444,6 +465,90 @@ def metadata_map_file(document, file=None):
     even a mapping would still crash the page that reads it.
     """
     mapping(document, "", file)
+    return document
+
+
+def balance_anchors_file(document, file=None):
+    sequence(document, "", file)
+    for index, record in enumerate(document):
+        balance_anchor(record, "[%d]" % index, file)
+    return document
+
+
+def budgets_file(document, file=None):
+    """Monthly targets by category. A string here crashes every budget consumer."""
+    mapping(document, "", file)
+    budgets = document.get("budgets", {})
+    mapping(budgets, "budgets", file)
+    for category, amount in budgets.items():
+        text(category, "budgets.[key]", file)
+        value = number(amount, "budgets.%s" % category, file)
+        if value < 0:
+            _fail("out-of-range", "a monthly target cannot be negative",
+                  "budgets.%s" % category, file)
+    return document
+
+
+def recurring_overrides_file(document, file=None):
+    mapping(document, "", file)
+    values = {}
+    for field in ("force", "never"):
+        rows = document.get(field, [])
+        sequence(rows, field, file)
+        values[field] = []
+        for index, merchant in enumerate(rows):
+            values[field].append(text(merchant, "%s[%d]" % (field, index), file))
+        if len(values[field]) != len(set(values[field])):
+            _fail("duplicate", "%s contains the same merchant more than once" % field,
+                  field, file)
+    overlap = sorted(set(values.get("force", ())) & set(values.get("never", ())))
+    if overlap:
+        _fail("contradiction", "merchant %r is both forced and forbidden" % overlap[0],
+              "force", file)
+    return document
+
+
+def anomaly_dismissals_file(document, file=None):
+    mapping(document, "", file)
+    version = document.get("version", 1)
+    if isinstance(version, bool) or not isinstance(version, int):
+        _fail("wrong-type", "version must be a whole number", "version", file)
+    dismissed = document.get("dismissed", {})
+    mapping(dismissed, "dismissed", file)
+    for anomaly_id, record in dismissed.items():
+        text(anomaly_id, "dismissed.[key]", file)
+        mapping(record, "dismissed.%s" % anomaly_id, file)
+        text(_require(record.get("fingerprint"), "dismissed.%s.fingerprint" % anomaly_id, file),
+             "dismissed.%s.fingerprint" % anomaly_id, file)
+        text(_require(record.get("dismissed_at"), "dismissed.%s.dismissed_at" % anomaly_id, file),
+             "dismissed.%s.dismissed_at" % anomaly_id, file)
+    return document
+
+
+def audit_checkpoints_file(document, file=None):
+    mapping(document, "", file)
+    version = document.get("version", 1)
+    if isinstance(version, bool) or not isinstance(version, int):
+        _fail("wrong-type", "version must be a whole number", "version", file)
+    checkpoints = document.get("checkpoints", {})
+    mapping(checkpoints, "checkpoints", file)
+    for slot, record in checkpoints.items():
+        where = "checkpoints.%s" % slot
+        text(slot, "checkpoints.[key]", file)
+        mapping(record, where, file)
+        for field in ("id", "kind", "created_at", "label"):
+            text(_require(record.get(field), "%s.%s" % (where, field), file),
+                 "%s.%s" % (where, field), file)
+        mapping(_require(record.get("metadata"), where + ".metadata", file),
+                where + ".metadata", file)
+        snapshot = mapping(_require(record.get("snapshot"), where + ".snapshot", file),
+                           where + ".snapshot", file)
+        mapping(_require(snapshot.get("lines"), where + ".snapshot.lines", file),
+                where + ".snapshot.lines", file)
+        mapping(_require(snapshot.get("figures"), where + ".snapshot.figures", file),
+                where + ".snapshot.figures", file)
+        mapping(_require(snapshot.get("settlement"), where + ".snapshot.settlement", file),
+                where + ".snapshot.settlement", file)
     return document
 
 
@@ -622,7 +727,7 @@ def validate_graph(root, *, selected_parts=None):
         # candidate was fine — the gate is only as wide as its inventory.
         for name, validator in (("months.json", months_file),
                                 ("closings.json", closings_file),
-                                ("audit-checkpoints.json", metadata_map_file)):
+                                ("audit-checkpoints.json", audit_checkpoints_file)):
             path = year_dir / name
             if path.exists():
                 try:
@@ -637,10 +742,10 @@ def validate_graph(root, *, selected_parts=None):
                 add(exc)
 
     for path, validator in ((root / "data" / "uploads.json", uploads_file),
-                            (root / "data" / "anomaly-dismissals.json", metadata_map_file),
+                            (root / "data" / "anomaly-dismissals.json", anomaly_dismissals_file),
                             (root / "rules" / "tax-buckets.json", tax_buckets_file),
-                            (root / "rules" / "recurring-overrides.json", metadata_map_file),
-                            (root / "rules" / "budgets.json", metadata_map_file)):
+                            (root / "rules" / "recurring-overrides.json", recurring_overrides_file),
+                            (root / "rules" / "budgets.json", budgets_file)):
         if path.exists():
             try:
                 load_and_validate(path, validator)

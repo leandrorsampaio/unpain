@@ -19,7 +19,9 @@ file changed between the reconciliation and the import and neither number means
 anything.
 """
 import hashlib
+import hmac
 import math
+import secrets
 from pathlib import Path
 
 from . import formats
@@ -28,6 +30,19 @@ from .util import cents
 
 class ExtractionRejected(ValueError):
     """The extraction did not prove itself. Nothing may be imported."""
+
+
+# Receipts live only for the process that performed the reconciliation.  The seal is
+# deliberately not persisted: an admission is permission to continue this operation,
+# not a reusable credential that can be copied beside another import.  A digest alone
+# only proves which bytes the caller hashed; it says nothing about whether `admit()` ran.
+_RECEIPT_KEY = secrets.token_bytes(32)
+_RECEIPT_FIELDS = ("file_sha256", "rows", "total_cents", "opening_cents", "closing_cents")
+
+
+def _receipt_seal(facts):
+    payload = "\n".join("%s=%s" % (field, facts[field]) for field in _RECEIPT_FIELDS)
+    return hmac.new(_RECEIPT_KEY, payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def storable(value):
@@ -113,8 +128,14 @@ def check_admission(admission, csv_path):
     receipt `admit()` returned, and it must be the receipt for the bytes about to be
     imported — otherwise a file could be reconciled, edited, and then ingested.
     """
-    if not isinstance(admission, dict) or not admission.get("file_sha256"):
+    if not isinstance(admission, dict) or any(field not in admission for field in _RECEIPT_FIELDS) \
+            or not admission.get("seal"):
         raise ExtractionRejected("no admission receipt: this file has not been reconciled")
+    expected_seal = _receipt_seal(admission)
+    if not hmac.compare_digest(str(admission["seal"]), expected_seal):
+        raise ExtractionRejected(
+            "invalid admission receipt: its reconciliation facts were not issued by the "
+            "admission service in this process")
     actual = _file_digest(csv_path)
     if admission["file_sha256"] != actual:
         raise ExtractionRejected(
@@ -176,9 +197,11 @@ def admit(report, csv_path, trusted_opening_cents=None):
             "the report reconciled %d transaction(s) but the file it wrote holds %d"
             % (claimed_count, len(rows)))
     _check_anchors(report, opening, closing)
-    return {"rows": len(rows), "total_cents": total,
-            "opening_cents": opening, "closing_cents": closing,
+    receipt = {"rows": len(rows), "total_cents": total,
+               "opening_cents": opening, "closing_cents": closing,
             # The receipt names the exact bytes that were reconciled. `admitted=True` used
             # to be a bare boolean: whoever called it asserted the gate had run, and
             # nothing could check the assertion or tell which file it was about.
             "file": str(csv_path), "file_sha256": _file_digest(csv_path)}
+    receipt["seal"] = _receipt_seal(receipt)
+    return receipt

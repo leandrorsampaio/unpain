@@ -24,7 +24,7 @@ total, and a snapshot that disagrees with a fresh recomputation loses.
 import hashlib
 from datetime import datetime, timezone
 
-from . import settle, store
+from . import schemas, settle, store
 from .util import cents, read_json, write_json, year_dir
 
 # The stored shape. Bumped independently of closings.DIGEST_VERSION, because the two
@@ -166,7 +166,9 @@ def load_checkpoints(year):
 
 
 def save_checkpoints(year, checkpoints):
-    write_json(path(year), {"version": 1, "checkpoints": checkpoints})
+    document = {"version": 1, "checkpoints": checkpoints}
+    schemas.validate_for_write(document, schemas.audit_checkpoints_file, file=path(year))
+    write_json(path(year), document)
 
 
 def checkpoint(year, kind, *, period=None, label=None, metadata=None, month=None, when=None):

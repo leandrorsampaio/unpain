@@ -208,7 +208,9 @@ def months_state(year):
 
 
 def save_months_state(year, obj):
-    write_json(year_dir(year) / "months.json", obj)
+    target = year_dir(year) / "months.json"
+    schemas.validate_for_write(obj, schemas.months_file, file=target)
+    write_json(target, obj)
 
 
 def effective_year(year):

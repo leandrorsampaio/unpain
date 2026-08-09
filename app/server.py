@@ -29,7 +29,7 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline import anchors, anomalies, audit, balances, bundle, closings, coverage, doctor, export_meta, extraction, format_lint, fx_audit, ingest, restore as restore_service, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
+from pipeline import anchors, anomalies, audit, balances, bundle, closings, coverage, doctor, export_meta, extraction, format_lint, fx_audit, ingest, restore as restore_service, networth, overview, recurring, rules_engine, schemas, settle, store, transfers  # noqa: E402
 from pipeline.mutation_lock import async_mutation_lock, mutation_lock  # noqa: E402
 from pipeline.util import DATA, ICON_NAME, INBOX, ROOT, RULES, cents, load_config, read_json, write_json, load_accounts  # noqa: E402
 
@@ -864,7 +864,9 @@ class Budgets(BaseModel):
 @app.post("/api/budgets")
 def set_budgets(b: Budgets):
     clean = {k: float(v) for k, v in b.budgets.items() if v not in (None, "", 0)}
-    write_json(BUDGETS_FILE, {"_help": "Monthly targets in EUR per category slug.", "budgets": clean})
+    document = {"_help": "Monthly targets in EUR per category slug.", "budgets": clean}
+    schemas.validate_for_write(document, schemas.budgets_file, file=BUDGETS_FILE)
+    write_json(BUDGETS_FILE, document)
     return {"ok": True}
 
 
@@ -1117,6 +1119,7 @@ def set_ratio_override(o: RatioOverride):
                 or sum(values.values()) <= 0:
             raise HTTPException(400, "ratio values must be finite, non-negative and sum to more than zero")
         data[key] = values
+    schemas.validate_for_write(data, schemas.ratio_overrides_file, file=path, people=people)
     write_json(path, data)
     return {"ok": True, "overrides": data}
 
@@ -2628,7 +2631,9 @@ def _uploads():
 
 
 def _save_uploads(items):
-    write_json(UPLOADS_FILE, {"uploads": items})
+    document = {"uploads": items}
+    schemas.validate_for_write(document, schemas.uploads_file, file=UPLOADS_FILE)
+    write_json(UPLOADS_FILE, document)
 
 
 def _staging():
@@ -2797,6 +2802,16 @@ def ingest_process():
     remaining = list(staging)
     for e in ready:
         src = STAGING / e["stored"]
+        # The exception rollback below keeps a useful error on the staged row, but it
+        # lives only in this process.  A power loss or SIGKILL cannot execute it.  Keep
+        # a durable before-image of every tree this attempt may mutate so startup (or
+        # the next CLI/web mutation) can restore the whole attempt after a hard crash.
+        # Broad directories are intentional here: the exact years are unknown until a
+        # PDF has been extracted, while the journal must predate the first extractor or
+        # staging write.  The household store is small and correctness wins this trade.
+        attempt_bundle = bundle.bundle(
+            "web-ingest:%s" % e["id"], [DATA, STAGING, INBOX / "processed"])
+        attempt_bundle.__enter__()
         # One staged statement changes several canonical files (transaction sources,
         # transfer marks, anchors and uploads metadata) and may move the source PDF.
         # Snapshot each attempt after prior successes, so any later exception restores
@@ -2837,19 +2852,20 @@ def ingest_process():
                             None)
                         if recorded is not None:
                             trusted_opening = cents(recorded.get("balance"))
-                    e["admission"] = extraction.admit(
+                    admission = extraction.admit(
                         report, extracted, trusted_opening_cents=trusted_opening)
                 except extraction.ExtractionRejected as rejected:
                     extracted.unlink(missing_ok=True)
                     e["error"] = "Extraction failed reconciliation: %s. No data was imported." % rejected
                     results.append({"file": e["original_name"], "status": "error", "detail": e["error"]})
+                    attempt_bundle.__exit__(None, None, None)
                     continue
                 data_before = _snapshot_years(ingest.mutation_years(
                     extracted, report.get("balance_anchors") or []))
                 source_stem = "%s__%s" % (acct, e["id"])
                 stats = ingest.ingest_upload(extracted, acct, source_stem,
                                              original_name=e["original_name"],
-                                             admission=e["admission"])
+                                             admission=admission)
                 extracted.unlink(missing_ok=True)
                 # The extractor proved these balances against the statement's own
                 # arithmetic; recording them turns each import into a checkpoint the
@@ -2953,6 +2969,10 @@ def ingest_process():
             results.append({"file": e["original_name"], "status": "error", "detail": e["error"]})
             _save_staging(remaining)
             _save_uploads(uploads)
+        # Both success and a handled failure now describe a complete, deliberately
+        # persisted state.  Unhandled BaseException/process death never reaches this
+        # line, leaving the journal for deterministic recovery.
+        attempt_bundle.__exit__(None, None, None)
     return {"results": results}
 
 
@@ -3056,6 +3076,12 @@ class NewSubcategory(BaseModel):
     name: str
 
 
+def _save_categories(document):
+    target = RULES / "categories.json"
+    schemas.validate_for_write(document, schemas.categories_file, file=target)
+    write_json(target, document)
+
+
 @app.post("/api/category")
 def add_subcategory(s: NewSubcategory):
     data = read_json(RULES / "categories.json")
@@ -3067,7 +3093,7 @@ def add_subcategory(s: NewSubcategory):
             if any(x["slug"] == slug for x in c["subs"]):
                 raise HTTPException(400, "subcategory exists")
             c["subs"].append({"slug": slug, "name": s.name})
-            write_json(RULES / "categories.json", data)
+            _save_categories(data)
             return {"ok": True, "slug": "%s/%s" % (s.group, slug)}
     raise HTTPException(404, "unknown group")
 
@@ -3121,14 +3147,14 @@ def category_add(c: CategoryAdd):
         if any(g["slug"] == slug for g in data["categories"]):
             raise HTTPException(400, "a category with that name already exists")
         data["categories"].append({"slug": slug, "name": c.name.strip(), "type": c.type, "subs": []})
-        write_json(RULES / "categories.json", data)
+        _save_categories(data)
         return {"ok": True, "slug": slug}
     for g in data["categories"]:
         if g["slug"] == c.parent:
             if any(s["slug"] == slug for s in g["subs"]):
                 raise HTTPException(400, "a subcategory with that name already exists here")
             g["subs"].append({"slug": slug, "name": c.name.strip()})
-            write_json(RULES / "categories.json", data)
+            _save_categories(data)
             return {"ok": True, "slug": "%s/%s" % (c.parent, slug)}
     raise HTTPException(404, "unknown group")
 
@@ -3164,7 +3190,7 @@ def category_rename(r: CategoryRename):
     if g is None:
         raise HTTPException(404, "unknown category")
     (s or g)["name"] = name
-    write_json(RULES / "categories.json", data)
+    _save_categories(data)
     return {"ok": True}
 
 
@@ -3190,7 +3216,7 @@ def category_archive(a: CategoryArchive):
         target["archived"] = True
     else:
         target.pop("archived", None)
-    write_json(RULES / "categories.json", data)
+    _save_categories(data)
     return {"ok": True}
 
 
@@ -3213,7 +3239,7 @@ def category_style(s: CategoryStyle):
         g["color"] = s.color
     if s.icon is not None:
         g["icon"] = _icon_name(s.icon, "category icon")
-    write_json(RULES / "categories.json", data)
+    _save_categories(data)
     return {"ok": True}
 
 
@@ -3234,7 +3260,7 @@ def category_watch(w: CategoryWatch):
         sub["watch"] = True
     else:
         sub.pop("watch", None)
-    write_json(RULES / "categories.json", data)
+    _save_categories(data)
     return {"ok": True}
 
 
@@ -3265,7 +3291,7 @@ def category_delete(d: CategoryDelete):
         if used or ruled:
             raise HTTPException(409, "Used in %d transaction(s) / %d rule(s) — archive it instead." % (used, ruled))
         data["categories"] = [x for x in data["categories"] if x["slug"] != g["slug"]]
-    write_json(RULES / "categories.json", data)
+    _save_categories(data)
     # clean up an orphaned budget for a deleted slug
     budgets = read_json(BUDGETS_FILE, default={"budgets": {}}).get("budgets", {})
     if d.slug in budgets:

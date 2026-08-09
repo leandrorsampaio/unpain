@@ -30,7 +30,7 @@ import statistics
 from collections import defaultdict
 from datetime import date, timedelta
 
-from . import coverage, recurring, settle, store
+from . import coverage, recurring, schemas, settle, store
 from .util import DATA, cents, load_accounts, read_json, write_json
 
 DISMISSALS_PATH = DATA / "anomaly-dismissals.json"
@@ -93,7 +93,10 @@ def dismiss(anomaly_id, evidence_fingerprint, when=None):
         "fingerprint": evidence_fingerprint,
         "dismissed_at": (when or _utc_now()),
     }
-    write_json(DISMISSALS_PATH, {"version": 1, "dismissed": dismissed})
+    document = {"version": 1, "dismissed": dismissed}
+    schemas.validate_for_write(document, schemas.anomaly_dismissals_file,
+                               file=DISMISSALS_PATH)
+    write_json(DISMISSALS_PATH, document)
     return dismissed[anomaly_id]
 
 

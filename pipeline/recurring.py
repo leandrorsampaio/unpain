@@ -16,7 +16,7 @@ from collections import defaultdict
 from datetime import date
 
 from .util import RULES, cents, read_json, write_json
-from . import money, settle, store
+from . import money, schemas, settle, store
 
 OVERRIDES_PATH = RULES / "recurring-overrides.json"
 
@@ -53,6 +53,7 @@ def set_override(key, state):
     o["never"] = [k for k in o["never"] if k != key]
     if state in ("force", "never"):
         o[state].append(key)
+    schemas.validate_for_write(o, schemas.recurring_overrides_file, file=OVERRIDES_PATH)
     write_json(OVERRIDES_PATH, o)
     return o
 

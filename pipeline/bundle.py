@@ -38,6 +38,10 @@ JOURNAL_NAME = ".bundle-journal.json"
 STAGING_NAME = ".bundle-staging"
 
 
+class BundleRecoveryError(RuntimeError):
+    """A previous mutation cannot be recovered safely, so no new one may start."""
+
+
 def _snapshot_target(staging, index):
     return staging / ("%03d" % index)
 
@@ -117,6 +121,15 @@ def bundle(name, paths, *, root=None):
     rollback can be explained rather than merely performed.
     """
     root = Path(root or ROOT)
+    # Recovery is a property of the mutation boundary, not of whichever entry point
+    # happened to start the application.  CLI ingestion does not run FastAPI's startup
+    # hook; without this check a second CLI run deleted the first run's snapshots below
+    # and overwrote its journal, permanently adopting the half-written state.
+    recovered = recover(root)
+    if recovered and recovered.get("unreadable"):
+        raise BundleRecoveryError(
+            "an earlier mutation has an unreadable recovery journal; refusing to overwrite "
+            "its snapshots at %s" % recovered.get("staging"))
     staging = root / STAGING_NAME
     _remove(staging)
     staging.mkdir(parents=True, exist_ok=True)

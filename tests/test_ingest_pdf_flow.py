@@ -20,7 +20,7 @@ shutil.copy(PROJECT / "examples" / "accounts.json", root / "data" / "accounts.js
 (root / "inbox" / "staging").mkdir(parents=True)
 
 from app import server  # noqa: E402
-from pipeline import anchors, store  # noqa: E402
+from pipeline import anchors, bundle, store  # noqa: E402
 
 
 ROWS = [("2025-01-02", "-12.34", "EUR", "SAFE TEST", "PDF extraction test", "", "false")]
@@ -50,7 +50,7 @@ def make_extractor(rows=None, **overrides):
     return extract
 
 
-def stage(extractor_id):
+def stage_only(extractor_id):
     stored = "s_%s__statement.pdf" % extractor_id
     (server.STAGING / stored).write_bytes(b"fake pdf")
     server._save_staging([{
@@ -58,6 +58,11 @@ def stage(extractor_id):
         "kind": "pdf", "size": 8, "hash": "test-hash-" + extractor_id, "account": "bank1-person1",
         "comment": "", "extractor": extractor_id, "allow_review": False,
     }])
+    return stored
+
+
+def stage(extractor_id):
+    stage_only(extractor_id)
     return server.ingest_process()
 
 
@@ -159,6 +164,32 @@ try:
     assert server._uploads() == []
     assert server._staging(), "metadata failure lost the staged source"
     server._save_staging([])
+
+    # A Python exception is the easy case: the handler above can unwind it. Prove the
+    # durable case by killing a child process after canonical rows have landed. No
+    # finally/except block runs in the child; recovery must come entirely from disk.
+    if hasattr(os, "fork"):
+        server.PDF_EXTRACTORS["hard-crash"] = {
+            "label": "hard-crash", "extract": make_extractor()}
+        staged_name = stage_only("hard-crash")
+        pid = os.fork()
+        if pid == 0:
+            server.anchors.record = lambda *_args, **_kwargs: os._exit(91)
+            server.ingest_process()
+            os._exit(92)
+        _, status = os.waitpid(pid, 0)
+        assert os.WIFEXITED(status) and os.WEXITSTATUS(status) == 91, status
+        assert (root / bundle.JOURNAL_NAME).exists(), "hard crash left no recovery journal"
+        recovered = bundle.recover(root)
+        store._EFFECTIVE_CACHE.clear()
+        assert recovered and recovered["name"].startswith("web-ingest:"), recovered
+        assert store.load_year_raw(2025) == [], "hard-crashed web import was adopted"
+        assert server._uploads() == []
+        assert (server.STAGING / staged_name).exists(), "recovery lost the staged statement"
+        assert server._staging()[0]["id"] == "s_hard-crash"
+        assert not list((server.INBOX / "processed").glob("*hard-crash*"))
+        server._save_staging([])
+        (server.STAGING / staged_name).unlink(missing_ok=True)
 
     # And the honest one goes all the way through.
     server.PDF_EXTRACTORS["test"] = {"label": "Test", "extract": make_extractor()}
