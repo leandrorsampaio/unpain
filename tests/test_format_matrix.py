@@ -214,6 +214,19 @@ print("== every declared format has a fixture")
 check("no format is left untested", declared == set(FIXTURES),
       "missing: %s | unknown: %s" % (sorted(declared - set(FIXTURES)), sorted(set(FIXTURES) - declared)))
 
+# The linter can only see that the `fixture` field is non-empty; the fixtures live here.
+# So this is where "the fixture it names actually exists" has to be asserted, or a
+# manifest can claim a statement nobody ever parsed with it.
+missing_fixture = []
+for path in (PROJECT / "pipeline" / "formats").glob("*.json"):
+    if path.name.endswith(".schema.json"):
+        continue
+    manifest = json.loads(path.read_text())
+    if manifest.get("fixture") not in FIXTURES:
+        missing_fixture.append((path.name, manifest.get("fixture")))
+check("every manifest names a fixture that exists here", not missing_fixture,
+      str(missing_fixture))
+
 
 # ---------------------------------------------------------------------------
 print("== each format reads its own statement correctly")

@@ -158,10 +158,18 @@ def lint_manifest(manifest, file, *, require_fixture=True):
     verified_at = manifest.get("verified_at")
     if verified_at is not None and not ISO_DATE.match(str(verified_at)):
         _problem(problems, file, "verified_at", "must be a YYYY-MM-DD date")
-    if require_fixture and not manifest.get("fixture"):
+    fixture = manifest.get("fixture")
+    if require_fixture and not fixture:
         _problem(problems, file, "fixture",
                  "is required: name the fixture that proves this format reads a statement",
                  "a format nobody has parsed a statement with is a guess")
+    elif fixture and manifest.get("name") and fixture != manifest["name"]:
+        # A non-empty string was all this used to require, so a manifest could point at
+        # another format's fixture — or at nothing at all — and pass. The fixture has to
+        # be the one that proves *this* format, and the suite keys them by format name.
+        _problem(problems, file, "fixture",
+                 "names %r but this format is %r" % (fixture, manifest["name"]),
+                 "the fixture must be the statement that proves this format")
     return problems
 
 

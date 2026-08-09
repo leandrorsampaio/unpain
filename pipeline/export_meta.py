@@ -33,7 +33,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from . import fx, money, settle, store
-from .util import DATA, ROOT, read_json
+from .util import DATA, ROOT, RULES, read_json
 
 SCHEMA_VERSION = 2
 METADATA_SHEET = "Metadata"
@@ -170,13 +170,14 @@ def _input_files(year):
         ("months.json", year_dir / "months.json"),
         ("closings.json", year_dir / "closings.json"),
         ("ratio-overrides.json", year_dir / "ratio-overrides.json"),
-        ("recurring-overrides.json", year_dir / "recurring-overrides.json"),
-        ("anchors.json", year_dir / "anchors.json"),
+        ("balance-anchors.json", year_dir / "balance-anchors.json"),
         ("accounts.json", DATA / "accounts.json"),
         ("uploads.json", DATA / "uploads.json"),
-        ("tax-buckets.json", DATA / "tax-buckets.json"),
-        ("merchant-rules.json", ROOT / "rules" / "merchant-rules.json"),
-        ("categories.json", ROOT / "rules" / "categories.json"),
+        ("tax-buckets.json", RULES / "tax-buckets.json"),
+        ("recurring-overrides.json", RULES / "recurring-overrides.json"),
+        ("budgets.json", RULES / "budgets.json"),
+        ("merchant-rules.json", RULES / "merchant-rules.json"),
+        ("categories.json", RULES / "categories.json"),
     ]
 
 

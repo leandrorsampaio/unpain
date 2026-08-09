@@ -9,6 +9,7 @@ import urllib.request
 import zipfile
 from datetime import date, datetime, timedelta, timezone
 
+from . import money
 from .util import DATA
 
 ECB_URL = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip"
@@ -142,4 +143,11 @@ def to_eur_details(amount, currency, day, *, allow_download=True):
     The one conversion helper every ingestion path uses, so the three of them cannot
     drift on which rate date they record."""
     details = rate_details(currency, day, allow_download=allow_download)
-    return dict(details, amount_original=amount, eur=round(amount / details["rate"], 2))
+    # Through the versioned policy, not `round(amount / rate, 2)`. A float division
+    # rounded afterwards disagrees with `money.convert_minor_units` by a cent on values
+    # that land on a boundary (-999.87 / 6.0 gives -166.65 one way and -166.64 the
+    # other), and the whole point of naming a rounding policy is that one module cannot
+    # quietly use a different one.
+    eur_cents = money.convert_minor_units(money.to_cents(amount, currency=currency),
+                                          details["rate"])
+    return dict(details, amount_original=amount, eur=eur_cents / 100.0)

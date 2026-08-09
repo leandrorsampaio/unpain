@@ -115,6 +115,56 @@ finally:
     settle.settlement = original_settlement
 
 
+print("== a settlement that conserves every cent and still asks the wrong person")
+# The check above only proved that money appearing from nowhere is caught. Move a cent
+# from one person's fair share to the other's and every sum still balances — the totals,
+# the paid figures, the zero-sum of the balances — while who owes whom has changed. That
+# is the error a conservation check cannot see, so it is the one worth testing.
+
+
+def shifted_settlement(year, month=None):
+    result = original_settlement(year, month)
+    if month is not None:
+        return result
+    fair = dict(result["fair_share"])
+    first, second = sorted(fair)[0], sorted(fair)[1]
+    fair[first] = round(fair[first] + 0.01, 2)
+    fair[second] = round(fair[second] - 0.01, 2)
+    return dict(result, fair_share=fair)
+
+
+settle.settlement = shifted_settlement
+try:
+    reported = has("conservation:balance-identity") + has("conservation:fair-share")
+    check("a cent moved between fair shares is caught", bool(reported),
+          str([f["check"] for f in findings()]))
+    check("and conservation alone would not have seen it",
+          not has("conservation:settlement"),
+          "if this fires, the scenario is not the compensating one it claims to be")
+finally:
+    settle.settlement = original_settlement
+
+
+def wrong_transfer(year, month=None):
+    result = original_settlement(year, month)
+    if month is not None or not result.get("transfer"):
+        return result
+    transfer = dict(result["transfer"])
+    transfer["amount"] = round((transfer.get("amount") or 0) + 5.0, 2)
+    return dict(result, transfer=transfer)
+
+
+settle.settlement = wrong_transfer
+try:
+    check("a transfer that does not clear the balance is caught",
+          bool(has("conservation:transfer")), str([f["check"] for f in findings()]))
+finally:
+    settle.settlement = original_settlement
+check("and the healthy store is clean on all three",
+      not has("conservation:balance-identity") and not has("conservation:fair-share")
+      and not has("conservation:transfer"))
+
+
 print("== a split that does not add up")
 # Checked where splits actually live — in the decisions. The effective view drops an
 # invalid split rather than applying it, so a check reading that view could never see
@@ -273,7 +323,7 @@ check("and severities are only the three defined",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 29
+MIN_CHECKS = 34
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

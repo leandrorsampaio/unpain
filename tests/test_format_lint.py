@@ -75,8 +75,8 @@ def _ambiguous():
     unambiguous, which is exactly what the linter guarantees, so the ambiguous case has
     to be constructed."""
     original = formats.load_formats
-    a = dict(VALID, name="alpha", signature=["Buchungstag", "Betrag"])
-    b = dict(VALID, name="beta", signature=["Buchungstag"])
+    a = dict(VALID, name="alpha", fixture="alpha", signature=["Buchungstag", "Betrag"])
+    b = dict(VALID, name="beta", fixture="beta", signature=["Buchungstag"])
     formats.load_formats = lambda: [a, b]
     try:
         formats.detect(tmp / "ambiguous.csv")
@@ -152,13 +152,13 @@ check("every problem in one manifest is reported, not just the first",
 
 
 print("== two formats may not both match one file")
-overlap = [("a.json", dict(VALID, name="a", signature=["Datum", "Betrag"])),
-           ("b.json", dict(VALID, name="b", signature=["Datum", "Betrag", "Extra"]))]
+overlap = [("a.json", dict(VALID, name="a", fixture="a", signature=["Datum", "Betrag"])),
+           ("b.json", dict(VALID, name="b", fixture="b", signature=["Datum", "Betrag", "Extra"]))]
 clashes = format_lint.overlapping_signatures(overlap)
 check("a signature that is a subset of another is reported", len(clashes) == 1, str(clashes))
 check("and both formats are named", set(clashes[0][:2]) == {"a", "b"}, str(clashes))
-distinct = [("a.json", dict(VALID, name="a", signature=["Datum", "Betrag"])),
-            ("b.json", dict(VALID, name="b", signature=["Booking Date", "Amount"]))]
+distinct = [("a.json", dict(VALID, name="a", fixture="a", signature=["Datum", "Betrag"])),
+            ("b.json", dict(VALID, name="b", fixture="b", signature=["Booking Date", "Amount"]))]
 check("distinct signatures do not clash", format_lint.overlapping_signatures(distinct) == [])
 check("the shipped catalogue has no overlaps",
       format_lint.overlapping_signatures(format_lint.load_manifests()) == [],
@@ -168,8 +168,8 @@ check("the shipped catalogue has no overlaps",
 print("== a catalogue is linted as a whole")
 catalogue = tmp / "formats"
 catalogue.mkdir()
-(catalogue / "one.json").write_text(json.dumps(dict(VALID, name="one")), encoding="utf-8")
-(catalogue / "two.json").write_text(json.dumps(dict(VALID, name="one")), encoding="utf-8")
+(catalogue / "one.json").write_text(json.dumps(dict(VALID, name="one", fixture="one")), encoding="utf-8")
+(catalogue / "two.json").write_text(json.dumps(dict(VALID, name="one", fixture="one")), encoding="utf-8")
 report = format_lint.lint(catalogue)
 check("two manifests with the same name are rejected",
       any("duplicates" in problem for problem in report["problems"]), str(report["problems"]))

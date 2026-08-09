@@ -249,7 +249,7 @@ check("renaming a category moves the source digest",
 categories_path.write_text(saved_categories)
 check("and restoring it moves back", field(export(), "Source digest") == baseline)
 
-buckets_path = tmp / "data" / "tax-buckets.json"
+buckets_path = tmp / "rules" / "tax-buckets.json"
 saved_buckets = buckets_path.read_text() if buckets_path.exists() else None
 buckets_path.write_text(json.dumps({"buckets": [{"slug": "probe", "name": "Probe"}]}),
                         encoding="utf-8")

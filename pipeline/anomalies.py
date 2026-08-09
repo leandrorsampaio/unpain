@@ -236,7 +236,9 @@ def near_duplicates(ctx):
             if tuple(sorted(ids)) in seen_exact:
                 continue
             evidence = {"dates": [first["date"], second["date"]], "days_apart": gap,
-                        "account": key[0], "original_cents": key[2],
+                        # key is (account, counterparty, purpose, cents) — key[2] is the
+                        # purpose text, which was being reported as the amount.
+                        "account": key[0], "original_cents": key[3],
                         "merchant": first.get("counterparty") or key[1]}
             out.append(_suggestion(
                 "near-duplicate", ids,

@@ -310,6 +310,143 @@ def merchant_rule(record, path="", file=None, *, people=()):
     return record
 
 
+MONTH_KEY = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+MONTH_STATES = ("open", "closed")
+
+
+def months_file(document, file=None):
+    """`{"2025-01": "closed", ...}` — which periods are locked.
+
+    A month state decides whether a decision is refused, so a key of "2026-13" or a state
+    of "banana" is not a cosmetic problem: it is a lock that silently does not lock.
+    """
+    mapping(document, "", file)
+    for key, value in document.items():
+        if key == "annual":
+            one_of(value, MONTH_STATES, key, file)
+            continue
+        if not MONTH_KEY.match(str(key)):
+            _fail("bad-key", "%r is not a month (YYYY-MM) or 'annual'" % key, key, file,
+                  fix="use YYYY-MM with a month between 01 and 12")
+        one_of(value, MONTH_STATES, key, file)
+    return document
+
+
+def closings_file(document, file=None):
+    """The recorded figures of a closed period. Read by nothing that computes money."""
+    mapping(document, "", file)
+    for key, record in document.items():
+        if key != "annual" and not MONTH_KEY.match(str(key)):
+            _fail("bad-key", "%r is not a month (YYYY-MM) or 'annual'" % key, key, file)
+        mapping(record, key, file)
+        for field in ("income", "expenses"):
+            if field in record:
+                number(record[field], "%s.%s" % (key, field), file)
+        if "transactions" in record and not isinstance(record["transactions"], int):
+            _fail("bad-type", "must be a whole number of transactions",
+                  "%s.transactions" % key, file)
+    return document
+
+
+def uploads_file(document, file=None):
+    """`{"uploads": [...]}` — the statements that were imported, and their hashes."""
+    mapping(document, "", file)
+    uploads = document.get("uploads", [])
+    sequence(uploads, "uploads", file)
+    for index, record in enumerate(uploads):
+        where = "uploads[%d]" % index
+        mapping(record, where, file)
+        text(record.get("id"), where + ".id", file)
+        for field in ("original_name", "account", "format", "file_hash"):
+            if record.get(field) is not None:
+                text(record[field], "%s.%s" % (where, field), file, allow_empty=True)
+        years = record.get("years")
+        if years is not None:
+            sequence(years, where + ".years", file)
+            for position, year in enumerate(years):
+                if not isinstance(year, int):
+                    _fail("bad-type", "must be a year as a number",
+                          "%s.years[%d]" % (where, position), file)
+    return document
+
+
+def categories_file(document, file=None):
+    """The category tree. Slugs are stable ids, so a duplicate one is a silent merge."""
+    mapping(document, "", file)
+    groups = document.get("categories")
+    sequence(groups, "categories", file)
+    seen = set()
+    for index, group in enumerate(groups):
+        where = "categories[%d]" % index
+        mapping(group, where, file)
+        slug = text(group.get("slug"), where + ".slug", file, pattern=SLUG)
+        text(group.get("name"), where + ".name", file)
+        if slug in seen:
+            _fail("duplicate", "slug %r is used twice; slugs are stable ids" % slug,
+                  where + ".slug", file, fix="rename one of them")
+        seen.add(slug)
+        subs = group.get("subs") or []
+        sequence(subs, where + ".subs", file)
+        sub_slugs = set()
+        for position, sub in enumerate(subs):
+            spot = "%s.subs[%d]" % (where, position)
+            mapping(sub, spot, file)
+            sub_slug = text(sub.get("slug"), spot + ".slug", file, pattern=SLUG)
+            text(sub.get("name"), spot + ".name", file)
+            if sub_slug in sub_slugs:
+                _fail("duplicate", "slug %r is used twice inside %s" % (sub_slug, slug),
+                      spot + ".slug", file)
+            sub_slugs.add(sub_slug)
+    return document
+
+
+def tax_buckets_file(document, file=None):
+    """`{"buckets": [...]}` — the tax categories a transaction can be filed under."""
+    mapping(document, "", file)
+    buckets = document.get("buckets")
+    sequence(buckets, "buckets", file)
+    seen = set()
+    for index, record in enumerate(buckets):
+        where = "buckets[%d]" % index
+        mapping(record, where, file)
+        slug = text(record.get("slug"), where + ".slug", file, pattern=SLUG)
+        text(record.get("name"), where + ".name", file)
+        if slug in seen:
+            _fail("duplicate", "bucket slug %r is used twice" % slug, where + ".slug", file)
+        seen.add(slug)
+    return document
+
+
+def ratio_overrides_file(document, file=None, *, people=()):
+    """Manual settlement ratios. A ratio outside 0–1 moves money for no stated reason."""
+    mapping(document, "", file)
+    for key, record in document.items():
+        if key != "annual" and not str(key).isdigit():
+            _fail("bad-key", "%r is not a month number or 'annual'" % key, key, file)
+        mapping(record, key, file)
+        for person, share in record.items():
+            if people and person not in people:
+                _fail("dangling-reference", "%r is not one of the household" % person,
+                      "%s.%s" % (key, person), file)
+            value = number(share, "%s.%s" % (key, person), file)
+            if not 0 <= value <= 1:
+                _fail("out-of-range", "a ratio is a fraction between 0 and 1, not %r" % share,
+                      "%s.%s" % (key, person), file,
+                      fix="use 0.6 for 60%, not 60")
+    return document
+
+
+def metadata_map_file(document, file=None):
+    """Dismissals and checkpoints: metadata about suggestions, never about money.
+
+    Held to a shape and nothing more. These files describe the ledger and are never read
+    to compute a figure, so an odd value here cannot move a total — but a file that is not
+    even a mapping would still crash the page that reads it.
+    """
+    mapping(document, "", file)
+    return document
+
+
 # ---------------------------------------------------------------- files
 
 def load_and_validate(path, validator, **kwargs):
@@ -390,7 +527,7 @@ def validate_graph(root, *, selected_parts=None):
     categories_path = root / "rules" / "categories.json"
     if categories_path.exists():
         try:
-            document = load_and_validate(categories_path, lambda d, file=None: mapping(d, "", file))
+            document = load_and_validate(categories_path, categories_file)
             for group in document.get("categories") or []:
                 for sub in group.get("subs") or []:
                     categories.add("%s/%s" % (group.get("slug"), sub.get("slug")))
@@ -477,6 +614,36 @@ def validate_graph(root, *, selected_parts=None):
                                             file=anchors_path, path="[%d].account" % index))
                     except SchemaError as exc:
                         add(exc)
+            except SchemaError as exc:
+                add(exc)
+
+        # The rest of the year's documents. Each was previously unvalidated, which meant a
+        # restore could stage `{"2026-13": "banana"}` as the month lock and be told the
+        # candidate was fine — the gate is only as wide as its inventory.
+        for name, validator in (("months.json", months_file),
+                                ("closings.json", closings_file),
+                                ("audit-checkpoints.json", metadata_map_file)):
+            path = year_dir / name
+            if path.exists():
+                try:
+                    load_and_validate(path, validator)
+                except SchemaError as exc:
+                    add(exc)
+        overrides_path = year_dir / "ratio-overrides.json"
+        if overrides_path.exists():
+            try:
+                load_and_validate(overrides_path, ratio_overrides_file, people=people)
+            except SchemaError as exc:
+                add(exc)
+
+    for path, validator in ((root / "data" / "uploads.json", uploads_file),
+                            (root / "data" / "anomaly-dismissals.json", metadata_map_file),
+                            (root / "rules" / "tax-buckets.json", tax_buckets_file),
+                            (root / "rules" / "recurring-overrides.json", metadata_map_file),
+                            (root / "rules" / "budgets.json", metadata_map_file)):
+        if path.exists():
+            try:
+                load_and_validate(path, validator)
             except SchemaError as exc:
                 add(exc)
 

@@ -1,6 +1,7 @@
 """Read-only whole-store data integrity checks."""
 import math
 from collections import Counter, defaultdict
+from fractions import Fraction
 from datetime import date
 
 from . import anchors, closings, format_lint, fx, fx_audit, ingest, rules_engine, schemas, settle, store
@@ -791,6 +792,43 @@ def _conservation_for(ctx, year):
                             "%.2f, balances %.2f (should be 0)."
                             % (shared / 100.0, paid / 100.0, fair / 100.0, balance / 100.0)))
 
+    # Conservation alone is blind to a compensating error: move a cent from one person's
+    # fair share to the other's and every sum above still holds while the settlement now
+    # asks the wrong person for money. So each person's figures are also checked
+    # individually, and the fair shares are recomputed here from the exact income
+    # weights rather than taken on trust.
+    for person in ctx["people"]:
+        expected = cents(result["paid"][person]) - cents(result["fair_share"][person])
+        if cents(result["balances"][person]) != expected:
+            out.append(_finding("error", "conservation:balance-identity", year,
+                                "%s's balance is %.2f but paid minus fair share is %.2f."
+                                % (person, cents(result["balances"][person]) / 100.0,
+                                   expected / 100.0)))
+
+    transfer = result.get("transfer") or {}
+    if transfer.get("amount") is not None and transfer.get("to"):
+        owed = cents(result["balances"].get(transfer["to"], 0))
+        if cents(transfer["amount"]) != max(owed, 0):
+            out.append(_finding("error", "conservation:transfer", year,
+                                "The settlement transfers %.2f to %s, whose balance is %.2f — "
+                                "the transfer must clear exactly the positive balance."
+                                % (cents(transfer["amount"]) / 100.0, transfer["to"],
+                                   owed / 100.0)))
+
+    income_half = _income_half_cents(counted, ctx)
+    total_income = sum(income_half.values())
+    if total_income > 0 and all(v >= 0 for v in income_half.values()) \
+            and not settle.ratio_overrides(year).get("annual"):
+        weights = {p: Fraction(income_half[p], total_income) for p in ctx["people"]}
+        expected = settle.allocate_cents(shared, weights, list(ctx["people"]))
+        actual = {p: cents(result["fair_share"][p]) for p in ctx["people"]}
+        if actual != expected:
+            out.append(_finding("error", "conservation:fair-share", year,
+                                "The fair shares are %s, but the exact allocation from the "
+                                "salary weights is %s — every cent is accounted for either "
+                                "way, so only who owes whom has moved."
+                                % (actual, expected)))
+
     # The three perspectives are a partition of everything, so they must add back to it.
     for field in ("income", "expenses"):
         whole = cents(settle.year_summary(year, scope="all")[field])
@@ -803,6 +841,30 @@ def _conservation_for(ctx, year):
                                 % (field, parts_total / 100.0, whole / 100.0)))
     del accounts
     return out
+
+
+def _income_half_cents(counted, ctx):
+    """The salary weights, recomputed here rather than read back from the settlement.
+
+    In half-cent units, matching what the ratio is derived from: a person's own salary
+    doubled, plus the whole couple pool (which is that pool's half in these units).
+    Computed from the same expanded lines the totals above were checked with, so this
+    does not inherit settle's view of who earned what.
+    """
+    ratio_cats = settle.ratio_income_categories()
+    people = list(ctx["people"])
+    individual = {person: 0 for person in people}
+    couple_total = 0
+    for txn, view, amount in counted:
+        if view["category"] not in ratio_cats:
+            continue
+        account = ctx["accounts"].get(txn["account"]) or {}
+        owner = txn.get("income_owner") or account.get("owner")
+        if owner == "couple":
+            couple_total += amount
+        elif owner in individual:
+            individual[owner] += amount
+    return {person: 2 * individual[person] + couple_total for person in people}
 
 
 def _fx_reproducible(ctx):

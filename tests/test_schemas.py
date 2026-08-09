@@ -202,6 +202,53 @@ check("and the tree is clean again", schemas.validate_graph(tmp)["ok"],
       str(schemas.validate_graph(tmp)["findings"][:2]))
 
 
+print("== the inventory covers every persisted family, not the convenient ones")
+# "Schemas at every persisted boundary" was true of five families and silently false of
+# the rest: months, closings, uploads, categories, tax buckets and ratio overrides had no
+# validator at all, so a restore could stage them corrupt and be told the candidate was
+# fine. Each case here seeds exactly one bad document and asserts the tree is refused.
+CORRUPTIONS = [
+    ("data/%d/months.json" % year, {"%d-13" % year: "closed"},
+     "a thirteenth month"),
+    ("data/%d/months.json" % year, {"%d-01" % year: "banana"},
+     "a month state nobody defined"),
+    ("data/%d/closings.json" % year, {"%d-01" % year: {"income": "lots"}},
+     "a recorded figure that is not a number"),
+    ("data/uploads.json", {"uploads": "not-a-list"},
+     "an uploads document that is not a list"),
+    ("data/uploads.json", {"uploads": [{"id": "x", "years": ["not-a-year"]}]},
+     "an upload whose year is text"),
+    ("rules/tax-buckets.json", {"buckets": "not-a-list"},
+     "a tax-bucket document that is not a list"),
+    ("rules/tax-buckets.json", {"buckets": [{"slug": "a", "name": "A"},
+                                            {"slug": "a", "name": "Also A"}]},
+     "two tax buckets sharing a slug"),
+    ("data/%d/ratio-overrides.json" % year, {"annual": {PEOPLE[0]: 60}},
+     "a settlement ratio written as a percentage"),
+    ("data/%d/ratio-overrides.json" % year, {"annual": {"nobody": 0.5}},
+     "a ratio for somebody who is not in the household"),
+    ("rules/categories.json", {"categories": [{"slug": "a", "name": "A", "subs": []},
+                                              {"slug": "a", "name": "Again", "subs": []}]},
+     "two category groups sharing a stable id"),
+]
+for relative, document, label in CORRUPTIONS:
+    path = tmp / relative
+    existed = path.read_text() if path.exists() else None
+    write_json(path, document)
+    report = schemas.validate_graph(tmp)
+    check("refused: %s" % label, not report["ok"],
+          "validate_graph accepted it, so restore would too")
+    check("  and it names the file", any(relative.split("/")[-1] in (f["file"] or "")
+                                         for f in report["findings"]),
+          str(report["findings"][:1]))
+    if existed is None:
+        path.unlink()
+    else:
+        path.write_text(existed)
+check("and the tree is clean once every document is restored",
+      schemas.validate_graph(tmp)["ok"], str(schemas.validate_graph(tmp)["findings"][:2]))
+
+
 print("== one bad file does not hide the rest")
 transactions = tmp / "data" / str(year) / "transactions"
 (transactions / "broken.jsonl").write_text('{"id": "x", not json\n', encoding="utf-8")
@@ -248,7 +295,7 @@ except schemas.SchemaError as exc:
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 54
+MIN_CHECKS = 75
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 
