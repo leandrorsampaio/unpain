@@ -29,11 +29,31 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pipeline import anchors, anomalies, audit, balances, closings, coverage, doctor, export_meta, extraction, format_lint, fx_audit, ingest, restore as restore_service, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
+from pipeline import anchors, anomalies, audit, balances, bundle, closings, coverage, doctor, export_meta, extraction, format_lint, fx_audit, ingest, restore as restore_service, networth, overview, recurring, rules_engine, settle, store, transfers  # noqa: E402
 from pipeline.mutation_lock import async_mutation_lock, mutation_lock  # noqa: E402
 from pipeline.util import DATA, ICON_NAME, INBOX, ROOT, RULES, cents, load_config, read_json, write_json, load_accounts  # noqa: E402
 
 app = FastAPI(title="FamilyAccountability")
+
+
+@app.on_event("startup")
+def recover_interrupted_writes():
+    """Undo any multi-file operation the last process did not finish.
+
+    Both recoveries roll *back* to a state that certainly existed; neither ever guesses
+    forward. That is the whole reason this is safe to run unattended at startup: the
+    worst case is that an import or a month-close has to be repeated, never that a
+    half-written state is adopted as if somebody had chosen it.
+    """
+    for name, recover in (("restore", restore_service.recover), ("bundle", bundle.recover)):
+        try:
+            outcome = recover(ROOT)
+            if outcome:
+                print("[startup] rolled back an interrupted %s: %s" % (name, outcome))
+        except Exception as exc:                # noqa: BLE001 - never block the app booting
+            print("[startup] could not check for an interrupted %s: %s" % (name, exc))
+
+
 STATIC = Path(__file__).parent / "static"
 # Bundled seed templates ship with the code, so resolve them from the repo dir, not the
 # (possibly separate, or empty-on-first-run) data ROOT — mirrors SCRIPTS_DIR below.
@@ -2984,17 +3004,22 @@ def close_month(m: MonthState):
         raise HTTPException(400, "state must be open or closed and month must be 1–12")
     states = store.months_state(m.year)
     states["%d-%02d" % (m.year, m.month)] = m.state
-    store.save_months_state(m.year, states)
+    # The lock, the recorded figures and the annual baseline are three files and one
+    # decision. A month marked closed whose baseline never landed is a month whose drift
+    # detection silently does nothing, so the three move together or not at all.
+    with bundle.bundle("close-month", [DATA / str(m.year) / "months.json",
+                                       DATA / str(m.year) / "closings.json"]):
+        store.save_months_state(m.year, states)
     # Record what the month contained at the moment it was called settled, so any
     # later change to it — by rule, by detection, by re-ingest — is visible instead
     # of silent. Reopening withdraws the claim, so the baseline goes with it.
-    if m.state == "closed":
-        closings.record(m.year, m.month)
-        if all(states.get("%d-%02d" % (m.year, month)) == "closed" for month in range(1, 13)):
-            closings.record_year(m.year)   # this month completed the year
-    else:
-        closings.drop(m.year, m.month)
-        closings.drop_year(m.year)         # the year is no longer fully settled
+        if m.state == "closed":
+            closings.record(m.year, m.month)
+            if all(states.get("%d-%02d" % (m.year, month)) == "closed" for month in range(1, 13)):
+                closings.record_year(m.year)   # this month completed the year
+        else:
+            closings.drop(m.year, m.month)
+            closings.drop_year(m.year)         # the year is no longer fully settled
     return {"ok": True}
 
 
@@ -3012,12 +3037,16 @@ def close_year(y: YearState):
     states = store.months_state(y.year)
     for month in range(1, 13):
         states["%d-%02d" % (y.year, month)] = y.state
-    store.save_months_state(y.year, states)
-    for month in range(1, 13):
-        closings.record(y.year, month) if y.state == "closed" else closings.drop(y.year, month)
-    # The annual settlement is the binding figure and does not follow from the twelve
-    # months: a ratio override applied to the year moves it while every month stays put.
-    closings.record_year(y.year) if y.state == "closed" else closings.drop_year(y.year)
+    # Twelve baselines plus the annual one, from one instruction. Landing eight of them
+    # is not a partial success; it is a year nobody can describe.
+    with bundle.bundle("close-year", [DATA / str(y.year) / "months.json",
+                                      DATA / str(y.year) / "closings.json"]):
+        store.save_months_state(y.year, states)
+        for month in range(1, 13):
+            closings.record(y.year, month) if y.state == "closed" else closings.drop(y.year, month)
+        # The annual settlement is the binding figure and does not follow from the twelve
+        # months: a ratio override applied to the year moves it while every month stays put.
+        closings.record_year(y.year) if y.state == "closed" else closings.drop_year(y.year)
     return {"ok": True}
 
 

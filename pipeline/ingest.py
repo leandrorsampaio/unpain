@@ -9,7 +9,7 @@ import json
 import shutil
 from collections import Counter
 
-from . import anchors, audit, extraction, formats, fx, store, transfers
+from . import anchors, audit, bundle, extraction, formats, fx, store, transfers
 from .mutation_lock import mutation_lock
 from .util import DATA, INBOX, load_accounts, read_json, txn_hash, year_dir
 
@@ -72,9 +72,17 @@ def mutation_years(path, anchor_rows=None):
 
 
 def run(verbose=True):
-    """Process the inbox while excluding web and other CLI mutations."""
+    """Process the inbox while excluding web and other CLI mutations.
+
+    An import is the widest multi-file write in the application: transactions across any
+    number of years, balance anchors, transfer marks and the upload log. Each of those
+    lands atomically on its own and the sequence between them does not, so the whole run
+    is one bundle — it finishes, or `data/` is exactly as it was.
+    """
     with mutation_lock():
-        return _run_locked(verbose)
+        # `bundle` never takes the lock, so this cannot deadlock against the one above.
+        with bundle.bundle("ingest", [DATA]):
+            return _run_locked(verbose)
 
 
 def _run_locked(verbose=True):

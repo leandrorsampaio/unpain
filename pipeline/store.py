@@ -94,9 +94,23 @@ def append_transactions(year, source_name, txns):
     for index, txn in enumerate(txns):
         schemas.validate_for_write(txn, schemas.raw_transaction, file=path,
                                    path="new row %d" % (index + 1))
-    with open(path, "a", encoding="utf-8") as f:
+    # Published, not appended. This was the one canonical writer that still wrote in
+    # place: an interrupted append leaves a half-written final line, and the file that
+    # every total is computed from is then corrupt at exactly the point nobody looks.
+    # The store is small enough that rewriting it costs nothing measurable, and the
+    # discipline is then the same everywhere — unique temporary name, fsync, rename.
+    tdir.mkdir(parents=True, exist_ok=True)
+    existing = path.read_bytes() if path.exists() else b""
+    tmp = path.with_suffix(".jsonl.%d.tmp" % os.getpid())
+    with open(tmp, "wb") as f:
+        f.write(existing)
+        if existing and not existing.endswith(b"\n"):
+            f.write(b"\n")
         for t in txns:
-            f.write(json.dumps(t, ensure_ascii=False) + "\n")
+            f.write((json.dumps(t, ensure_ascii=False) + "\n").encode("utf-8"))
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
 
 
 def rewrite_year(year, txns_by_file):

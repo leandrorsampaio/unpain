@@ -150,9 +150,18 @@ add/save/delete buttons.
   This has bitten three times (`ingest.run`, `/api/restore`); `tests/test_restore_safety.py` now fails
   the build on it. `/api/backup` is a GET that writes, so it *does* lock itself.
 - Exports carry a `Metadata` sheet (`pipeline/export_meta.py`) declaring sources, FX evidence,
-  review state and the digests of both the inputs and the written rows. It describes a snapshot and
-  is **never read back to compute one**. Both export endpoints take `as_of` so a workbook can be
-  rebuilt byte-for-byte; a file stamped with the current clock can never be compared against itself.
+  review state, a digest of the enumerated canonical **inputs** and a digest of the workbook's own
+  **cells**. It describes a snapshot and is **never read back to compute one**. Both endpoints take
+  `as_of` so a workbook can be rebuilt byte-for-byte — which also needs `finalize()`, because
+  openpyxl re-stamps `dcterms:modified` during `save()` and zip members carry their own clock.
+  `cli export-verify` reports INTACT (the cells match the file's own digest) and CURRENT (the store
+  still agrees) **separately**: checking only the second let an edited spreadsheet pass.
+- **A sequence of atomic writes is not atomic.** Every document publishes via temp+fsync+rename,
+  but an operation spanning several files (close a month, close a year, import) uses
+  `pipeline/bundle.py`: name the paths, and the body either lands whole or every path goes back.
+  Its journal outlives the process; `recover()` runs at startup for it and for restore. Both only
+  ever roll *back*, never forward — guessing which half-written state to adopt is the risk that
+  made the full mutation framework not worth building.
 - Categories: never delete, set `archived: true`. Slugs are stable ids.
 - Rule scope: `family` (default) applies everywhere; `<person>` scope applies only to that
   person's accounts and beats family rules. Couple-owned accounts match family rules only.
