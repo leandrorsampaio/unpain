@@ -442,6 +442,16 @@ check("and a decision that does not move it is not reported",
 
 
 # ---------------------------------------------------------------- portability
+def _rejects_admission(receipt, path):
+    """True when the admission gate refuses this receipt for this file."""
+    from pipeline import extraction as module
+    try:
+        module.check_admission(receipt, path)
+        return False
+    except module.ExtractionRejected:
+        return True
+
+
 print("== a lock that cannot exist must not stop the app existing")
 # The cross-process mutation lock is built on fcntl, which is POSIX-only. Importing it
 # unconditionally meant `import app.server` raised ModuleNotFoundError on the platform
@@ -618,7 +628,27 @@ check("an empty statement produces no anchors to record",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 105
+print("== the admission gate cannot be skipped by asserting it was passed")
+# `ingest_upload(..., admitted=True)` was a boolean the caller asserted: nothing could
+# check it, and nothing said which file it was about. It is now the receipt `admit()`
+# returned, bound to the exact bytes it reconciled.
+from pipeline import extraction as _extraction  # noqa: E402
+receipt_dir = Path(tempfile.mkdtemp(prefix="fa-receipt-"))
+subject = receipt_dir / "statement.csv"
+subject.write_text("date,amount\n2026-01-01,-1.00\n", encoding="utf-8")
+receipt = {"file_sha256": _extraction._file_digest(subject)}
+check("a receipt for these exact bytes is accepted",
+      _extraction.check_admission(receipt, subject) is not None)
+subject.write_text("date,amount\n2026-01-01,-9999.00\n", encoding="utf-8")
+check("a file edited after reconciliation is refused",
+      _rejects_admission(receipt, subject),
+      "the file could be reconciled, then changed, then imported")
+check("and no receipt at all is refused", _rejects_admission(None, subject))
+check("and a receipt with no digest is refused", _rejects_admission({"rows": 3}, subject))
+shutil.rmtree(receipt_dir)
+
+
+MIN_CHECKS = 109
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

@@ -173,8 +173,9 @@ def _admit_extracted(path, cfg=None):
     Any file detected as ``generic-extracted`` must arrive with its report, and any
     file that brings a report has that report re-checked here — against the CSV that
     is actually about to be imported, not against whatever the producer had in front
-    of it.  The deterministic PDF path passes ``admitted=True`` only after calling
-    :func:`pipeline.extraction.admit` itself.
+    of it.  The deterministic PDF path passes the receipt that
+    :func:`pipeline.extraction.admit` returned, and that receipt is checked against the
+    bytes about to be read — a receipt is only good for the file it was issued for.
     """
     report_file = report_path_for(path)
     if not report_file.is_file():
@@ -311,22 +312,23 @@ def cash_rows_with_ids(path=None, accounts=None):
     return derived
 
 
-def ingest_upload(path, account_id, source_stem, original_name=None, admitted=False):
+def ingest_upload(path, account_id, source_stem, original_name=None, admission=None):
     """Ingest ONE uploaded file under a unique `source_stem`, so it can later be
     deleted as a unit (see delete_upload). Explicit account (no filename rule).
     Entries fall into the correct year automatically. Returns a stats dict.
 
-    `admitted=True` means the caller already put this file through
-    extraction.admit — the PDF extractors do, on the CSV they just wrote. Anything
-    else claiming to be an extracted statement has to bring its report."""
+    `admission` is the receipt `extraction.admit` returned, and it is checked against the
+    bytes about to be read: a receipt is only good for the file it was issued for. This
+    used to be `admitted=True`, a boolean the caller asserted and nobody could verify.
+    Anything else claiming to be an extracted statement has to bring its report."""
     accounts, _ = load_accounts()
     if account_id not in accounts:
         raise ValueError("unknown account '%s'" % account_id)
-    if not admitted:
-        cfg = formats.detect(path)
+    cfg = formats.detect(path)
+    if admission is None:
         _admit_extracted(path, cfg)
     else:
-        cfg = formats.detect(path)
+        extraction.check_admission(admission, path)
     rows, stats = formats.parse(path, cfg, with_stats=True)
     by_year = {}
     occurrence = Counter()

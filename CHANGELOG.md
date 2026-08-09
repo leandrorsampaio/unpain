@@ -133,6 +133,11 @@ shape: in each case a test asserted the property but could not have observed its
   `key[3]`).
 - **The format linter accepted any non-empty fixture name**, so a manifest could point at
   another format's statement, or at one that does not exist.
+- **The admission gate could be skipped by asserting it had run.** `ingest_upload` took
+  `admitted=True`, a boolean the caller declared and nothing could check — and which named
+  no file, so a statement could be reconciled, edited, and then imported. It now takes the
+  receipt `extraction.admit()` returns, which carries the SHA-256 of the exact bytes that
+  were reconciled and is refused if they are not the bytes about to be read.
 
 ### Security
 

@@ -18,6 +18,7 @@ to the cent. It also holds the report to its own claims: a report that says it f
 file changed between the reconciliation and the import and neither number means
 anything.
 """
+import hashlib
 import math
 from pathlib import Path
 
@@ -101,6 +102,27 @@ def _check_anchors(report, opening, closing):
                                       opening / 100.0, closing / 100.0))
 
 
+def _file_digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def check_admission(admission, csv_path):
+    """Refuse an admission receipt that is missing, or is about a different file.
+
+    A gate that can be skipped by passing a flag is not a gate. The caller must show the
+    receipt `admit()` returned, and it must be the receipt for the bytes about to be
+    imported — otherwise a file could be reconciled, edited, and then ingested.
+    """
+    if not isinstance(admission, dict) or not admission.get("file_sha256"):
+        raise ExtractionRejected("no admission receipt: this file has not been reconciled")
+    actual = _file_digest(csv_path)
+    if admission["file_sha256"] != actual:
+        raise ExtractionRejected(
+            "the admission receipt is for different content than the file being imported "
+            "(reconciled %s, importing %s)" % (admission["file_sha256"][:12], actual[:12]))
+    return admission
+
+
 def admit(report, csv_path, trusted_opening_cents=None):
     """Verify an extraction report against the file it wrote. Raises, or returns facts.
 
@@ -155,4 +177,8 @@ def admit(report, csv_path, trusted_opening_cents=None):
             % (claimed_count, len(rows)))
     _check_anchors(report, opening, closing)
     return {"rows": len(rows), "total_cents": total,
-            "opening_cents": opening, "closing_cents": closing}
+            "opening_cents": opening, "closing_cents": closing,
+            # The receipt names the exact bytes that were reconciled. `admitted=True` used
+            # to be a bare boolean: whoever called it asserted the gate had run, and
+            # nothing could check the assertion or tell which file it was about.
+            "file": str(csv_path), "file_sha256": _file_digest(csv_path)}

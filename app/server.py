@@ -2848,7 +2848,8 @@ def ingest_process():
                     extracted, report.get("balance_anchors") or []))
                 source_stem = "%s__%s" % (acct, e["id"])
                 stats = ingest.ingest_upload(extracted, acct, source_stem,
-                                             original_name=e["original_name"], admitted=True)
+                                             original_name=e["original_name"],
+                                             admission=e["admission"])
                 extracted.unlink(missing_ok=True)
                 # The extractor proved these balances against the statement's own
                 # arithmetic; recording them turns each import into a checkpoint the
