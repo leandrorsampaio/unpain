@@ -1455,6 +1455,11 @@ def tax_export(year: int, as_of: str = ""):
     from openpyxl import Workbook
     from openpyxl.styles import Font
 
+    with mutation_lock():                  # one snapshot for rows and provenance alike
+        return _build_tax_export(year, as_of, Workbook, Font)
+
+
+def _build_tax_export(year, as_of, Workbook, Font):
     report = settle.tax_report(year)
     wb = Workbook()
     wb.remove(wb.active)
@@ -1490,17 +1495,17 @@ def tax_export(year: int, as_of: str = ""):
     # The tax pack is the workbook most likely to be read by somebody other than the
     # household — an accountant, a year later — so it is the one that most needs to say
     # what it was built from.
-    metadata = export_meta.build(year, export_type="Tax evidence",
-                                 rows=[item for bucket in report
-                                       for owner in sorted(bucket["owners"])
-                                       for item in bucket["owners"][owner]["items"]],
-                                 columns=["date", "amount", "counterparty", "id"],
+    metadata = export_meta.build(year, wb, export_type="Tax evidence",
+                                 row_count=sum(len(bucket["owners"][owner]["items"])
+                                               for bucket in report
+                                               for owner in bucket["owners"]),
                                  as_of=as_of or None)
     export_meta.write_sheet(wb, metadata, bold=bold)
     export_meta.normalize(wb, metadata)
     out = DATA / str(year) / ("tax-evidence-%d.xlsx" % year)
     out.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out)
+    export_meta.finalize(out, metadata)
     return FileResponse(out, filename="tax-evidence-%d.xlsx" % year,
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
@@ -1706,6 +1711,15 @@ def transactions_export(year: int, as_of: str = ""):
     from openpyxl.styles import Font
     from openpyxl.utils import get_column_letter
 
+    # One consistent snapshot: the rows and the provenance that describes them are read
+    # under the same lock, or an import landing between the two would produce a workbook
+    # whose metadata describes a store it was never built from. A GET that writes takes
+    # the lock itself — the middleware only serializes non-GET requests.
+    with mutation_lock():
+        return _build_transactions_export(year, as_of, Workbook, Font, get_column_letter)
+
+
+def _build_transactions_export(year, as_of, Workbook, Font, get_column_letter):
     rows = _export_rows(year)
     wb = Workbook()
     ws = wb.active
@@ -1741,14 +1755,15 @@ def transactions_export(year: int, as_of: str = ""):
     legend.column_dimensions["A"].width = 20
     legend.column_dimensions["B"].width = 100
 
-    metadata = export_meta.build(year, export_type="Transactions", rows=rows,
-                                 columns=headers, as_of=as_of or None)
+    metadata = export_meta.build(year, wb, export_type="Transactions",
+                                 row_count=len(rows), as_of=as_of or None)
     export_meta.write_sheet(wb, metadata, bold=Font(bold=True))
     export_meta.normalize(wb, metadata)
 
     out = DATA / str(year) / ("transactions-%d.xlsx" % year)
     out.parent.mkdir(parents=True, exist_ok=True)
     wb.save(out)
+    export_meta.finalize(out, metadata)
     return FileResponse(out, filename="transactions-%d.xlsx" % year,
                         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 

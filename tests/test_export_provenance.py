@@ -16,10 +16,13 @@ that gets emailed to an accountant.
 Usage: .venv/bin/python tests/test_export_provenance.py
 """
 import hashlib
+import io
+import json
 import os
 import shutil
 import sys
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -30,7 +33,7 @@ os.environ["FA_ROOT"] = str(tmp)
 build_sandbox(tmp)
 
 sys.path.insert(0, str(PROJECT))
-from pipeline import export_meta, ingest, store  # noqa: E402
+from pipeline import cli, export_meta, ingest, store  # noqa: E402
 from pipeline.util import write_json  # noqa: E402
 
 ingest.run(verbose=False)
@@ -86,11 +89,28 @@ def field(payload, label):
 
 print("== the same inputs produce the same bytes")
 first = export()
+# The delay is the whole point. The first version of this test built both workbooks in
+# the same second, so the ZIP member timestamps happened to match and openpyxl's
+# re-stamping of dcterms:modified inside save() was invisible. It reported a byte
+# identity that did not exist. Anything that reads a clock needs a clock to have moved.
+time.sleep(2)
 second = export()
-check("two exports at the same as_of are byte-identical", digest(first) == digest(second),
-      "%s != %s" % (digest(first)[:12], digest(second)[:12]))
-check("and the same is true of the tax pack",
-      digest(export("tax")) == digest(export("tax")))
+check("two exports at the same as_of are byte-identical, seconds apart",
+      digest(first) == digest(second), "%s != %s" % (digest(first)[:12], digest(second)[:12]))
+tax_first = export("tax")
+time.sleep(2)
+check("and the same is true of the tax pack", digest(tax_first) == digest(export("tax")))
+with zipfile.ZipFile(io.BytesIO(first)) as one, zipfile.ZipFile(io.BytesIO(second)) as two:
+    check("every zip member carries the declared time, not the wall clock",
+          {i.date_time for i in one.infolist()} == {i.date_time for i in two.infolist()},
+          str(sorted({i.date_time for i in one.infolist()})[:2]))
+    check("and the member order is stable",
+          one.namelist() == two.namelist())
+    core = one.read("docProps/core.xml").decode()
+    check("dcterms:modified is the declared stamp, not save() time",
+          "2026-01-02T03:04:05Z" in core and core.count("2026-01-02T03:04:05Z") == 2, core[-220:])
+    check("and the workbook still parses as XML after being rewritten",
+          "</cp:coreProperties>" in core and "<dcterms:modified" in core, core[-220:])
 check("a different as_of produces a different file",
       digest(export(as_of="2026-06-06T06:06:06+00:00")) != digest(first),
       "the timestamp is not reaching the file, so it is not really being declared")
@@ -111,7 +131,7 @@ by_file = store.load_year_by_file(YEAR)
 source_name = next(iter(by_file))
 original_rows = by_file[source_name]
 before_source = field(first, "Source digest")
-before_rows = field(first, "Row digest")
+before_rows = field(first, "Content digest")
 
 edited = [dict(row) for row in original_rows]
 edited[0] = dict(edited[0], amount_eur=round(edited[0]["amount_eur"] - 0.01, 2))
@@ -119,7 +139,7 @@ store.rewrite_year(YEAR, {source_name: edited})
 after = export()
 check("one cent on one transaction changes the source digest",
       field(after, "Source digest") != before_source)
-check("and changes the row digest", field(after, "Row digest") != before_rows)
+check("and changes the content digest", field(after, "Content digest") != before_rows)
 check("and the file itself differs", digest(after) != digest(first))
 store.rewrite_year(YEAR, {source_name: original_rows})
 check("restoring the row restores the digest", field(export(), "Source digest") == before_source,
@@ -140,7 +160,8 @@ print("== the metadata says what a reader needs")
 sheet = metadata_sheet(first)
 labels = {row[0] for row in sheet if row and row[0]}
 for required in ("Export type", "Reporting year", "Generated at", "App version",
-                 "Row count", "Row digest", "Source digest", "Rounding policy",
+                 "Row count", "Content digest", "Source digest", "Rounding policy",
+                 "Provenance",
                  "Sources", "Exchange rates", "Review state at export time",
                  "What the figures mean"):
     check("the sheet declares %r" % required, required in labels, str(sorted(labels))[:200])
@@ -191,8 +212,85 @@ book.close()
 path.unlink()
 
 
+print("== a workbook whose cells were edited no longer verifies")
+# The original verifier compared only the store's digest, so editing an amount inside the
+# spreadsheet and leaving the Metadata sheet alone still printed VERIFIED. The digest now
+# covers the workbook's own cells, which is the only thing that can answer "was this file
+# altered".
+from openpyxl import load_workbook as _load  # noqa: E402
+tampered = tmp / "tampered.xlsx"
+tampered.write_bytes(export())
+book = _load(tampered)
+data_sheet = book[book.sheetnames[0]]
+original_cell = data_sheet.cell(row=2, column=5).value
+data_sheet.cell(row=2, column=5).value = 999999.99
+book.save(tampered)
+book.close()
+check("an edited cell is caught", cli._export_verify(str(tampered)) == 1,
+      "a workbook can be altered and still pass")
+book = _load(tampered)
+book[book.sheetnames[0]].cell(row=2, column=5).value = original_cell
+book.save(tampered)
+book.close()
+check("and putting the cell back clears it", cli._export_verify(str(tampered)) == 0,
+      "the digest is not a function of the cells alone")
+
+
+print("== every input that can move a figure is in the source digest")
+baseline = field(export(), "Source digest")
+categories_path = tmp / "rules" / "categories.json"
+saved_categories = categories_path.read_text()
+document = json.loads(saved_categories)
+document["categories"][0]["name"] = "Renamed for the provenance test"
+categories_path.write_text(json.dumps(document), encoding="utf-8")
+check("renaming a category moves the source digest",
+      field(export(), "Source digest") != baseline,
+      "a category rename changes every label in the workbook")
+categories_path.write_text(saved_categories)
+check("and restoring it moves back", field(export(), "Source digest") == baseline)
+
+buckets_path = tmp / "data" / "tax-buckets.json"
+saved_buckets = buckets_path.read_text() if buckets_path.exists() else None
+buckets_path.write_text(json.dumps({"buckets": [{"slug": "probe", "name": "Probe"}]}),
+                        encoding="utf-8")
+check("a tax-bucket edit moves it too", field(export(), "Source digest") != baseline)
+if saved_buckets is None:
+    buckets_path.unlink()
+else:
+    buckets_path.write_text(saved_buckets)
+check("and back again", field(export(), "Source digest") == baseline)
+
+months_path = tmp / "data" / str(YEAR) / "months.json"
+months_path.write_text(json.dumps({"%d-01" % YEAR: "closed"}), encoding="utf-8")
+check("closing a month moves it", field(export(), "Source digest") != baseline)
+months_path.unlink()
+check("and reopening moves it back", field(export(), "Source digest") == baseline)
+
+check("but the credentials in config.json are not hashed at all",
+      "security" not in export_meta.CONFIG_INPUT_KEYS,
+      "an audit artifact must not carry so much as a hash of a password")
+
+
+print("== provenance that could not be gathered says so")
+saved_months = months_path.read_text() if months_path.exists() else None
+months_path.write_text("{not json at all", encoding="utf-8")
+broken = export()
+check("the export still succeeds", bool(broken))
+check("and marks its provenance INCOMPLETE",
+      str(field(broken, "Provenance")).startswith("INCOMPLETE"), str(field(broken, "Provenance")))
+check("and names what could not be determined",
+      "error" in " ".join(str(c) for row in metadata_sheet(broken) for c in row if c).lower()
+      or "COULD NOT BE DETERMINED" in " ".join(str(c) for row in metadata_sheet(broken)
+                                               for c in row if c),
+      "degrading to '-' hides the difference between 'none' and 'unknown'")
+if saved_months is None:
+    months_path.unlink(missing_ok=True)
+else:
+    months_path.write_text(saved_months)
+
+
 print("== the CLI can check an export against the store")
-from pipeline import cli  # noqa: E402
+export()                    # a fresh one: the section above deliberately left a stale file
 out = tmp / "data" / str(YEAR) / ("transactions-%d.xlsx" % YEAR)
 check("a fresh export verifies", cli._export_verify(str(out)) == 0)
 stale = [dict(row) for row in original_rows]
@@ -208,7 +306,7 @@ check("and passes once more when the store is put back",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 39
+MIN_CHECKS = 55
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

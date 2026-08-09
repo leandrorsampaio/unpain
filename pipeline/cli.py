@@ -16,34 +16,66 @@ def _export_verify(path):
     and "this spreadsheet is wrong", and nobody could tell them apart before.
     """
     from openpyxl import load_workbook
-    book = load_workbook(path, read_only=True, data_only=True)
-    if "Metadata" not in book.sheetnames:
+    # data_only=False: a formula must come back as the formula that was written. With
+    # data_only=True openpyxl returns the cached *result*, which nothing here computes,
+    # so every formula cell would read as empty and the digest could never match.
+    book = load_workbook(path, data_only=False)
+    if export_meta.METADATA_SHEET not in book.sheetnames:
         print("%s carries no Metadata sheet: it predates export provenance and cannot be "
               "verified." % path)
         return 1
     declared = {}
-    for row in book["Metadata"].iter_rows(values_only=True):
+    for row in book[export_meta.METADATA_SHEET].iter_rows(values_only=True):
         if row and row[0] and len(row) > 1 and row[1] is not None:
             declared.setdefault(str(row[0]), str(row[1]))
-    year = declared.get("Reporting year")
+
     print("%s" % path)
     for label in ("Export type", "Reporting year", "Generated at", "App version",
-                  "Row count", "Row digest", "Source digest"):
+                  "Schema version", "Provenance", "Row count", "Content digest",
+                  "Source digest"):
         if label in declared:
             print("  %-16s %s" % (label, declared[label]))
+
+    problems = []
+    # Two independent questions, reported separately, because the answers mean different
+    # things to whoever is holding the file. "Has this workbook been altered since it was
+    # written" is about the file. "Does the store still hold what it was built from" is
+    # about the app. Only checking the second is how an edited spreadsheet passed.
+    stated_content = declared.get("Content digest", "")
+    if not stated_content:
+        problems.append("the workbook declares no content digest (exported by an older "
+                        "version); its cells cannot be checked")
+    else:
+        actual = export_meta.content_digest(book)
+        if actual == stated_content:
+            print("  INTACT:   every cell still hashes to what the file declares.")
+        else:
+            problems.append("TAMPERED OR CORRUPT: the cells no longer match the workbook's "
+                            "own digest (declared %s, computed %s)" % (stated_content, actual))
+
+    year = declared.get("Reporting year")
     if not year or not year.isdigit():
-        print("  the Metadata sheet does not name a reporting year")
+        problems.append("the Metadata sheet does not name a reporting year, so it cannot "
+                        "be compared against the store")
+    else:
+        current = export_meta.source_digest(int(year))
+        stated_source = declared.get("Source digest", "")
+        if stated_source == current:
+            print("  CURRENT:  the store still holds exactly the data this was built from.")
+        else:
+            problems.append("STALE: the store has changed since this was exported "
+                            "(exported from %s, store is now %s). The workbook is not "
+                            "wrong; it describes an earlier state." % (stated_source, current))
+
+    if str(declared.get("Provenance", "")).startswith("INCOMPLETE"):
+        problems.append(declared["Provenance"])
+
+    if problems:
+        for problem in problems:
+            print("  %s" % problem)
         return 1
-    current = export_meta.source_digest(int(year))
-    stated = declared.get("Source digest", "")
-    if stated == current:
-        print("  VERIFIED: the store still holds exactly the data this was built from.")
-        return 0
-    print("  STALE: the store has changed since this was exported.")
-    print("    exported from %s" % stated)
-    print("    store is now  %s" % current)
-    print("  The workbook is not wrong; it describes an earlier state. Re-export to refresh.")
-    return 1
+    print("  VERIFIED: the workbook is intact and the store still agrees with it.")
+    return 0
 
 
 def main():
