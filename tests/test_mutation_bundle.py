@@ -46,6 +46,16 @@ def check(name, cond, detail=""):
         failures.append(name)
 
 
+def _bundle_still_works(path):
+    """A refused bundle must not leave the process unable to open another one."""
+    try:
+        with bundle.bundle("probe-after-refusal", [path], root=root):
+            pass
+        return True
+    except Exception:                                    # noqa: BLE001
+        return False
+
+
 def tree_hash(where=None):
     """Every byte under the root, ignoring the bundle's own bookkeeping."""
     digest = hashlib.sha256()
@@ -232,6 +242,43 @@ check("the failing import leaves data/ exactly as it was", tree_hash(root / "dat
 check("and no bundle state survives it", not (root / bundle.JOURNAL_NAME).exists()
       and not (root / bundle.STAGING_NAME).exists())
 (inbox / statement.name).unlink(missing_ok=True)
+
+
+print("== a bundle inside a bundle is refused, not silently honoured")
+# There is one journal per root, so a second bundle's entry ran recovery, found the
+# OUTER bundle's journal, and rolled the outer's finished work back — reporting success.
+# Silent loss of work that had already landed is the worst possible failure here.
+a_file = root / "nesting-a.json"
+b_file = root / "nesting-b.json"
+write_json(a_file, {"v": "old-a"})
+write_json(b_file, {"v": "old-b"})
+refused = False
+try:
+    with bundle.bundle("outer", [a_file], root=root):
+        write_json(a_file, {"v": "new-a"})
+        with bundle.bundle("inner", [b_file], root=root):
+            write_json(b_file, {"v": "new-b"})
+except bundle.BundleNestingError:
+    refused = True
+check("nesting raises rather than quietly undoing the outer bundle", refused)
+check("and the outer bundle rolled back cleanly",
+      json.loads(a_file.read_text())["v"] == "old-a")
+check("no journal survives the refusal", not (root / bundle.JOURNAL_NAME).exists())
+check("and the next bundle is not blocked by the failed one",
+      _bundle_still_works(a_file))
+a_file.unlink()
+b_file.unlink()
+
+
+print("== the crash guarantee does not depend on which entry point was used")
+# The bundle used to sit in ingest.run(), which only the CLI calls; the web's "Process
+# inbox" button calls _run_locked directly because serialize_writes already holds the
+# lock. One import, two doors, and only one of them recoverable.
+source = (PROJECT / "pipeline" / "ingest.py").read_text()
+locked = source[source.index("def _run_locked"):source.index("def _run_inbox")]
+check("_run_locked — the web's entry point — opens the bundle itself",
+      "bundle.bundle(" in locked,
+      "the button and the command line must get the same guarantee")
 
 
 print("== appending transactions publishes rather than writes in place")

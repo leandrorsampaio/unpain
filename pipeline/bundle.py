@@ -42,6 +42,19 @@ class BundleRecoveryError(RuntimeError):
     """A previous mutation cannot be recovered safely, so no new one may start."""
 
 
+class BundleNestingError(RuntimeError):
+    """A bundle was opened inside another one, which this design cannot express."""
+
+
+# There is one journal and one staging directory per root, so there can be one bundle at
+# a time. Nesting used to be documented as unsupported and behave far worse than that:
+# the inner bundle's entry ran recovery, found the *outer* bundle's journal, and rolled
+# the outer's completed work back — silently, as a successful mutation. Refusing is the
+# only honest answer, and it is a programming error rather than a runtime condition, so
+# it fails immediately rather than being caught and reported to a person.
+_ACTIVE = set()
+
+
 def _snapshot_target(staging, index):
     return staging / ("%03d" % index)
 
@@ -121,6 +134,12 @@ def bundle(name, paths, *, root=None):
     rollback can be explained rather than merely performed.
     """
     root = Path(root or ROOT)
+    key = str(root.resolve())
+    if key in _ACTIVE:
+        raise BundleNestingError(
+            "a bundle is already open on %s; opening a second one would run recovery "
+            "against the first one's journal and silently undo its work. Widen the outer "
+            "bundle's paths instead of nesting." % key)
     # Recovery is a property of the mutation boundary, not of whichever entry point
     # happened to start the application.  CLI ingestion does not run FastAPI's startup
     # hook; without this check a second CLI run deleted the first run's snapshots below
@@ -149,11 +168,14 @@ def bundle(name, paths, *, root=None):
     # Journalled before the body runs, because the window that matters begins with the
     # body's first write and a journal published after it explains nothing.
     _write_journal(root, state)
+    _ACTIVE.add(key)
     try:
         yield state
     except BaseException:
         restore(root, state)
         raise
+    finally:
+        _ACTIVE.discard(key)
     state["stage"] = "done"
     _write_journal(root, state)
     _remove(staging)

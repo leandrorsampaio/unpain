@@ -80,12 +80,24 @@ def run(verbose=True):
     is one bundle — it finishes, or `data/` is exactly as it was.
     """
     with mutation_lock():
-        # `bundle` never takes the lock, so this cannot deadlock against the one above.
-        with bundle.bundle("ingest", [DATA]):
-            return _run_locked(verbose)
+        return _run_locked(verbose)
 
 
 def _run_locked(verbose=True):
+    """The inbox run itself. The bundle lives HERE, not in `run`.
+
+    `run` is the CLI entry point; the web's "Process inbox" button calls this directly,
+    because `serialize_writes` already holds the mutation lock for it. Wrapping only
+    `run` therefore gave crash protection to the command line and none to the button —
+    the same import, one of them recoverable. A guarantee that depends on which door the
+    caller came through is not a guarantee.
+    """
+    # `bundle` never takes the mutation lock, so this cannot deadlock against the holder.
+    with bundle.bundle("ingest", [DATA]):
+        return _run_inbox(verbose)
+
+
+def _run_inbox(verbose=True):
     accounts, _ = load_accounts()
     results = []
     files = sorted(p for p in INBOX.iterdir() if p.is_file() and not p.name.startswith(".")

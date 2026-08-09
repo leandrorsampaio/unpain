@@ -2809,170 +2809,172 @@ def ingest_process():
         # Broad directories are intentional here: the exact years are unknown until a
         # PDF has been extracted, while the journal must predate the first extractor or
         # staging write.  The household store is small and correctness wins this trade.
+        # A `with` rather than a manual __enter__/__exit__ pair: if anything ever raised
+        # between the two — including from inside the error handler below — the bundle
+        # was left open, and every later request in this process would then be refused
+        # as a nested one. `continue` and `return` leave a `with` correctly.
         attempt_bundle = bundle.bundle(
             "web-ingest:%s" % e["id"], [DATA, STAGING, INBOX / "processed"])
-        attempt_bundle.__enter__()
-        # One staged statement changes several canonical files (transaction sources,
-        # transfer marks, anchors and uploads metadata) and may move the source PDF.
-        # Snapshot each attempt after prior successes, so any later exception restores
-        # exactly this attempt without undoing another file processed in the same batch.
-        data_before = {}
-        source_before = src.read_bytes() if src.is_file() else None
-        staging_file = STAGING / "staging.json"
-        staging_before = staging_file.read_bytes() if staging_file.exists() else None
-        processed_dir = INBOX / "processed"
-        processed_before = {path.name for path in processed_dir.iterdir()} \
-            if processed_dir.exists() else set()
-        remaining_before = list(remaining)
-        upload_count = len(uploads)
-        result_count = len(results)
-        acct = e["account"]
-        owner = accounts.get(acct, {}).get("owner")
-        try:
-            if e["kind"] == "pdf":
-                extractor = PDF_EXTRACTORS[e["extractor"]]
-                # A mismatched account bank is only an advisory warning in the UI (the reconciliation
-                # gate still protects data integrity), so honor the account the user chose here.
-                extracted = STAGING / (e["stored"] + ".extracted.csv")
-                report = extractor["extract"](src, extracted, bool(e.get("allow_review")))
-                e["extraction"] = extraction.storable(report)
-                # The extractor saying "ok" is the extractor's opinion of its own work.
-                # extraction.admit re-runs opening + rows == closing here, over the file
-                # that is actually about to be imported, so a plugin that reports success
-                # it did not earn cannot put a transaction in the store.
-                try:
-                    trusted_opening = None
-                    if report.get("opening_balance_source") == "derived":
-                        report_anchors = report.get("balance_anchors") or []
-                        opening_anchor = report_anchors[0] if report_anchors else {}
-                        opening_date = opening_anchor.get("date")
-                        recorded = next(
-                            (row for row in anchors.list_for(acct)
-                             if row.get("date") == opening_date and row.get("kind") == "manual"),
-                            None)
-                        if recorded is not None:
-                            trusted_opening = cents(recorded.get("balance"))
-                    admission = extraction.admit(
-                        report, extracted, trusted_opening_cents=trusted_opening)
-                except extraction.ExtractionRejected as rejected:
+        with attempt_bundle:
+            # One staged statement changes several canonical files (transaction sources,
+            # transfer marks, anchors and uploads metadata) and may move the source PDF.
+            # Snapshot each attempt after prior successes, so any later exception restores
+            # exactly this attempt without undoing another file processed in the same batch.
+            data_before = {}
+            source_before = src.read_bytes() if src.is_file() else None
+            staging_file = STAGING / "staging.json"
+            staging_before = staging_file.read_bytes() if staging_file.exists() else None
+            processed_dir = INBOX / "processed"
+            processed_before = {path.name for path in processed_dir.iterdir()} \
+                if processed_dir.exists() else set()
+            remaining_before = list(remaining)
+            upload_count = len(uploads)
+            result_count = len(results)
+            acct = e["account"]
+            owner = accounts.get(acct, {}).get("owner")
+            try:
+                if e["kind"] == "pdf":
+                    extractor = PDF_EXTRACTORS[e["extractor"]]
+                    # A mismatched account bank is only an advisory warning in the UI (the reconciliation
+                    # gate still protects data integrity), so honor the account the user chose here.
+                    extracted = STAGING / (e["stored"] + ".extracted.csv")
+                    report = extractor["extract"](src, extracted, bool(e.get("allow_review")))
+                    e["extraction"] = extraction.storable(report)
+                    # The extractor saying "ok" is the extractor's opinion of its own work.
+                    # extraction.admit re-runs opening + rows == closing here, over the file
+                    # that is actually about to be imported, so a plugin that reports success
+                    # it did not earn cannot put a transaction in the store.
+                    try:
+                        trusted_opening = None
+                        if report.get("opening_balance_source") == "derived":
+                            report_anchors = report.get("balance_anchors") or []
+                            opening_anchor = report_anchors[0] if report_anchors else {}
+                            opening_date = opening_anchor.get("date")
+                            recorded = next(
+                                (row for row in anchors.list_for(acct)
+                                 if row.get("date") == opening_date and row.get("kind") == "manual"),
+                                None)
+                            if recorded is not None:
+                                trusted_opening = cents(recorded.get("balance"))
+                        admission = extraction.admit(
+                            report, extracted, trusted_opening_cents=trusted_opening)
+                    except extraction.ExtractionRejected as rejected:
+                        extracted.unlink(missing_ok=True)
+                        e["error"] = "Extraction failed reconciliation: %s. No data was imported." % rejected
+                        results.append({"file": e["original_name"], "status": "error", "detail": e["error"]})
+                        continue
+                    data_before = _snapshot_years(ingest.mutation_years(
+                        extracted, report.get("balance_anchors") or []))
+                    source_stem = "%s__%s" % (acct, e["id"])
+                    stats = ingest.ingest_upload(extracted, acct, source_stem,
+                                                 original_name=e["original_name"],
+                                                 admission=admission)
                     extracted.unlink(missing_ok=True)
-                    e["error"] = "Extraction failed reconciliation: %s. No data was imported." % rejected
-                    results.append({"file": e["original_name"], "status": "error", "detail": e["error"]})
-                    attempt_bundle.__exit__(None, None, None)
-                    continue
-                data_before = _snapshot_years(ingest.mutation_years(
-                    extracted, report.get("balance_anchors") or []))
-                source_stem = "%s__%s" % (acct, e["id"])
-                stats = ingest.ingest_upload(extracted, acct, source_stem,
-                                             original_name=e["original_name"],
-                                             admission=admission)
-                extracted.unlink(missing_ok=True)
-                # The extractor proved these balances against the statement's own
-                # arithmetic; recording them turns each import into a checkpoint the
-                # doctor re-verifies against the transactions between them. Dropping
-                # them, as we used to, threw away the only evidence that a parser read
-                # the file correctly.
-                if report.get("balance_anchors"):
-                    anchor_result = anchors.record(acct, report["balance_anchors"],
-                                                   e["original_name"] or "statement.pdf",
-                                                   upload=source_stem)
-                    # anchors.record() reports what it did with them; how many there were to
-                    # begin with is the caller's to add, and omitting it raised KeyError here —
-                    # after the transactions were already stored, so the failure was then
-                    # reported as "No data was imported" while the data sat in the store.
-                    anchor_result["found"] = len(report["balance_anchors"])
-                    stats["anchors"] = anchor_result
-                    stats["anchor_message"] = ingest._anchor_message(anchor_result)
-                safe = re.sub(r"[^A-Za-z0-9._-]", "_", e["original_name"] or "statement.pdf")
-                processed_dir = INBOX / "processed"
-                processed_dir.mkdir(parents=True, exist_ok=True)
-                dest = processed_dir / ("%s__%s__%s" % (acct, e["id"], safe))
-                shutil.move(str(src), str(dest))
-                log_path = dest.with_suffix(".extract-log.json")
-                write_json(log_path, e["extraction"])
-                uploads.append({
-                    "id": e["id"], "original_name": e["original_name"], "account": acct,
-                    "owner": owner, "comment": e.get("comment", ""), "file_hash": e["hash"],
-                    "kind": "pdf", "status": "processed", "source_stem": source_stem,
-                    "format": "pdf:%s" % e["extractor"], "extractor": e["extractor"],
-                    "extraction": e["extraction"], "processed_pdf": dest.name, "extraction_log": log_path.name,
-                    "processed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                    "added": stats["added"], "duplicates": stats["duplicates"], "total": stats["total"],
-                    "years": stats["years"], "date_min": stats["date_min"], "date_max": stats["date_max"],
-                    "anchors": stats["anchors"],
-                })
-                results.append({"file": e["original_name"], "status": "processed",
-                                "detail": "%d transactions extracted and reconciled; %d new entries%s" %
-                                          (report["transactions_extracted"], stats["added"],
-                                           "; " + stats["anchor_message"] if stats["anchor_message"] else "")})
-            else:
-                data_before = _snapshot_years(ingest.mutation_years(src))
-                source_stem = "%s__%s" % (acct, e["id"])
-                stats = ingest.ingest_upload(src, acct, source_stem, original_name=e["original_name"])
-                src.unlink(missing_ok=True)
-                uploads.append({
-                    "id": e["id"], "original_name": e["original_name"], "account": acct,
-                    "owner": owner, "comment": e.get("comment", ""), "file_hash": e["hash"],
-                    "kind": "table", "status": "processed", "source_stem": source_stem,
-                    "format": stats["format"], "processed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                    "added": stats["added"], "duplicates": stats["duplicates"], "total": stats["total"],
-                    "years": stats["years"], "date_min": stats["date_min"], "date_max": stats["date_max"],
-                    "anchors": stats["anchors"],
-                    # The period the statement declares it covers. For a statement
-                    # with no activity this is the only record that the month was
-                    # reported at all, so coverage can stop calling it missing.
-                    "period": stats.get("period"),
-                })
-                if stats["total"]:
-                    detail = "%d new (%d duplicates skipped), %s–%s%s" % (
-                        stats["added"], stats["duplicates"], stats["date_min"] or "?", stats["date_max"] or "?",
-                        "; " + stats["anchor_message"] if stats["anchor_message"] else "")
+                    # The extractor proved these balances against the statement's own
+                    # arithmetic; recording them turns each import into a checkpoint the
+                    # doctor re-verifies against the transactions between them. Dropping
+                    # them, as we used to, threw away the only evidence that a parser read
+                    # the file correctly.
+                    if report.get("balance_anchors"):
+                        anchor_result = anchors.record(acct, report["balance_anchors"],
+                                                       e["original_name"] or "statement.pdf",
+                                                       upload=source_stem)
+                        # anchors.record() reports what it did with them; how many there were to
+                        # begin with is the caller's to add, and omitting it raised KeyError here —
+                        # after the transactions were already stored, so the failure was then
+                        # reported as "No data was imported" while the data sat in the store.
+                        anchor_result["found"] = len(report["balance_anchors"])
+                        stats["anchors"] = anchor_result
+                        stats["anchor_message"] = ingest._anchor_message(anchor_result)
+                    safe = re.sub(r"[^A-Za-z0-9._-]", "_", e["original_name"] or "statement.pdf")
+                    processed_dir = INBOX / "processed"
+                    processed_dir.mkdir(parents=True, exist_ok=True)
+                    dest = processed_dir / ("%s__%s__%s" % (acct, e["id"], safe))
+                    shutil.move(str(src), str(dest))
+                    log_path = dest.with_suffix(".extract-log.json")
+                    write_json(log_path, e["extraction"])
+                    uploads.append({
+                        "id": e["id"], "original_name": e["original_name"], "account": acct,
+                        "owner": owner, "comment": e.get("comment", ""), "file_hash": e["hash"],
+                        "kind": "pdf", "status": "processed", "source_stem": source_stem,
+                        "format": "pdf:%s" % e["extractor"], "extractor": e["extractor"],
+                        "extraction": e["extraction"], "processed_pdf": dest.name, "extraction_log": log_path.name,
+                        "processed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        "added": stats["added"], "duplicates": stats["duplicates"], "total": stats["total"],
+                        "years": stats["years"], "date_min": stats["date_min"], "date_max": stats["date_max"],
+                        "anchors": stats["anchors"],
+                    })
+                    results.append({"file": e["original_name"], "status": "processed",
+                                    "detail": "%d transactions extracted and reconciled; %d new entries%s" %
+                                              (report["transactions_extracted"], stats["added"],
+                                               "; " + stats["anchor_message"] if stats["anchor_message"] else "")})
                 else:
-                    # A statement covering a period with no activity: a "?–?" date
-                    # range and a missing-anchor note would both be noise, not news.
-                    detail = "empty statement — no activity in this period"
-                results.append({"file": e["original_name"], "status": "processed", "detail": detail})
-            # Everything canonical has published successfully, so record where the
-            # figures now stand for every year this import could have moved. It is
-            # inside the try on purpose: the checkpoint file lives under the year
-            # directory the rollback already covers, so a failure here rolls the whole
-            # import back and the "no data was imported" message stays true.
-            for touched in (stats.get("years") or []):
-                audit.checkpoint(touched, "import",
-                                 label=e.get("original_name") or "import",
-                                 metadata={"upload_id": e["id"], "account": acct,
-                                           "file_hash": e.get("hash"),
-                                           "source_stem": "%s__%s" % (acct, e["id"])})
-            remaining = [s for s in remaining if s["id"] != e["id"]]
-            _save_staging(remaining)
-            _save_uploads(uploads)
-        except Exception as ex:  # noqa: BLE001
-            _restore_years(data_before)
-            uploads = uploads[:upload_count]
-            remaining = remaining_before
-            del results[result_count:]
-            # The source may already have been moved to processed/.  Restore it before
-            # reporting failure, and remove every artifact this attempt created there.
-            if source_before is not None:
-                _publish_bytes(src, source_before)
-            if processed_dir.exists():
-                for artifact in processed_dir.iterdir():
-                    if artifact.name not in processed_before and artifact.is_file():
-                        artifact.unlink()
-            extracted = STAGING / (e["stored"] + ".extracted.csv")
-            extracted.unlink(missing_ok=True)
-            if staging_before is None:
-                staging_file.unlink(missing_ok=True)
-            else:
-                _publish_bytes(staging_file, staging_before)
-            e["error"] = "%s No data was imported." % ex
-            results.append({"file": e["original_name"], "status": "error", "detail": e["error"]})
-            _save_staging(remaining)
-            _save_uploads(uploads)
-        # Both success and a handled failure now describe a complete, deliberately
-        # persisted state.  Unhandled BaseException/process death never reaches this
-        # line, leaving the journal for deterministic recovery.
-        attempt_bundle.__exit__(None, None, None)
+                    data_before = _snapshot_years(ingest.mutation_years(src))
+                    source_stem = "%s__%s" % (acct, e["id"])
+                    stats = ingest.ingest_upload(src, acct, source_stem, original_name=e["original_name"])
+                    src.unlink(missing_ok=True)
+                    uploads.append({
+                        "id": e["id"], "original_name": e["original_name"], "account": acct,
+                        "owner": owner, "comment": e.get("comment", ""), "file_hash": e["hash"],
+                        "kind": "table", "status": "processed", "source_stem": source_stem,
+                        "format": stats["format"], "processed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                        "added": stats["added"], "duplicates": stats["duplicates"], "total": stats["total"],
+                        "years": stats["years"], "date_min": stats["date_min"], "date_max": stats["date_max"],
+                        "anchors": stats["anchors"],
+                        # The period the statement declares it covers. For a statement
+                        # with no activity this is the only record that the month was
+                        # reported at all, so coverage can stop calling it missing.
+                        "period": stats.get("period"),
+                    })
+                    if stats["total"]:
+                        detail = "%d new (%d duplicates skipped), %s–%s%s" % (
+                            stats["added"], stats["duplicates"], stats["date_min"] or "?", stats["date_max"] or "?",
+                            "; " + stats["anchor_message"] if stats["anchor_message"] else "")
+                    else:
+                        # A statement covering a period with no activity: a "?–?" date
+                        # range and a missing-anchor note would both be noise, not news.
+                        detail = "empty statement — no activity in this period"
+                    results.append({"file": e["original_name"], "status": "processed", "detail": detail})
+                # Everything canonical has published successfully, so record where the
+                # figures now stand for every year this import could have moved. It is
+                # inside the try on purpose: the checkpoint file lives under the year
+                # directory the rollback already covers, so a failure here rolls the whole
+                # import back and the "no data was imported" message stays true.
+                for touched in (stats.get("years") or []):
+                    audit.checkpoint(touched, "import",
+                                     label=e.get("original_name") or "import",
+                                     metadata={"upload_id": e["id"], "account": acct,
+                                               "file_hash": e.get("hash"),
+                                               "source_stem": "%s__%s" % (acct, e["id"])})
+                remaining = [s for s in remaining if s["id"] != e["id"]]
+                _save_staging(remaining)
+                _save_uploads(uploads)
+            except Exception as ex:  # noqa: BLE001
+                _restore_years(data_before)
+                uploads = uploads[:upload_count]
+                remaining = remaining_before
+                del results[result_count:]
+                # The source may already have been moved to processed/.  Restore it before
+                # reporting failure, and remove every artifact this attempt created there.
+                if source_before is not None:
+                    _publish_bytes(src, source_before)
+                if processed_dir.exists():
+                    for artifact in processed_dir.iterdir():
+                        if artifact.name not in processed_before and artifact.is_file():
+                            artifact.unlink()
+                extracted = STAGING / (e["stored"] + ".extracted.csv")
+                extracted.unlink(missing_ok=True)
+                if staging_before is None:
+                    staging_file.unlink(missing_ok=True)
+                else:
+                    _publish_bytes(staging_file, staging_before)
+                e["error"] = "%s No data was imported." % ex
+                results.append({"file": e["original_name"], "status": "error", "detail": e["error"]})
+                _save_staging(remaining)
+                _save_uploads(uploads)
+            # Both success and a handled failure now describe a complete, deliberately
+            # persisted state.  Unhandled BaseException/process death never reaches this
+            # line, leaving the journal for deterministic recovery.
     return {"results": results}
 
 
