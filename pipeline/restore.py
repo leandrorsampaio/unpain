@@ -19,8 +19,11 @@ it is treated accordingly: traversal, absolute paths, symlinks, case-collisions,
 failures and decompression bombs are all refused before a single entry is extracted.
 """
 import io
+import json
+import os
 import shutil
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import schemas
@@ -38,6 +41,12 @@ MAX_COMPRESSION_RATIO = 200                # a 200x entry is a bomb, not a state
 # file or a directory — a symlink, device node or FIFO — has no business in a data
 # backup and would extract as something the rest of the app cannot reason about.
 S_IFMT, S_IFREG, S_IFDIR, S_IFLNK = 0o170000, 0o100000, 0o040000, 0o120000
+
+# The swap's crash-recovery state. Both live under the root rather than under the
+# staging directory, which the caller deletes on the way out: the only copy of the
+# displaced data must not sit inside the directory that is about to be removed.
+JOURNAL_NAME = ".restore-journal.json"
+DISPLACED_DIR = ".restore-displaced"
 
 
 class RestoreRejected(ValueError):
@@ -191,31 +200,124 @@ def validate_candidate(staging):
     return report
 
 
+def _remove(path):
+    """Delete a file or a directory, whichever it turns out to be."""
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path, ignore_errors=True)
+    elif path.exists() or path.is_symlink():
+        path.unlink(missing_ok=True)
+
+
+def _write_journal(root, state):
+    """Record the swap's progress somewhere that outlives both staging and the process.
+
+    Written with fsync before the rename it describes, because a journal that reaches the
+    disk after the operation it is meant to explain is not a journal.
+    """
+    path = root / JOURNAL_NAME
+    tmp = path.with_suffix(".%d.tmp" % os.getpid())
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(state, handle)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+
+
+def roll_back(root, state):
+    """Put the live tree back the way the journal says it was found.
+
+    Order matters and is the reverse of installation: an installed area is removed
+    *before* its displaced original is moved back, or the rename would land on an
+    occupied name. Idempotent by construction — every step checks the state it is about
+    to create — so running it twice, or after a crash mid-rollback, converges.
+    """
+    root = Path(root)
+    displaced = state.get("displaced") or {}
+    for top in reversed(state.get("installed") or []):
+        # Everything in `installed` was put there by this swap, so all of it comes back
+        # out — including an area that did not exist before, which must not survive a
+        # rollback just because there was nothing to displace.
+        _remove(root / top)
+    for top, aside in sorted(displaced.items()):
+        target, saved = root / top, Path(aside)
+        if saved.exists():
+            _remove(target)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            saved.rename(target)
+    holding = root / DISPLACED_DIR
+    if holding.exists() and not any(holding.iterdir()):
+        holding.rmdir()
+    (root / JOURNAL_NAME).unlink(missing_ok=True)
+
+
+def recover(root):
+    """Finish or undo a swap that a crash interrupted. Safe to call at any time.
+
+    A restore that dies between two renames leaves the tree half old and half new, and
+    nothing on disk to say so — which is the failure the previous version could not even
+    detect. The journal makes it detectable, and this makes it recoverable: the tree ends
+    up entirely as it was before the swap began.
+    """
+    root = Path(root)
+    path = root / JOURNAL_NAME
+    if not path.exists():                # `read_json(default=None)` raises rather than
+        return None                      # returning the default, and no journal is normal
+    try:
+        state = read_json(path, default={})
+    except ValueError:                   # a journal torn by the same crash it records
+        state = {}
+    if not isinstance(state, dict) or state.get("stage") == "done":
+        (root / JOURNAL_NAME).unlink(missing_ok=True)
+        return None
+    roll_back(root, state)
+    return {"rolled_back": sorted(state.get("displaced") or {}),
+            "started_at": state.get("started_at")}
+
+
 def swap_in(root, staging, tops):
     """Move the finished areas into place, keeping the displaced ones until the end.
 
     Not a single atomic step — no filesystem offers that across several paths — but the
-    live area is only ever moved aside, never deleted, until every area has landed. A
-    failure part-way through can therefore be undone, which the previous delete-then-copy
-    could not offer at any point after the first rmtree.
+    live area is only ever moved aside, never deleted, until every area has landed, and a
+    journal on disk records each rename before it happens. A failure part-way through is
+    therefore undone completely, whether the failure was an exception (rolled back here)
+    or the process dying (rolled back by `recover` on the next run).
+
+    The displaced originals are held under the *root*, not under staging: staging is
+    deleted by the caller's `finally`, and putting the only copy of the old data inside
+    the directory that is about to be deleted is how a rollback destroys what it was
+    protecting.
     """
-    displaced = []
+    root, staging = Path(root), Path(staging)
+    holding = root / DISPLACED_DIR
+    _remove(holding)
+    holding.mkdir(parents=True, exist_ok=True)
+    state = {"stage": "swapping", "started_at": datetime.now(timezone.utc).isoformat(),
+             "displaced": {}, "installed": []}
+    _write_journal(root, state)
     try:
         for top in sorted(tops):
-            target = root / top
-            incoming = staging / top
+            target, incoming = root / top, staging / top
             if not incoming.exists():
                 continue
             if target.exists():
-                aside = staging / ("__displaced__" + top)
+                aside = holding / top
+                # Journal the intent before the rename, not after: the window that
+                # matters is the one where the old copy is no longer where it was.
+                state["displaced"][top] = str(aside)
+                _write_journal(root, state)
                 target.rename(aside)
-                displaced.append((target, aside))
+            state["installed"].append(top)
+            _write_journal(root, state)
             incoming.rename(target)
-        return [top for top in sorted(tops) if (root / top).exists()]
+        state["stage"] = "done"
+        _write_journal(root, state)
+        applied = [top for top in sorted(tops) if (root / top).exists()]
+        _remove(holding)
+        (root / JOURNAL_NAME).unlink(missing_ok=True)
+        return applied
     except BaseException:
-        for target, aside in reversed(displaced):
-            if not target.exists() and aside.exists():
-                aside.rename(target)
+        roll_back(root, state)
         raise
 
 
@@ -230,6 +332,9 @@ def restore_archive(raw, *, root, mode, selected_parts, backup_parts, staging_pa
     if mode not in ("replace", "merge"):
         _reject("bad-mode", "mode must be 'replace' or 'merge'")
     root = Path(root).resolve()
+    # A previous attempt that died mid-swap left the tree half old and half new. Undo it
+    # before judging anything, or the candidate is validated against a state nobody chose.
+    recover(root)
     allowed_tops = {entry.split("/")[0] for part in selected_parts
                     for entry in backup_parts[part]}
 

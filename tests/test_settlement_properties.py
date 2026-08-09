@@ -265,6 +265,45 @@ odd = settle.allocate_cents(101, {P1: 1, P2: 1}, [P1, P2])
 check("an odd cent goes to exactly one side", sorted(odd.values()) == [50, 51], str(odd))
 
 
+print("== the odd cent is decided by the rule, not by binary rounding error")
+# Conservation cannot see this: dividing the income weights into a float ratio before
+# allocating still hands out every cent, it just hands the last one to the wrong person.
+# At weights 1:5 over 3 cents the float path pays 0/3 where exact fractions pay 1/2.
+# So this compares against exact arithmetic rather than against a sum.
+disagreements = []
+for w1 in range(1, 40):
+    for w2 in range(1, 40):
+        for amount in range(1, 25):
+            total = w1 + w2
+            approximate = settle.allocate_cents(amount, {P1: w1 / total, P2: w2 / total},
+                                                [P1, P2])
+            precise = settle.allocate_cents(amount, {P1: Fraction(w1, total),
+                                                     P2: Fraction(w2, total)}, [P1, P2])
+            if approximate != precise:
+                disagreements.append((w1, w2, amount, approximate, precise))
+check("a float ratio and an exact one allocate differently — that is why settle passes "
+      "exact weights", bool(disagreements),
+      "if this ever stops being true the guard below is measuring nothing")
+
+# The property that matters: whatever the salaries, the settlement's own fair share must
+# equal the allocation computed from exact integer half-cent weights.
+mismatches = []
+for salary1 in (1, 2, 3, 5, 7, 100, 12345, 999999):
+    for salary2 in (1, 2, 3, 5, 7, 100, 12345, 999999):
+        for spend in (-1, -2, -3, -7, -101, -99999):
+            entries = [salary(salary1, A1), salary(salary2, A2), shared(spend, JOINT)]
+            result = build(entries)
+            weights = {P1: salary1, P2: salary2}
+            expected = settle.allocate_cents(cents(result["total_shared_expenses"]),
+                                             {p: Fraction(weights[p], salary1 + salary2)
+                                              for p in (P1, P2)}, [P1, P2])
+            actual = {p: cents(result["fair_share"][p]) for p in (P1, P2)}
+            if actual != expected:
+                mismatches.append((salary1, salary2, spend, actual, expected))
+check("every fair share equals the exact allocation from integer income weights",
+      not mismatches, "%d mismatches, first: %s" % (len(mismatches), mismatches[:1]))
+
+
 # ---------------------------------------------------------------- manual overrides
 print("== a manual override is a ratio like any other")
 write_json(tmp / "data" / str(YEAR) / "ratio-overrides.json",
@@ -282,7 +321,7 @@ check("and it is the override that was applied", result["ratio_source"] == "manu
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 1200
+MIN_CHECKS = 1202
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

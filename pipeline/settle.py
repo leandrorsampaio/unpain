@@ -14,6 +14,7 @@ Conventions:
   income_owner 'couple' counts half to each person
 """
 from collections import defaultdict
+from fractions import Fraction
 
 from . import money, store
 from .util import DATA, RULES, cents, load_accounts, load_config, read_json
@@ -317,7 +318,12 @@ def settlement(year, month=None):
         ratio_problem = {"kind": "negative-ratio-income", "people": sorted(negative_income)}
         ratio_source = "reference ratio (salary income is negative — see the warning)"
     elif total_income > 0:
-        ratio = {p: income_half[p] / total_income for p in people}
+        # Exact weights, not their float quotient. `allocate_cents` breaks ties on the
+        # fraction it is handed, so dividing first decides who gets an odd cent by
+        # binary rounding error instead of by the rule: at weights 1:5 over 3 cents the
+        # float path pays 0/3 where the exact one pays 1/2. Both conserve the total, so
+        # the conservation assertions below cannot see it — only fairness moves.
+        ratio = {p: Fraction(income_half[p], total_income) for p in people}
         ratio_source = "actual salary income"
     else:
         ratio = cfg["reference_ratio"]
@@ -337,7 +343,8 @@ def settlement(year, month=None):
     return {
         "period": "%d" % year if month is None else "%d-%02d" % (year, month),
         "binding": month is None,
-        "ratio": {p: round(ratio[p], 4) for p in people},
+        # Exact through the allocation above, float only here, at the API boundary.
+        "ratio": {p: round(float(ratio[p]), 4) for p in people},
         "ratio_source": ratio_source,
         "ratio_problem": ratio_problem,
         "ratio_income": {p: ratio_income[p] / 100.0 for p in people},

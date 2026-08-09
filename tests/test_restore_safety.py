@@ -216,6 +216,79 @@ check("an unselected area is not touched at all",
       (root / "rules" / "categories.json").read_bytes() == untouched)
 
 
+print("== a swap that fails half-way leaves the tree entirely old, never half of each")
+# The rollback used to guard on `if not target.exists()`, which is false for an area
+# that was already replaced — so the first area kept its new content, the second kept
+# its old one, and the displaced original was deleted with the staging directory. A
+# suite that only exercises the happy path cannot see that, so this injects the failure.
+original_rename = Path.rename
+marker = root / "data" / "canary.txt"
+
+
+def fail_on(nth):
+    """Make the nth rename during a swap raise, as a full disk or a race would."""
+    state = {"count": 0}
+
+    def patched(self, target):
+        state["count"] += 1
+        if state["count"] == nth:
+            raise OSError("injected failure")
+        return original_rename(self, target)
+    return patched
+
+
+for nth in range(1, 7):
+    marker.write_text("old-data-%d" % nth, encoding="utf-8")
+    before = {top: sorted(p.name for p in (root / top).rglob("*")) if (root / top).is_dir()
+              else (root / top).read_bytes() for top in ("data", "rules")}
+    Path.rename = fail_on(nth)
+    try:
+        restore_service.restore_archive(GOOD, root=root, mode="replace",
+                                        selected_parts=["data", "rules"],
+                                        backup_parts=server.BACKUP_PARTS)
+        outcome = "completed"
+    except BaseException:
+        outcome = "failed"
+    finally:
+        Path.rename = original_rename
+    after = {top: sorted(p.name for p in (root / top).rglob("*")) if (root / top).is_dir()
+             else (root / top).read_bytes() for top in ("data", "rules")}
+    if outcome == "failed":
+        check("failure at rename %d rolls the whole tree back" % nth, before == after,
+              "the tree is now a mixture of old and new")
+        check("and the old data survives the rollback (rename %d)" % nth,
+              marker.exists() and marker.read_text() == "old-data-%d" % nth,
+              "the displaced original was deleted with the staging directory")
+    check("no journal is left behind after rename %d" % nth,
+          not (root / restore_service.JOURNAL_NAME).exists())
+    check("and no displaced copies are left behind after rename %d" % nth,
+          not (root / restore_service.DISPLACED_DIR).exists())
+
+print("== a swap the process did not survive is recovered on the next run")
+# The journal has to outlive the process, so this simulates a crash: displace an area by
+# hand exactly as swap_in does, leave the journal behind, and start again.
+marker.write_text("survived-the-crash", encoding="utf-8")
+holding = root / restore_service.DISPLACED_DIR
+holding.mkdir(parents=True, exist_ok=True)
+(root / "data").rename(holding / "data")
+(root / "data").mkdir()
+(root / "data" / "half-written.txt").write_text("from the dead restore", encoding="utf-8")
+restore_service._write_journal(root, {
+    "stage": "swapping", "started_at": "2026-01-01T00:00:00+00:00",
+    "displaced": {"data": str(holding / "data")}, "installed": ["data"]})
+recovered = restore_service.recover(root)
+check("the interrupted swap is detected", recovered and recovered["rolled_back"] == ["data"],
+      str(recovered))
+check("and the original data is back", marker.exists()
+      and marker.read_text() == "survived-the-crash")
+check("and the half-written replacement is gone",
+      not (root / "data" / "half-written.txt").exists())
+check("and the journal is cleared", not (root / restore_service.JOURNAL_NAME).exists())
+check("recovering twice is safe", restore_service.recover(root) is None)
+check("recovering a clean tree does nothing", restore_service.recover(root) is None)
+marker.unlink(missing_ok=True)
+
+
 print("== a POST handler must not take the lock the middleware already holds")
 # flock is per open file description, so a second acquisition on a new handle inside the
 # same process blocks against itself — forever, with no error. This has now caught three
@@ -265,7 +338,7 @@ check("a rejected restore writes no pre-restore backup",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 95
+MIN_CHECKS = 121
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 
