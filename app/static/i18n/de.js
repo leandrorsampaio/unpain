@@ -1041,8 +1041,12 @@ I18N.register('de', {
 
   /* A settled period whose figures have moved since */
   'No longer matches what was settled': 'Stimmt nicht mehr mit dem Abschluss überein',
+  'Minor difference from settled figures': 'Kleine Abweichung von den Abschlusswerten',
   'This period no longer matches what was settled':
     'Dieser Zeitraum stimmt nicht mehr mit dem Abschluss überein',
+  'The transactions are unchanged. Only the settlement calculation moved, by no more than ten cents. Review and explicitly accept it; no amount will be changed automatically.':
+    'Die Buchungen sind unverändert. Nur die Ausgleichsberechnung hat sich um höchstens zehn Cent verschoben. Prüfe und übernimm dies ausdrücklich; kein Betrag wird automatisch geändert.',
+  'Minor · up to {amount}': 'Klein · bis zu {amount}',
   'Closing a period records its figures. Something has changed them since — often a correction, sometimes not. Check it is what you intended, then accept it or put it back.':
     'Beim Abschließen werden die Zahlen festgehalten. Seitdem hat sich etwas daran geändert — oft eine Korrektur, manchmal nicht. Prüfe, ob es so gewollt war, und übernimm es dann oder mach es rückgängig.',
   'Annual settlement': 'Jahresabrechnung',
@@ -1051,6 +1055,12 @@ I18N.register('de', {
   'Accept the new figures?': 'Neue Zahlen übernehmen?',
   'This records what {period} contains now as the settled figures. The change stays — you are agreeing to it.':
     'Damit gilt der aktuelle Stand von {period} als abgeschlossen. Die Änderung bleibt — du stimmst ihr zu.',
+  'Reason for accepting': 'Grund für die Übernahme',
+  'Stored with the new closing baseline for the audit trail.':
+    'Wird mit dem neuen Abschlussstand für den Prüfpfad gespeichert.',
+  'Verified calculation-only correction ({amount}).':
+    'Geprüfte reine Berechnungskorrektur ({amount}).',
+  'Accepted on {date}: {reason}': 'Übernommen am {date}: {reason}',
   'Accept': 'Übernehmen',
 
   /* Integrity check when closing a period */

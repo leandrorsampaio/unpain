@@ -361,7 +361,8 @@ def compare(year, checkpoint_id):
         "year": int(year),
         "baseline": {"id": stored["id"], "kind": stored["kind"],
                      "created_at": stored["created_at"], "label": stored["label"],
-                     "period": stored.get("period")},
+                     "period": stored.get("period"),
+                     "metadata": stored.get("metadata") or {}},
         "scope": {"period": stored.get("period"), "month": month},
         # A snapshot written before a field existed can be compared for what it holds
         # and no further. Saying so beats reporting its absence as a change.

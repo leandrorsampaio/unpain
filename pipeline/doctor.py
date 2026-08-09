@@ -629,11 +629,20 @@ def _closed_month_drift(ctx):
         for row in drifted:
             period = ("The %d annual settlement" % year if row["month"] == "annual"
                       else "Month %s" % row["month"])
-            out.append(_finding("error", "closed-month-drift", year,
-                                "%s was settled on %s but has changed since: %s. Reopen it, check "
-                                "the change is intended, and close it again to accept it."
-                                % (period, (row["closed_at"] or "?")[:10],
-                                   "; ".join(row.get("changes") or ["unspecified"])), []))
+            minor = row.get("classification") == "minor"
+            prefix = ("Minor closing difference (largest figure moved %d cent%s). "
+                      % (row.get("max_delta_cents") or 0,
+                         "" if row.get("max_delta_cents") == 1 else "s")) if minor else ""
+            finding = _finding("warning" if minor else "error", "closed-month-drift", year,
+                               "%s%s was settled on %s but has changed since: %s. Check the "
+                               "change is intended, then accept the corrected baseline from the "
+                               "Dashboard or reopen it and put it back."
+                               % (prefix, period, (row["closed_at"] or "?")[:10],
+                                  "; ".join(row.get("changes") or ["unspecified"])), [])
+            finding.update({"period": row["month"],
+                            "classification": row.get("classification") or "material",
+                            "max_delta_cents": row.get("max_delta_cents")})
+            out.append(finding)
         partial = [r["month"] for r in rows
                    if r["status"] != "unwatched" and r.get("coverage") == "partial"]
         if unwatched:

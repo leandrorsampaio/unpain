@@ -4,6 +4,7 @@ Runs in an isolated temp root (FA_ROOT), so it never touches real data.
 Usage: .venv/bin/python tests/test_pipeline.py
 """
 import csv
+import copy
 import json
 import os
 import shutil
@@ -21,7 +22,7 @@ build_sandbox(tmp)
 
 sys.path.insert(0, str(PROJECT))
 from fastapi import HTTPException  # noqa: E402
-from pipeline import anchors, closings, coverage, doctor, formats, fx, ingest, settle, store, transfers  # noqa: E402
+from pipeline import anchors, audit, closings, coverage, doctor, formats, fx, ingest, settle, store, transfers  # noqa: E402
 from pipeline.util import cents, load_accounts, read_json, write_json  # noqa: E402
 from app import server  # noqa: E402
 
@@ -915,23 +916,94 @@ check("a moved period is surfaced where a person looks at the figures",
       closing_key in surfaced)
 check("and it says what moved, not merely that something did",
       any("settlement" in line for line in surfaced[closing_key]))
+check("a transaction-backed change stays material even when only settlement is visible",
+      server.summary(year=2026)["drift_meta"][closing_key]["classification"] == "material")
 
 # Without a way to accept a correction, the complaint is permanent — and a check that
 # cannot be cleared is one people learn to look past.
-server.closing_accept(server.ClosingAccept(year=2026, period=closing_key))
+try:
+    server.closing_accept(server.ClosingAccept(year=2026, period=closing_key, reason="  "))
+    check("accepting changed figures without a reason is refused", False)
+except HTTPException as exc:
+    check("accepting changed figures without a reason is refused", exc.status_code == 400)
+acceptance_reason = "Reviewed the sharing correction against the source statement."
+server.closing_accept(server.ClosingAccept(
+    year=2026, period=closing_key, reason=acceptance_reason))
 check("accepting adopts the new figures and clears the report",
       not server.summary(year=2026).get("drift")
       and not _checks_named("closed-month-drift", 2026))
+accepted = closings.load(2026)[closing_key].get("acceptance") or {}
+check("the closing records when and why its changed figures were accepted",
+      accepted.get("reason") == acceptance_reason and accepted.get("accepted_at")
+      and accepted.get("previous_closed_at") and accepted.get("classification") == "material")
+checkpoint_acceptance = audit.load_checkpoints(2026)["close:%s" % closing_key]["metadata"].get("acceptance") or {}
+check("the explanatory checkpoint carries the same acceptance evidence",
+      checkpoint_acceptance == accepted)
 try:
-    server.closing_accept(server.ClosingAccept(year=2026, period="2026-%02d" % (closing_month % 12 + 1)))
+    server.closing_accept(server.ClosingAccept(
+        year=2026, period=closing_key, reason="There is nothing left to accept."))
+    check("accepting a period with no drift is refused", False)
+except HTTPException as exc:
+    check("accepting a period with no drift is refused", exc.status_code == 409)
+try:
+    server.closing_accept(server.ClosingAccept(
+        year=2026, period="2026-%02d" % (closing_month % 12 + 1), reason="test"))
     check("accepting an open month is refused", False)
 except HTTPException as exc:
     check("accepting an open month is refused", exc.status_code == 409)
 try:
-    server.closing_accept(server.ClosingAccept(year=2026, period="nonsense"))
+    server.closing_accept(server.ClosingAccept(year=2026, period="nonsense", reason="test"))
     check("a malformed period is refused", False)
 except HTTPException as exc:
     check("a malformed period is refused", exc.status_code == 400)
+
+# Ten cents is a presentation threshold, not a tolerance. It applies only when the
+# semantic transaction digest is identical and the settlement calculation alone moved.
+accepted_doc = closings.load(2026)
+person = sorted(accepted_doc[closing_key]["settlement"]["paid"])[0]
+minor_doc = copy.deepcopy(accepted_doc)
+minor_doc[closing_key]["settlement"]["paid"][person] = round(
+    minor_doc[closing_key]["settlement"]["paid"][person] + 0.01, 2)
+closings.save(2026, minor_doc)
+minor_row = next(row for row in closings.verify(2026) if row["month"] == closing_key)
+check("a one-cent calculation-only settlement drift is labelled minor, not ignored",
+      minor_row["status"] == "drifted" and minor_row["classification"] == "minor"
+      and minor_row["max_delta_cents"] == 1)
+minor_finding = _checks_named("closed-month-drift", 2026)
+check("the doctor presents a minor drift as a warning",
+      len(minor_finding) == 1 and minor_finding[0]["severity"] == "warning")
+check("the dashboard receives the minor classification and exact largest delta",
+      server.summary(year=2026)["drift_meta"][closing_key]
+      == {"classification": "minor", "max_delta_cents": 1})
+
+legacy_minor = copy.deepcopy(minor_doc)
+legacy_minor[closing_key]["digest_version"] = 2
+legacy_minor[closing_key]["digest"] = closings._line_digest_v2(2026, closing_month)
+closings.save(2026, legacy_minor)
+legacy_row = next(row for row in closings.verify(2026) if row["month"] == closing_key)
+check("a reproducible v2 digest can prove the same rows and retain the minor label",
+      legacy_row["classification"] == "minor")
+legacy_minor[closing_key]["digest"] = "not-the-current-v2-lines"
+closings.save(2026, legacy_minor)
+legacy_row = next(row for row in closings.verify(2026) if row["month"] == closing_key)
+check("a v2 baseline whose rows no longer match remains material",
+      legacy_row["classification"] == "material")
+
+large_doc = copy.deepcopy(accepted_doc)
+large_doc[closing_key]["settlement"]["paid"][person] = round(
+    large_doc[closing_key]["settlement"]["paid"][person] + 0.11, 2)
+closings.save(2026, large_doc)
+large_row = next(row for row in closings.verify(2026) if row["month"] == closing_key)
+check("eleven cents remains a material error",
+      large_row["classification"] == "material" and large_row["max_delta_cents"] == 11)
+
+changed_lines = copy.deepcopy(minor_doc)
+changed_lines[closing_key]["digest"] = "different-transactions"
+closings.save(2026, changed_lines)
+changed_row = next(row for row in closings.verify(2026) if row["month"] == closing_key)
+check("even one cent is material when the transaction lines changed",
+      changed_row["classification"] == "material")
+closings.save(2026, accepted_doc)
 store.save_decisions(2026, {})
 closings.rebaseline(2026, closing_month)
 
@@ -1428,7 +1500,7 @@ check("invariant: global idempotency over empty inbox",
 
 # Anti-shrink guard: exact count at implementation time. May only ever be RAISED
 # when checks are added — never lowered (see AGENTS.md: never weaken a test).
-MIN_CHECKS = 230
+MIN_CHECKS = 242
 check("suite did not shrink", total_checks >= MIN_CHECKS,
       "total_checks=%d < %d" % (total_checks, MIN_CHECKS))
 

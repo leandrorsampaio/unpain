@@ -737,14 +737,21 @@ def summary(year: int, scope: str = "all"):
     # saying so belongs where a person looks at it — not only in an integrity check
     # they have to remember to run. Detecting drift and never mentioning it is most of
     # the way to not detecting it.
+    closing_rows = closings.verify(year)
     s["drift"] = {row["month"]: row.get("changes") or []
-                  for row in closings.verify(year) if row["status"] == "drifted"}
+                  for row in closing_rows if row["status"] == "drifted"}
+    s["drift_meta"] = {
+        row["month"]: {"classification": row.get("classification") or "material",
+                       "max_delta_cents": row.get("max_delta_cents")}
+        for row in closing_rows if row["status"] == "drifted"
+    }
     return s
 
 
 class ClosingAccept(BaseModel):
     year: int
     period: str          # "YYYY-MM" or "annual"
+    reason: str
 
 
 @app.post("/api/closing-accept")
@@ -755,19 +762,45 @@ def closing_accept(a: ClosingAccept):
     Without this, a legitimate correction leaves a permanent complaint, and a check
     that cannot be cleared is one people learn to ignore.
     """
-    if a.period == "annual":
-        closings.record_year(a.year)
-    else:
+    reason = (a.reason or "").strip()
+    if not reason:
+        raise HTTPException(400, "Give a reason for accepting changed settled figures.")
+    if len(reason) > 500:
+        raise HTTPException(400, "Acceptance reason must be 500 characters or fewer.")
+    if a.period != "annual":
         try:
             month = int(str(a.period).split("-")[1])
-            if not 1 <= month <= 12:
+            if not 1 <= month <= 12 or a.period != "%d-%02d" % (a.year, month):
                 raise ValueError(a.period)
         except (IndexError, ValueError):
             raise HTTPException(400, "period must be YYYY-MM or 'annual'")
-        if store.months_state(a.year).get(a.period) != "closed":
-            raise HTTPException(409, "Month %s is not closed." % a.period)
-        closings.record(a.year, month)
-    return {"ok": True}
+
+    drift = next((row for row in closings.verify(a.year) if row["month"] == a.period), None)
+    if not drift:
+        label = "The annual settlement" if a.period == "annual" else "Month %s" % a.period
+        raise HTTPException(409, "%s is not closed with a recorded baseline." % label)
+    if drift["status"] != "drifted":
+        raise HTTPException(409, "Period %s has no changed figures to accept." % a.period)
+
+    accepted_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    acceptance = {
+        "accepted_at": accepted_at,
+        "reason": reason,
+        "classification": drift.get("classification") or "material",
+        "max_delta_cents": drift.get("max_delta_cents"),
+        "previous_closed_at": drift.get("closed_at"),
+        "changes": drift.get("changes") or [],
+    }
+    # Acceptance replaces both the closing baseline and its explanatory checkpoint.
+    # They are one decision, so a crash may leave neither new file or both, never one.
+    with bundle.bundle("closing-accept", [closings.path(a.year), audit.path(a.year)]):
+        if a.period == "annual":
+            closings.record_year(a.year, when=datetime.fromisoformat(accepted_at),
+                                 acceptance=acceptance)
+        else:
+            closings.record(a.year, month, when=datetime.fromisoformat(accepted_at),
+                            acceptance=acceptance)
+    return {"ok": True, "acceptance": acceptance}
 
 
 @app.get("/api/coverage")

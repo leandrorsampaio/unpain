@@ -15,6 +15,7 @@ makes the change *visible*, which is what the lock was always trying to buy.
 A snapshot is evidence, never a source of truth: nothing reads these numbers to
 compute anything. They are only ever compared against a fresh recomputation.
 """
+import hashlib
 from datetime import datetime, timezone
 
 from . import audit, schemas, settle, store
@@ -31,6 +32,12 @@ FIELDS = ("income", "expenses", "transactions")
 
 # The settlement outputs themselves, so a moved figure names itself in the report.
 SETTLEMENT_FIELDS = ("ratio", "total_shared_expenses", "paid", "balances", "transfer")
+
+# A convenience label, never a reconciliation tolerance. A drift earns this label only
+# when the money lines are byte-for-byte the same and the settlement algorithm moved no
+# displayed figure by more than ten cents. Statement admission and every conservation
+# identity remain exact to the cent.
+MINOR_DRIFT_LIMIT_CENTS = 10
 
 # Bumped whenever the digest covers different fields. A digest computed under one
 # version says nothing about one computed under another, so a mismatch means reduced
@@ -60,6 +67,30 @@ def _line_digest(year, month=None):
     alarm and the explanation of the alarm would disagree about whether anything moved.
     """
     return audit.line_digest(audit.semantic_lines(year, month))
+
+
+def _line_digest_v2(year, month=None):
+    """Reproduce the immediately previous digest so an existing close can prove that
+    its lines are still unchanged.
+
+    Version 3 reordered the same facts into the shared audit representation. The hashes
+    are therefore not directly comparable, but v2 is still fully reproducible. Older
+    versions covered fewer facts and deliberately remain partial-only.
+    """
+    rows = []
+    for txn in sorted(store.effective_year(year), key=lambda item: str(item.get("id"))):
+        if month is not None and int(txn["date"][5:7]) != int(month):
+            continue
+        for index, (_, part) in enumerate(settle.money_lines(txn)):
+            view = settle.part_view(txn, part)
+            amount = part["amount"] if part else txn.get("amount_eur")
+            rows.append("|".join(str(value) for value in (
+                txn.get("id"), index, txn.get("date"), txn.get("account"),
+                txn.get("kind") or "normal", cents(amount or 0),
+                view["category"] or "", view["sharing"] or "", view["year_cost"],
+                view["tax_bucket"] or "", txn.get("income_owner") or "",
+                txn.get("counterparty") or "")))
+    return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()[:16]
 
 
 def _settlement_snapshot(year, month=None):
@@ -99,7 +130,7 @@ def year_figures(year):
             "digest_version": DIGEST_VERSION}
 
 
-def record(year, month, when=None):
+def record(year, month, when=None, acceptance=None):
     """Store the month's current state as the baseline to watch.
 
     The comparison checkpoint is written in the same breath, and deliberately BEFORE
@@ -108,21 +139,31 @@ def record(year, month, when=None):
     be written, the close fails and nothing claims to be settled.
     """
     key = "%d-%02d" % (int(year), int(month))
+    timestamp = (when or datetime.now(timezone.utc)).isoformat(timespec="seconds")
+    metadata = {"month": int(month)}
+    if acceptance:
+        metadata["acceptance"] = acceptance
     audit.checkpoint(year, "close", period=key, month=int(month),
-                     label="%s close" % key, metadata={"month": int(month)})
+                     label="%s close" % key, metadata=metadata, when=timestamp)
     rows = load(year)
-    rows[key] = dict(figures(year, month),
-                     closed_at=(when or datetime.now(timezone.utc)).isoformat(timespec="seconds"))
+    rows[key] = dict(figures(year, month), closed_at=timestamp)
+    if acceptance:
+        rows[key]["acceptance"] = acceptance
     save(year, rows)
     return rows[key]
 
 
-def record_year(year, when=None):
+def record_year(year, when=None, acceptance=None):
+    timestamp = (when or datetime.now(timezone.utc)).isoformat(timespec="seconds")
+    metadata = {"annual": True}
+    if acceptance:
+        metadata["acceptance"] = acceptance
     audit.checkpoint(year, "close", period="annual", month=None,
-                     label="%d annual close" % int(year), metadata={"annual": True})
+                     label="%d annual close" % int(year), metadata=metadata, when=timestamp)
     rows = load(year)
-    rows["annual"] = dict(year_figures(year),
-                          closed_at=(when or datetime.now(timezone.utc)).isoformat(timespec="seconds"))
+    rows["annual"] = dict(year_figures(year), closed_at=timestamp)
+    if acceptance:
+        rows["annual"]["acceptance"] = acceptance
     save(year, rows)
     return rows["annual"]
 
@@ -194,6 +235,64 @@ def _differs(stored, current):
     return bool(changes(stored, current))
 
 
+def drift_assessment(stored, current, *, digest_matches=None):
+    """Classify a drift without forgiving one cent of it.
+
+    ``minor`` means a calculation-only settlement adjustment: the exact same semantic
+    money lines, the same ratio, shared total and transfer direction, with no displayed
+    monetary figure moving by more than ``MINOR_DRIFT_LIMIT_CENTS``. A changed digest
+    is always material even when its totals cancel, because it may hide two large and
+    opposite transaction changes.
+    """
+    moved = changes(stored, current)
+    material = {"classification": "material", "max_delta_cents": None}
+    if not moved or "settlement" not in stored:
+        return material
+    if digest_matches is None:
+        digest_matches = (stored.get("digest_version") == DIGEST_VERSION
+                          and stored.get("digest") == current.get("digest"))
+    if not digest_matches:
+        return material
+    for name in FIELDS:
+        left, right = stored.get(name), current.get(name)
+        same = (int(left or 0) == int(right or 0) if name == "transactions"
+                else cents(left or 0) == cents(right or 0))
+        if not same:
+            return material
+
+    left = stored.get("settlement") or {}
+    right = current.get("settlement") or {}
+    if left.get("ratio") != right.get("ratio"):
+        return material
+    if cents(left.get("total_shared_expenses") or 0) != \
+            cents(right.get("total_shared_expenses") or 0):
+        return material
+
+    deltas = []
+    for field in ("paid", "balances"):
+        old_values, new_values = left.get(field), right.get(field)
+        if not isinstance(old_values, dict) or not isinstance(new_values, dict) \
+                or set(old_values) != set(new_values):
+            return material
+        deltas.extend(cents(new_values[key] or 0) - cents(old_values[key] or 0)
+                      for key in old_values)
+
+    old_transfer, new_transfer = left.get("transfer"), right.get("transfer")
+    if bool(old_transfer) != bool(new_transfer):
+        return material
+    if old_transfer:
+        if old_transfer.get("from") != new_transfer.get("from") \
+                or old_transfer.get("to") != new_transfer.get("to"):
+            return material
+        deltas.append(cents(new_transfer.get("amount") or 0)
+                      - cents(old_transfer.get("amount") or 0))
+
+    maximum = max((abs(delta) for delta in deltas), default=0)
+    if maximum <= MINOR_DRIFT_LIMIT_CENTS:
+        return {"classification": "minor", "max_delta_cents": maximum}
+    return {"classification": "material", "max_delta_cents": maximum}
+
+
 def verify(year):
     """Every closed month, and whether its figures still match the baseline.
 
@@ -214,7 +313,14 @@ def verify(year):
             continue
         current = figures(year, month)
         moved = changes(stored, current)
+        digest_matches = (stored.get("digest_version") == DIGEST_VERSION
+                          and stored.get("digest") == current.get("digest"))
+        if stored.get("digest_version") == 2:
+            digest_matches = stored.get("digest") == _line_digest_v2(year, month)
+        assessment = drift_assessment(stored, current, digest_matches=digest_matches) if moved else None
         out.append({"month": key, "status": "drifted" if moved else "ok", "changes": moved,
+                    "classification": assessment["classification"] if assessment else None,
+                    "max_delta_cents": assessment["max_delta_cents"] if assessment else None,
                     "coverage": coverage(stored), "stored": stored, "current": current,
                     "closed_at": stored.get("closed_at")})
     # The annual settlement is the binding figure and does not follow from the months:
@@ -226,8 +332,16 @@ def verify(year):
         else:
             current = year_figures(year)
             moved = changes(stored, current)
+            digest_matches = (stored.get("digest_version") == DIGEST_VERSION
+                              and stored.get("digest") == current.get("digest"))
+            if stored.get("digest_version") == 2:
+                digest_matches = stored.get("digest") == _line_digest_v2(year)
+            assessment = drift_assessment(stored, current, digest_matches=digest_matches) if moved else None
             out.append({"month": "annual", "status": "drifted" if moved else "ok",
-                        "changes": moved, "coverage": coverage(stored), "stored": stored,
+                        "changes": moved,
+                        "classification": assessment["classification"] if assessment else None,
+                        "max_delta_cents": assessment["max_delta_cents"] if assessment else None,
+                        "coverage": coverage(stored), "stored": stored,
                         "current": current, "closed_at": stored.get("closed_at")})
     return out
 

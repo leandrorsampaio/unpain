@@ -1778,13 +1778,19 @@ async function renderDashboard(renderId = state.renderId) {
   // the app disagreeing with its own record, so it replaces the lock rather than
   // sitting beside it: a period that has moved should not read as closed.
   const drift = s.drift || {};
+  const driftMeta = s.drift_meta || {};
   state.dashDrift = drift;   // the "What changed?" card opens on a drifted close
+  state.dashDriftMeta = driftMeta;
   const monthKey = m => `${year}-${String(m).padStart(2, '0')}`;
   const monthDrifted = m => Array.isArray(drift[monthKey(m)]);
-  const yearDrifted = () => Array.isArray(drift.annual)
-    || [1,2,3,4,5,6,7,8,9,10,11,12].some(monthDrifted);
-  const tabLabel = (text, closed, drifted) => `<span class="tab-label">${text}${
-    drifted ? `<md-icon class="dash-lock" style="color:var(--bad)" title="${T('No longer matches what was settled')}">error</md-icon>`
+  const driftTone = key => drift[key]
+    ? (driftMeta[key]?.classification === 'minor' ? 'minor' : 'material') : '';
+  const yearDriftTone = () => {
+    const keys = Object.keys(drift);
+    return !keys.length ? '' : keys.every(key => driftTone(key) === 'minor') ? 'minor' : 'material';
+  };
+  const tabLabel = (text, closed, tone) => `<span class="tab-label">${text}${
+    tone ? `<md-icon class="dash-lock" style="color:${tone === 'minor' ? 'var(--on-warn-container)' : 'var(--bad)'}" title="${tone === 'minor' ? T('Minor difference from settled figures') : T('No longer matches what was settled')}">${tone === 'minor' ? 'warning' : 'error'}</md-icon>`
     : closed ? `<md-icon class="dash-lock" title="${T('closed')}">lock</md-icon>` : ''}</span>`;
 
   function driftBannerHtml(view) {
@@ -1793,10 +1799,20 @@ async function renderDashboard(renderId = state.renderId) {
       ? Object.keys(drift)
       : (monthDrifted(view) ? [monthKey(view)] : []);
     if (!keys.length) return '';
-    const rows = keys.sort().map(key => `<li class="mb-1"><b>${esc(key === 'annual' ? T('Annual settlement') : key)}</b> — ${esc((drift[key] || []).join('; '))}</li>`).join('');
-    return `<div class="card p-4 mb-6" style="border-left:4px solid var(--bad)">
-        <h2 class="type-title-small mb-1" style="color:var(--bad)">${T('This period no longer matches what was settled')}</h2>
-        <p class="type-body-small mb-2" style="color:var(--ink2)">${T('Closing a period records its figures. Something has changed them since — often a correction, sometimes not. Check it is what you intended, then accept it or put it back.')}</p>
+    const allMinor = keys.every(key => driftTone(key) === 'minor');
+    const tone = allMinor ? 'var(--on-warn-container)' : 'var(--bad)';
+    const rows = keys.sort().map(key => {
+      const minor = driftTone(key) === 'minor';
+      const amount = driftMeta[key]?.max_delta_cents;
+      return `<li class="mb-1"><b>${esc(key === 'annual' ? T('Annual settlement') : key)}</b>
+        ${minor ? `<span class="chip chip-warn">${T('Minor · up to {amount}', { amount: fmt((amount || 0) / 100) })}</span>` : ''}
+        — ${esc((drift[key] || []).join('; '))}</li>`;
+    }).join('');
+    return `<div class="card p-4 mb-6" style="border-left:4px solid ${tone}">
+        <h2 class="type-title-small mb-1" style="color:${tone}">${allMinor ? T('Minor difference from settled figures') : T('This period no longer matches what was settled')}</h2>
+        <p class="type-body-small mb-2" style="color:var(--ink2)">${allMinor
+    ? T('The transactions are unchanged. Only the settlement calculation moved, by no more than ten cents. Review and explicitly accept it; no amount will be changed automatically.')
+    : T('Closing a period records its figures. Something has changed them since — often a correction, sometimes not. Check it is what you intended, then accept it or put it back.')}</p>
         <ul class="type-body-small mb-3" style="margin-left:1.1rem;list-style:disc">${rows}</ul>
         <div class="flex gap-2 flex-wrap">
           ${keys.map(key => `<md-filled-button onclick="acceptClosing('${esc(key)}')">
@@ -1810,9 +1826,9 @@ async function renderDashboard(renderId = state.renderId) {
   $('#main').innerHTML = `
     <div class="page-sticky">
       <md-tabs id="dash-tabs" class="mb-2">
-        <md-primary-tab data-v="0">${tabLabel(T('Year {y}', { y: year }), allMonthsClosed(), yearDrifted())}</md-primary-tab>
-        <md-primary-tab data-v="yc">${tabLabel(T('Year costs'), allMonthsClosed(), yearDrifted())}</md-primary-tab>
-        ${MONTHS.map((mn, i) => `<md-primary-tab data-v="${i + 1}">${tabLabel(`${String(i + 1).padStart(2, '0')} ${T(mn)}`, monthClosed(i + 1), monthDrifted(i + 1))}</md-primary-tab>`).join('')}
+        <md-primary-tab data-v="0">${tabLabel(T('Year {y}', { y: year }), allMonthsClosed(), yearDriftTone())}</md-primary-tab>
+        <md-primary-tab data-v="yc">${tabLabel(T('Year costs'), allMonthsClosed(), yearDriftTone())}</md-primary-tab>
+        ${MONTHS.map((mn, i) => `<md-primary-tab data-v="${i + 1}">${tabLabel(`${String(i + 1).padStart(2, '0')} ${T(mn)}`, monthClosed(i + 1), driftTone(monthKey(i + 1)))}</md-primary-tab>`).join('')}
       </md-tabs>
       <div class="flex items-center gap-3 flex-wrap">
         <span class="type-label" style="color:var(--ink2)">${T('Whose money')}</span>
@@ -2529,19 +2545,34 @@ async function setYearState(stateStr) {
 
 function acceptClosing(period) {
   const label = period === 'annual' ? T('the year') : period;
-  confirmAction({
+  const meta = state.dashDriftMeta?.[period] || {};
+  const minor = meta.classification === 'minor';
+  const amount = fmt((meta.max_delta_cents || 0) / 100);
+  const suggested = minor
+    ? T('Verified calculation-only correction ({amount}).', { amount })
+    : '';
+  openModal({
     title: T('Accept the new figures?'),
-    body: T('This records what {period} contains now as the settled figures. The change stays — you are agreeing to it.', { period: label }),
-    confirmLabel: T('Accept'),
-    onConfirm: async () => {
-      try {
-        await api('/api/closing-accept', { year: state.year, period });
-      } catch (err) {
-        showError(err.message || String(err));
-        return;
-      }
-      invalidateYearCache();
-      render();
+    body: `<p class="type-body-small mb-4" style="color:var(--ink2)">${T('This records what {period} contains now as the settled figures. The change stays — you are agreeing to it.', { period: label })}</p>
+      ${textField({ label: T('Reason for accepting'), value: suggested, className: 'accept-reason w-full', supportingText: T('Stored with the new closing baseline for the audit trail.') })}`,
+    actions: `<md-text-button class="accept-cancel">${T('Cancel')}</md-text-button><md-filled-button class="accept-go">${T('Accept')}</md-filled-button>`,
+    onMount: root => {
+      const field = root.querySelector('.accept-reason');
+      root.querySelector('.accept-cancel').onclick = () => root._close();
+      root.querySelector('.accept-go').onclick = async () => {
+        const reason = field.value.trim();
+        if (!reason) { field.error = true; field.errorText = T('Required'); return; }
+        try {
+          await api('/api/closing-accept', { year: state.year, period, reason });
+        } catch (err) {
+          showError(err.message || String(err));
+          return;
+        }
+        root._close();
+        invalidateYearCache();
+        render();
+      };
+      setTimeout(() => field.focus(), 30);
     },
   });
 }
@@ -4496,9 +4527,13 @@ function whatChangedHtml(result) {
       `${T(b.kind === 'close' ? 'Month close' : b.kind === 'import' ? 'Statement import' : 'Backup made')} · ${(b.created_at || '').replace('T', ' ').slice(0, 16)}`]),
   });
   const s = result.summary;
+  const acceptance = result.baseline.metadata?.acceptance;
+  const acceptanceHtml = acceptance ? `<div class="fx-cache type-body-small mb-3"><md-icon>verified</md-icon><span>
+      ${T('Accepted on {date}: {reason}', { date: esc(fmtDate((acceptance.accepted_at || '').slice(0, 10), true)), reason: esc(acceptance.reason || '') })}
+    </span></div>` : '';
   const nothing = !s.added && !s.removed && !s.changed && !result.figure_changes.length;
   if (nothing) {
-    return `<div class="mb-4">${picker}</div>` + auditEmptyState('check_circle',
+    return `<div class="mb-4">${picker}</div>${acceptanceHtml}` + auditEmptyState('check_circle',
       T('Nothing changed'),
       T('No financial or semantic difference since {label}.', { label: result.baseline.label }));
   }
@@ -4513,6 +4548,7 @@ function whatChangedHtml(result) {
     </div>`);
   return `
     <div class="mb-4">${picker}</div>
+    ${acceptanceHtml}
     ${result.reduced_coverage ? `<div class="fx-cache type-body-small mb-3"><md-icon>info</md-icon><span>${T('This checkpoint was recorded by an older version, so only part of it can be compared.')}</span></div>` : ''}
     <div class="flex flex-wrap gap-3 mb-2">
       ${statTile(T('Added'), String(s.added))}

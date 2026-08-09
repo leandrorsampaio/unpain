@@ -347,6 +347,26 @@ def closings_file(document, file=None):
                   "%s.transactions" % key, file)
         if record.get("closed_at") is not None:
             text(record["closed_at"], "%s.closed_at" % key, file)
+        acceptance = record.get("acceptance")
+        if acceptance is not None:
+            mapping(acceptance, "%s.acceptance" % key, file)
+            for field in ("accepted_at", "reason", "classification"):
+                text(_require(acceptance.get(field), "%s.acceptance.%s" % (key, field), file),
+                     "%s.acceptance.%s" % (key, field), file)
+            one_of(acceptance["classification"], ("minor", "material"),
+                   "%s.acceptance.classification" % key, file)
+            if acceptance.get("previous_closed_at") is not None:
+                text(acceptance["previous_closed_at"],
+                     "%s.acceptance.previous_closed_at" % key, file)
+            delta = acceptance.get("max_delta_cents")
+            if delta is not None and (isinstance(delta, bool) or not isinstance(delta, int)
+                                      or delta < 0):
+                _fail("wrong-type", "must be a non-negative whole number of cents",
+                      "%s.acceptance.max_delta_cents" % key, file)
+            changes = acceptance.get("changes", [])
+            sequence(changes, "%s.acceptance.changes" % key, file)
+            for index, change in enumerate(changes):
+                text(change, "%s.acceptance.changes[%d]" % (key, index), file)
         if record.get("digest") is not None:
             text(record["digest"], "%s.digest" % key, file)
         if record.get("digest_version") is not None and \
