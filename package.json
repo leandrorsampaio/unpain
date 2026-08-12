@@ -3,6 +3,6 @@
   "private": true,
   "description": "Development-only browser smoke test dependencies",
   "devDependencies": {
-    "playwright": "1.61.1"
+    "playwright": "1.62.1"
   }
 }
