@@ -186,6 +186,9 @@ h3 { font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
 .hero-row { display: grid; gap: clamp(1.6rem, 4vw, 3rem); align-items: center; }
 @media (min-width: 980px) { .hero-row { grid-template-columns: minmax(0, 1fr) minmax(20rem, 23rem); } }
 .hero-cta { justify-content: center; margin-top: clamp(2.4rem, 5vw, 3.8rem); }
+.hero-alt { display: flex; flex-wrap: wrap; justify-content: center; gap: .3rem 1.4rem; margin: .9rem 0 0; font-size: .86rem; }
+.hero-alt a { color: var(--ink-muted); }
+.hero-alt a:hover { color: var(--primary); }
 
 /* spreadsheet (theme-aware, follows the site) */
 .sheet { border-radius: 12px; overflow: hidden; border: 1px solid var(--sheet-border); background: var(--sheet-cell); box-shadow: var(--shadow); color: var(--sheet-fg); }
@@ -428,6 +431,12 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
         </a>
         <a class="btn btn-ghost" href="#different" data-de="So funktioniert es">See how it works</a>
       </div>
+      <p class="hero-alt" id="hero-alt">
+        <a href="https://github.com/leandrorsampaio/unpain/releases/latest/download/UnPAIN-macos-x86_64.dmg" data-alt="mac-intel" hidden data-de="Intel-Mac? Hol dir die Intel-Version">Intel Mac? Get the Intel version</a>
+        <a href="https://github.com/leandrorsampaio/unpain/releases/latest/download/UnPAIN-macos-arm64.dmg" data-alt="mac-arm" hidden data-de="Mac mit Apple Silicon? Hol dir diese Version">Apple silicon Mac? Get this version</a>
+        <a href="https://github.com/leandrorsampaio/unpain/releases/latest/download/UnPAIN-linux-x86_64.tar.gz" data-alt="linux-tar" hidden data-de="Nicht Debian oder Ubuntu? Hol dir die .tar.gz">Not Debian or Ubuntu? Get the .tar.gz</a>
+        <a href="#download" data-de="Alle Downloads und Installationsschritte">All downloads and install steps</a>
+      </p>
       <div class="frame hero-shot">
         <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="addr mono">localhost:8765 · Dashboard</span></div>
         <button type="button" class="zoom"><img src="screenshots/dashboard-year.jpg" alt="UnPAIN dashboard with income, expenses, savings rate, and where the money goes"></button>
@@ -774,25 +783,30 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
     hero.querySelectorAll('[data-dl-os]').forEach(function (s) { s.hidden = s.getAttribute('data-dl-os') !== os; });
     hero.href = '#dl-' + os;
 
-    // When the right file is certain, one click downloads it and shows the one-time step.
-    // Otherwise (Linux: .deb or .tar.gz? a Mac whose chip the browser won't name) the button
-    // only scrolls to the card, which offers the choice.
-    function direct(link) {
+    // One click downloads the file and scrolls to the card's one-time step. Where two files
+    // fit, the hero downloads the likelier one and the line under it offers the other:
+    // Safari and Firefox never say which chip a Mac has, and most Macs now are Apple silicon.
+    function direct(link, alt) {
       hero.href = link.href;
-      hero.addEventListener('click', function () { card.scrollIntoView({ block: 'center' }); });
+      document.querySelectorAll('#hero-alt [data-alt]').forEach(function (a) {
+        a.hidden = a.getAttribute('data-alt') !== alt;
+      });
     }
-    if (os === 'windows') direct(document.getElementById('dl-win'));
-    if (os === 'mac' && uad && uad.getHighEntropyValues) {
-      uad.getHighEntropyValues(['architecture']).then(function (v) {
-        var arm = document.getElementById('dl-mac-arm'), intel = document.getElementById('dl-mac-intel');
-        if (v.architecture === 'arm') direct(arm);
-        if (v.architecture === 'x86') {
+    hero.addEventListener('click', function () { card.scrollIntoView({ block: 'center' }); });
+    if (os === 'windows') direct(document.getElementById('dl-win'), null);
+    if (os === 'linux') direct(card.querySelector('.btn-primary'), 'linux-tar');
+    if (os === 'mac') {
+      var arm = document.getElementById('dl-mac-arm'), intel = document.getElementById('dl-mac-intel');
+      direct(arm, 'mac-intel');
+      if (uad && uad.getHighEntropyValues) {          // Chrome and Edge do name the chip
+        uad.getHighEntropyValues(['architecture']).then(function (v) {
+          if (v.architecture !== 'x86') return;
           intel.classList.replace('btn-ghost', 'btn-primary');
           arm.classList.replace('btn-primary', 'btn-ghost');
           intel.parentNode.insertBefore(intel, arm);
-          direct(intel);
-        }
-      }, function () {});
+          direct(intel, 'mac-arm');
+        }, function () {});
+      }
     }
   })();
 

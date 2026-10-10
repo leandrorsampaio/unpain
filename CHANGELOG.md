@@ -15,10 +15,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and the browser opens the app. The data lives in `~/UnPAIN`, outside the app, so an update or an
   uninstall never touches it. The installers are unsigned; README → Install explains the one-time
   step on macOS and Windows. Sources are in `desktop/`.
-- **Download section on the website.** It guesses your computer, puts its installer first, and
-  shows the one-time security step for it. One click downloads the right file when the browser
-  says enough (Windows; a Mac in Chrome or Edge); otherwise it shows the choice. The installers
-  now have names without a version, so the links always point at the latest release.
+- **Download button on the website.** The top button reads "Download for Mac/Windows/Linux"
+  and downloads the installer for your computer in one click, then shows its one-time security
+  step. Where two files fit, a line under it offers the other (Intel Mac, non-Debian Linux).
+  A Download section lists every installer. The installers now have names without a version, so
+  the links always point at the latest release.
 - **A Desktop workflow** builds the installers for macOS (Apple silicon and Intel), Windows, and
   Linux. It self-tests every built app before it packages it. A `v*` tag attaches the installers to
   a draft release.
