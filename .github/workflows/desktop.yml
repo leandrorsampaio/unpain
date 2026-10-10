@@ -27,6 +27,11 @@ jobs:
   build:
     name: build (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
+    # bash everywhere, Windows included: it stops at the first failing command. PowerShell, the
+    # Windows default, reports only the last one, which once hid a failed install behind a green step.
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:

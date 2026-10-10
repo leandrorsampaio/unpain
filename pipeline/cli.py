@@ -101,10 +101,9 @@ def main():
                         help="adopt current figures as the baseline for already-closed months")
     sp.add_argument("year", nargs="?", type=int)
     args = p.parse_args()
-    load_config()  # fail fast with a clear message if config.json is missing/invalid
 
-    if args.cmd == "export-verify":
-        return _export_verify(args.path)
+    # The format catalogue ships with the code; checking it needs no household. Behind the
+    # config check it failed on every fresh clone, CI included (run-tests.sh runs it first).
     if args.cmd == "formats-lint":
         report = format_lint.lint()
         for problem in report["problems"]:
@@ -117,6 +116,11 @@ def main():
               (report["manifests"], "all valid" if report["ok"]
                else "%d problem(s)" % len(report["problems"])))
         return 0 if report["ok"] else 1
+
+    load_config()  # fail fast with a clear message if config.json is missing/invalid
+
+    if args.cmd == "export-verify":
+        return _export_verify(args.path)
     if args.cmd == "ingest":
         print("Ingesting inbox/ ...")
         ingest.run()

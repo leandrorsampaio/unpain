@@ -12,8 +12,10 @@ updates:
       actions:
         patterns: ["*"]
 
-  # Python — driven by requirements.in; Dependabot re-runs pip-compile so the
-  # regenerated requirements.txt stays fully pinned and hashed.
+  # Python — driven by requirements.in. requirements.txt is compiled with
+  # `uv pip compile --universal` (see requirements.in) so it installs on Windows too.
+  # If an update drops the platform markers (uvloop must stay `sys_platform != 'win32'`),
+  # the Desktop workflow's Windows build fails on that branch: regenerate with uv.
   - package-ecosystem: "pip"
     directory: "/"
     schedule:

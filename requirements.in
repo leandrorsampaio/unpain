@@ -1,6 +1,9 @@
-# Direct dependencies. Edit here, then regenerate the hash-pinned lockfile:
-#   pip install pip-tools           # once, in a Python 3.12 venv (match CI)
-#   pip-compile --generate-hashes requirements.in
+# Direct dependencies. Edit here, then regenerate the hash-pinned lockfile for every OS at once:
+#   pip install uv                  # once, in a Python 3.12 venv (match CI)
+#   uv pip compile --universal --generate-hashes --python-version 3.12 requirements.in -o requirements.txt
+# Not pip-compile: it locks for the machine it runs on, so a lockfile made on a Mac lists uvloop
+# (no Windows support) unconditionally and omits colorama (which click needs on Windows), and
+# `pip install --require-hashes` then fails on Windows.
 # requirements.txt is the generated lockfile — do not edit it by hand.
 fastapi
 uvicorn[standard]
