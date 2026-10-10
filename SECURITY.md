@@ -12,6 +12,14 @@ oversight.
 
 - **Default (safe).** `./start.sh` binds to `127.0.0.1` (localhost) only. Nothing outside your
   machine can reach it.
+- **Installed desktop app.** It binds `127.0.0.1` only, and it refuses any request for another
+  host name. It also refuses every request to its data (`/api/`, `/receipts/`) that a page from
+  another site makes, reads and writes alike. Thus a page in your browser cannot send an upload
+  or a restore, start a backup or an export, or read your data through DNS rebinding. A link from
+  another site can still open the app's page. In a browser that does not report where a request
+  comes from (`Sec-Fetch-Site`), a write must still carry the app's own `Origin`. Running from
+  source does not turn on this guard (`UNPAIN_ALLOWED_HOSTS`), because LAN mode cannot know its
+  own host name.
 - **LAN mode (opt-in).** `./start.sh --lan` binds all interfaces, so another device on your home
   network can reach it. Do this only on a network you trust. Anyone on that network can use the app
   with no login.

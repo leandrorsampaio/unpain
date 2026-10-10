@@ -20,3 +20,7 @@ app/vendor-build/.tokens-bundle.mjs
 node_modules/
 tests/screenshots/
 scripts/expected.json
+
+# --- desktop app build output (desktop/build.py) ---
+build/
+dist/

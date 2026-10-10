@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=UnPAIN
+Comment=Household expense accountability for two people, fully offline
+Exec=/opt/unpain/UnPAIN
+Icon=unpain
+Terminal=false
+Categories=Office;Finance;
+StartupWMClass=UnPAIN

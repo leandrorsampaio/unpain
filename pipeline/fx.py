@@ -18,10 +18,22 @@ CACHE = DATA / "fx" / "eurofxref-hist.csv"
 _rates = None  # {date_str: {cur: float}}
 
 
+class RatesUnavailable(RuntimeError):
+    """The ECB rates are not cached and could not be downloaded."""
+
+
 def _download():
     CACHE.parent.mkdir(parents=True, exist_ok=True)
-    with urllib.request.urlopen(ECB_URL, timeout=60) as resp:
-        blob = resp.read()
+    try:
+        with urllib.request.urlopen(ECB_URL, timeout=60) as resp:
+            blob = resp.read()
+    except OSError as exc:      # URLError, timeouts and TLS failures are all OSError
+        # This reaches the Ingest page as the reason a file was not imported. A bare
+        # "<urlopen error ...>" tells a person nothing about what to do next.
+        raise RatesUnavailable(
+            "UnPAIN needs the ECB exchange rates to convert foreign-currency amounts, and could not "
+            "download them (%s). Check the internet connection, then import the file again."
+            % getattr(exc, "reason", exc)) from exc
     with zipfile.ZipFile(io.BytesIO(blob)) as z:
         name = [n for n in z.namelist() if n.endswith(".csv")][0]
         CACHE.write_bytes(z.read(name))

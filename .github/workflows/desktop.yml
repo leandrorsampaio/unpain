@@ -1,0 +1,103 @@
+name: Desktop
+
+# Builds the double-click app and its installer on each OS, self-tests the built app (not
+# just the source), and keeps the installers as workflow artifacts. A v* tag also attaches
+# them to a DRAFT GitHub release: publishing it stays a human decision.
+on:
+  push:
+    tags: [ "v*" ]
+    branches: [ "**" ]           # "*" stops at "/": it would skip feature/x
+    # Tag pushes ignore this filter and always build. app/, pipeline/, scripts/ and examples/
+    # are here because a new data file there is exactly what a bundle silently misses.
+    paths:
+      - "desktop/**"
+      - "app/**"
+      - "pipeline/**"
+      - "scripts/**"
+      - "examples/**"
+      - ".github/workflows/desktop.yml"
+      - "requirements.txt"
+  workflow_dispatch:
+
+# Least privilege: building only reads the repo. The release job asks for more, alone.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15, label: macos-arm64 }          # Apple Silicon
+          - { os: macos-15-intel, label: macos-x64 }      # Intel Macs
+          - { os: windows-2025, label: windows-x64 }
+          # The oldest glibc still hosted: a build runs on newer distributions, not older ones.
+          - { os: ubuntu-22.04, label: linux-x64 }
+    steps:
+      # Actions are pinned to full commit SHAs, as in tests.yml.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0         # git describe needs the release tags for the version number
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Check that this Python has tkinter (the app window)
+        run: python -c "import tkinter; print('Tk', tkinter.Tcl().eval('info patchlevel'))"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements.txt
+          python -m pip install --disable-pip-version-check --require-hashes -r desktop/requirements-build.txt
+
+      - name: Launcher tests (from source)
+        run: python tests/test_desktop_launcher.py
+
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup --no-progress -y
+          }
+
+      - name: Build, self-test and package
+        run: python desktop/build.py
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: UnPAIN-${{ matrix.label }}
+          path: |
+            dist/*.dmg
+            dist/*.exe
+            dist/*.tar.gz
+            dist/*.deb
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Attach the installers to a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+                 --title "UnPAIN ${TAG#v}" \
+                 --notes "Installers for UnPAIN ${TAG#v}. README → Install explains the one-time security step on macOS and Windows."
+          gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber

@@ -213,7 +213,10 @@ h3 { font-size: 1.15rem; font-weight: 700; letter-spacing: -.01em; }
   border: 1px solid transparent; cursor: pointer; transition: transform .12s ease, box-shadow .2s ease, background .2s;
 }
 .btn-primary { background: var(--primary); color: var(--bg); }
-:root[data-theme="dark"] .btn-primary, :root:not([data-theme="light"]) .btn-primary { color: #002e68; }
+/* dark text only on the light-blue dark-mode button: unguarded, :not([data-theme="light"]) also
+   matched every light-mode visitor who never touched the toggle, and put navy on blue */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .btn-primary { color: #002e68; } }
+:root[data-theme="dark"] .btn-primary { color: #002e68; }
 .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--primary) 60%, transparent); }
 .btn-ghost { background: var(--surface); color: var(--ink); border-color: var(--outline); }
 .btn-ghost:hover { border-color: var(--primary); color: var(--primary); }
@@ -295,6 +298,27 @@ section { padding: clamp(3rem, 7vw, 5.5rem) 0; }
 .step p { margin: 0; color: var(--ink-muted); font-size: .96rem; }
 .step .line { position: absolute; top: .55rem; left: 2.4rem; right: 0; height: 1px; background: var(--outline-faint); }
 
+/* download */
+.dl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.4rem 1.2rem; margin-top: 2.4rem; align-items: start; }
+.dl-card { position: relative; background: var(--surface); border: 1px solid var(--outline-faint); border-radius: 16px; padding: 1.5rem 1.4rem 1.4rem; }
+.dl-card.mine { border-color: var(--primary); box-shadow: var(--shadow); }
+.dl-card .yours { position: absolute; top: -.75rem; left: 1.2rem; font-size: .72rem; font-weight: 500; letter-spacing: .03em; background: var(--primary); color: var(--bg); padding: .2em .8em; border-radius: 999px; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .dl-card .yours { color: #002e68; } }
+:root[data-theme="dark"] .dl-card .yours { color: #002e68; }
+.dl-card .os-sub { color: var(--ink-faint); font-size: .88rem; margin: .25rem 0 1rem; }
+.dl-btns { display: flex; flex-wrap: wrap; gap: .6rem; }
+.dl-btns .btn { font-size: .92rem; padding: .62em 1.15em; }
+.dl-hint { color: var(--ink-faint); font-size: .82rem; margin: .8rem 0 0; }
+.dl-card .once { font-size: .7rem; text-transform: uppercase; letter-spacing: .14em; color: var(--amber); margin: 1.3rem 0 .45rem; }
+.dl-steps { margin: 0; padding-left: 1.15rem; color: var(--ink-muted); font-size: .92rem; }
+.dl-steps li + li { margin-top: .35rem; }
+.dl-steps code, .dl-notes code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .84em; background: var(--bg-2); border: 1px solid var(--outline-faint); padding: .05em .35em; border-radius: 5px; overflow-wrap: anywhere; }
+.dl-notes { margin-top: 2rem; max-width: 72ch; }
+.dl-notes p { color: var(--ink-muted); margin: 0 0 .7rem; font-size: .96rem; }
+.dl-notes b { color: var(--ink); font-weight: 500; }
+.dl-notes .dl-more { font-size: .82rem; margin-top: 1.1rem; }
+.dl-mobile { margin: 1.4rem 0 0; padding: .9rem 1.1rem; border-radius: 12px; background: var(--amber-container); color: var(--amber-ink); font-size: .95rem; max-width: 60ch; }
+
 /* fairness viz */
 .fair { display: grid; grid-template-columns: 1.1fr 1fr; gap: 2.4rem; align-items: center; margin-top: 2rem; }
 @media (max-width: 720px) { .fair { grid-template-columns: 1fr; } }
@@ -344,7 +368,8 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
   "name": "UnPAIN",
   "alternateName": "Unnecessarily Precise Accounting & Income Navigator",
   "applicationCategory": "FinanceApplication",
-  "operatingSystem": "Self-hosted web app",
+  "operatingSystem": "macOS, Windows, Linux",
+  "downloadUrl": "https://github.com/leandrorsampaio/unpain/releases/latest",
   "description": "A self-hosted, offline expense tracker for people who track every cent. Fair income-proportional splitting between partners, private by design, source-available.",
   "url": "https://leandrorsampaio.github.io/unpain/",
   "author": { "@type": "Person", "name": "Leandro Rossi Sampaio" },
@@ -362,6 +387,7 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
     <nav>
       <a href="#why" data-de="Warum">Why</a>
       <a href="#different" data-de="Feature-Tour">Feature tour</a>
+      <a href="#download">Download</a>
       <a href="#beer" data-de="Spendier mir ein Bier">Buy me a beer</a>
       <a class="gh" href="https://github.com/leandrorsampaio/unpain">GitHub</a>
       <button type="button" class="lang" id="lang">🇩🇪</button>
@@ -394,7 +420,12 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
         </div>
       </div>
       <div class="cta-row hero-cta">
-        <a class="btn btn-primary" href="https://github.com/leandrorsampaio/unpain" data-de="Auf GitHub holen">Get it on GitHub</a>
+        <a class="btn btn-primary" id="hero-dl" href="#download">
+          <span data-dl-os="any" data-de="Herunterladen">Download</span>
+          <span data-dl-os="mac" hidden data-de="Für Mac herunterladen">Download for Mac</span>
+          <span data-dl-os="windows" hidden data-de="Für Windows herunterladen">Download for Windows</span>
+          <span data-dl-os="linux" hidden data-de="Für Linux herunterladen">Download for Linux</span>
+        </a>
         <a class="btn btn-ghost" href="#different" data-de="So funktioniert es">See how it works</a>
       </div>
       <div class="frame hero-shot">
@@ -555,7 +586,68 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
     </div>
   </section>
 
-  <section id="fair">
+  <section id="download">
+    <div class="wrap">
+      <span class="eyebrow mono" data-de="Herunterladen">Download</span>
+      <h2 style="margin-top:.8rem" data-de="Installier es wie jede andere App.">Install it like any other app.</h2>
+      <p class="lead" data-de="Python ist schon drin. Kein Terminal, kein Konto, keine Cloud. Doppelklick, und UnPAIN öffnet sich in deinem Browser – auf deinem eigenen Computer.">Python is already inside. No terminal, no account, no cloud. Double-click, and UnPAIN opens in your browser, running on your own computer.</p>
+      <p class="dl-mobile" id="dl-mobile" hidden data-de="UnPAIN läuft auf einem Computer, nicht auf dem Handy. Öffne diese Seite auf deinem Mac-, Windows- oder Linux-Rechner, um es herunterzuladen.">UnPAIN runs on a computer, not on a phone. Open this page on your Mac, Windows or Linux machine to download it.</p>
+      <div class="dl-grid" id="dl-grid">
+        <article class="dl-card" id="dl-mac">
+          <span class="yours" hidden data-de="Für deinen Computer">For your computer</span>
+          <h3>macOS</h3>
+          <p class="os-sub" data-de="Apple Silicon oder Intel">Apple silicon or Intel</p>
+          <div class="dl-btns">
+            <a class="btn btn-primary" id="dl-mac-arm" href="https://github.com/leandrorsampaio/unpain/releases/latest/download/UnPAIN-macos-arm64.dmg" data-de="Apple Silicon (M1 und neuer)">Apple silicon (M1 and newer)</a>
+            <a class="btn btn-ghost" id="dl-mac-intel" href="https://github.com/leandrorsampaio/unpain/releases/latest/download/UnPAIN-macos-x86_64.dmg" data-de="Intel-Mac">Intel Mac</a>
+          </div>
+          <p class="dl-hint" data-de="Nicht sicher? Apple-Menü → Über diesen Mac: Steht dort „Chip“, ist es Apple Silicon. Steht dort „Prozessor“, ist es Intel.">Not sure? Apple menu → About This Mac: "Chip" means Apple silicon, "Processor" means Intel.</p>
+          <p class="once mono" data-de="Einmalig, beim ersten Öffnen">One time, on first open</p>
+          <ol class="dl-steps">
+            <li data-de="Öffne die <code>.dmg</code>-Datei und zieh UnPAIN in „Programme“.">Open the <code>.dmg</code> file and drag UnPAIN to Applications.</li>
+            <li data-de="Öffne UnPAIN. macOS meldet, dass es UnPAIN „nicht überprüfen“ konnte. Klick auf „Fertig“.">Open UnPAIN. macOS says it "could not verify" UnPAIN. Click Done.</li>
+            <li data-de="Geh zu Systemeinstellungen → Datenschutz &amp; Sicherheit und klick auf „Dennoch öffnen“.">Go to System Settings → Privacy &amp; Security and click Open Anyway.</li>
+          </ol>
+        </article>
+        <article class="dl-card" id="dl-windows">
+          <span class="yours" hidden data-de="Für deinen Computer">For your computer</span>
+          <h3>Windows</h3>
+          <p class="os-sub" data-de="Windows 10 oder 11, 64 Bit">Windows 10 or 11, 64-bit</p>
+          <div class="dl-btns">
+            <a class="btn btn-primary" id="dl-win" href="https://github.com/leandrorsampaio/unpain/releases/latest/download/UnPAIN-windows-x64-setup.exe" data-de="Für Windows herunterladen">Download for Windows</a>
+          </div>
+          <p class="once mono" data-de="Einmalig, beim Installieren">One time, when you install</p>
+          <ol class="dl-steps">
+            <li data-de="Öffne die Setup-Datei. Windows zeigt „Der Computer wurde durch Windows geschützt“.">Open the setup file. Windows shows "Windows protected your PC".</li>
+            <li data-de="Klick auf „Weitere Informationen“, dann auf „Trotzdem ausführen“.">Click More info, then Run anyway.</li>
+            <li data-de="Folge dem Installer. Ein Administratorkonto brauchst du nicht.">Follow the installer. No administrator account needed.</li>
+          </ol>
+        </article>
+        <article class="dl-card" id="dl-linux">
+          <span class="yours" hidden data-de="Für deinen Computer">For your computer</span>
+          <h3>Linux</h3>
+          <p class="os-sub" data-de="Debian, Ubuntu und andere, x86-64">Debian, Ubuntu and others, x86-64</p>
+          <div class="dl-btns">
+            <a class="btn btn-primary" href="https://github.com/leandrorsampaio/unpain/releases/latest/download/UnPAIN-linux-amd64.deb" data-de=".deb (Debian, Ubuntu)">.deb (Debian, Ubuntu)</a>
+            <a class="btn btn-ghost" href="https://github.com/leandrorsampaio/unpain/releases/latest/download/UnPAIN-linux-x86_64.tar.gz" data-de=".tar.gz (andere)">.tar.gz (other)</a>
+          </div>
+          <p class="once mono" data-de="So startest du es">How to start it</p>
+          <ol class="dl-steps">
+            <li data-de="Öffne die <code>.deb</code> mit deiner Softwareverwaltung oder führ <code>sudo apt install ./UnPAIN-linux-amd64.deb</code> aus.">Open the <code>.deb</code> with your software installer, or run <code>sudo apt install ./UnPAIN-linux-amd64.deb</code>.</li>
+            <li data-de="Andere Distributionen: Entpack die <code>.tar.gz</code> und starte <code>UnPAIN/UnPAIN</code>.">Other distributions: extract the <code>.tar.gz</code> and run <code>UnPAIN/UnPAIN</code>.</li>
+            <li data-de="Keine Warnungen zum Wegklicken. Linux vertraut dir.">No warnings to click through. Linux trusts you.</li>
+          </ol>
+        </article>
+      </div>
+      <div class="dl-notes">
+        <p data-de="<b>Warum die Warnung?</b> Apple und Microsoft verlangen jedes Jahr Geld, um für eine App zu bürgen. UnPAIN ist kostenlos und spart sich diese Maut. Jede Zeile liegt auf GitHub, falls du lesen willst, was du da installierst."><b>Why the warning?</b> Apple and Microsoft charge a yearly fee to vouch for an app. UnPAIN is free, so it skips the toll. Every line of it is on GitHub, if you'd like to read what you're installing.</p>
+        <p data-de="<b>Deine Daten bleiben deine.</b> Sie liegen im Ordner <code>UnPAIN</code> in deinem Benutzerordner. Ein Update oder eine Deinstallation rührt ihn nie an. Zum Aktualisieren installierst du die neue Version einfach über die alte."><b>Your data stays yours.</b> It lives in the <code>UnPAIN</code> folder in your home folder. Updating or uninstalling the app never touches it. To update, install the new version over the old one.</p>
+        <p class="dl-more mono" data-de='<a href="https://github.com/leandrorsampaio/unpain/releases">Alle Versionen und Release Notes</a> · <a href="https://github.com/leandrorsampaio/unpain#run-from-source-terminal">Lieber im Terminal? Aus dem Quelltext starten</a>'><a href="https://github.com/leandrorsampaio/unpain/releases">All versions and release notes</a> · <a href="https://github.com/leandrorsampaio/unpain#run-from-source-terminal">Prefer the terminal? Run it from source</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section id="fair" style="background:var(--bg-2)">
     <div class="wrap">
       <span class="eyebrow mono" data-de="Fair, nicht gleich">Fair, not equal</span>
       <div class="fair">
@@ -578,7 +670,7 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
     </div>
   </section>
 
-  <section id="beer" style="background:var(--bg-2)">
+  <section id="beer">
     <div class="wrap">
       <div class="beer-wrap">
         <div class="about">
@@ -658,6 +750,51 @@ footer .proud { margin-left: auto; font-family: ui-monospace, Menlo, monospace; 
     setLang(root.getAttribute('lang') === 'de' ? 'en' : 'de', true);
   });
   setLang(lang0, false);
+
+  // download: guess the visitor's computer, put its card first, and point the hero button at
+  // it. Nothing leaves the page; this only reads what the browser already says about itself.
+  (function () {
+    var uad = navigator.userAgentData;
+    var platform = (uad && uad.platform) || navigator.platform || '';
+    var ua = navigator.userAgent || '';
+    var os = null;
+    if (/Android|iPhone|iPad|iPod/i.test(ua) || (/Mac/i.test(platform) && navigator.maxTouchPoints > 1)) os = 'mobile';  // iPadOS says "Mac"
+    else if (/Win/i.test(platform) || /Windows/.test(ua)) os = 'windows';
+    else if (/Mac/i.test(platform) || /Mac OS X/.test(ua)) os = 'mac';
+    else if (/Linux|X11/i.test(platform + ' ' + ua) && !/CrOS/.test(ua)) os = 'linux';
+    if (os === 'mobile') { document.getElementById('dl-mobile').hidden = false; return; }
+    if (!os) return;   // unknown: every card stays as it is, nothing is guessed
+
+    var card = document.getElementById('dl-' + os);
+    var grid = document.getElementById('dl-grid');
+    card.classList.add('mine');
+    card.querySelector('.yours').hidden = false;
+    grid.insertBefore(card, grid.firstChild);
+    var hero = document.getElementById('hero-dl');
+    hero.querySelectorAll('[data-dl-os]').forEach(function (s) { s.hidden = s.getAttribute('data-dl-os') !== os; });
+    hero.href = '#dl-' + os;
+
+    // When the right file is certain, one click downloads it and shows the one-time step.
+    // Otherwise (Linux: .deb or .tar.gz? a Mac whose chip the browser won't name) the button
+    // only scrolls to the card, which offers the choice.
+    function direct(link) {
+      hero.href = link.href;
+      hero.addEventListener('click', function () { card.scrollIntoView({ block: 'center' }); });
+    }
+    if (os === 'windows') direct(document.getElementById('dl-win'));
+    if (os === 'mac' && uad && uad.getHighEntropyValues) {
+      uad.getHighEntropyValues(['architecture']).then(function (v) {
+        var arm = document.getElementById('dl-mac-arm'), intel = document.getElementById('dl-mac-intel');
+        if (v.architecture === 'arm') direct(arm);
+        if (v.architecture === 'x86') {
+          intel.classList.replace('btn-ghost', 'btn-primary');
+          arm.classList.replace('btn-primary', 'btn-ghost');
+          intel.parentNode.insertBefore(intel, arm);
+          direct(intel);
+        }
+      }, function () {});
+    }
+  })();
 
   requestAnimationFrame(function () { document.body.classList.add('play'); });
 

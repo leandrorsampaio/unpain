@@ -75,6 +75,8 @@ def read_tsv(pdf):
         proc = subprocess.run(
             [executable, "-tsv", str(pdf), tmp.name], text=True,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            # A windowed app (the desktop build) would flash a console window on Windows.
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if proc.returncode:
             raise RuntimeError("pdftotext failed: %s" % proc.stderr.strip())

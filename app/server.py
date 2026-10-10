@@ -168,6 +168,40 @@ async def lock_gate(request: Request, call_next):
     return await call_next(request)
 
 
+# ---- local-only guard (set by the desktop launcher) ----
+# Binding 127.0.0.1 keeps other machines out, not other web pages. Any site the person has
+# open can aim a form at this port — a multipart POST (an upload, a restore) needs no CORS
+# preflight — or point its own hostname at 127.0.0.1 and read the replies as same-origin.
+# The desktop app runs all day beside an ordinary browser, so it names the only hosts it
+# answers to, and refuses API requests that another site's page made. GETs count too:
+# /api/backup and the exports write files, and an <img> tag can fire a GET. Unset
+# (start.sh, the tests), nothing changes; LAN mode cannot know its own name.
+_ALLOWED_HOSTS = frozenset(h.strip().lower() for h in os.environ.get("UNPAIN_ALLOWED_HOSTS", "").split(",")
+                           if h.strip())
+_ALLOWED_ORIGINS = frozenset("http://" + h for h in _ALLOWED_HOSTS)
+_FOREIGN_SITES = {"cross-site", "same-site"}   # same-site: another port on localhost is another app
+_GUARDED_PATHS = ("/api/", "/receipts/")
+
+
+@app.middleware("http")          # registered last, so it runs first: before any lock is taken
+async def local_only(request: Request, call_next):
+    if _ALLOWED_HOSTS:
+        if request.headers.get("host", "").lower() not in _ALLOWED_HOSTS:
+            return JSONResponse({"detail": "unknown host"}, status_code=403)
+        # Every current browser says where a request came from; curl and the launcher's own
+        # probe send nothing and pass. A link from elsewhere may still open the app's page —
+        # it is what the page then requests that must come from the page itself.
+        if (request.headers.get("sec-fetch-site") in _FOREIGN_SITES
+                and request.url.path.startswith(_GUARDED_PATHS)):
+            return JSONResponse({"detail": "cross-site request refused"}, status_code=403)
+        # Second line, for a browser without Sec-Fetch-*: a write must come from the app's own page.
+        origin = request.headers.get("origin")
+        if (request.method not in _CONCURRENT_METHODS and origin is not None
+                and origin.lower() not in _ALLOWED_ORIGINS):
+            return JSONResponse({"detail": "cross-site request refused"}, status_code=403)
+    return await call_next(request)
+
+
 class UnlockRequest(BaseModel):
     password: str
 

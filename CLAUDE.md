@@ -52,6 +52,23 @@ knobs **autosave** — every field is debounced ~400ms into `commitSettingsSave(
 via `state.settingsSaveSeq`, plain `fetch` so failures land in the `#save-status` flag instead of a dialog),
 built from the `state.settingsCfg` source-of-truth. There is no Save button. Account row CRUD keeps its own
 add/save/delete buttons.
+**Desktop app** (`desktop/`): `launcher.py` is the installed app's entry point. It sets `FA_ROOT` (default
+`~/UnPAIN`: home, not Documents, which iCloud/OneDrive may sync) and `UNPAIN_ALLOWED_HOSTS` **before**
+importing `app.server`, runs uvicorn in a thread on a pre-bound `127.0.0.1` socket (8765..8784, then any),
+and keeps the main thread for a small Tk window (Quit / Show data folder; strings in `STRINGS_DE`,
+following `config.json` language). One launcher per data folder (`InstanceLock`, OS file lock in the temp
+dir); a second launch opens the browser on the running one. `UNPAIN_ALLOWED_HOSTS` switches on the
+`local_only` middleware in `server.py` (outermost: foreign `Host` → 403; `Sec-Fetch-Site: cross-site|same-site`
+on `/api/` or `/receipts/` → 403 for every method, since `/api/backup` and the exports are GETs that write;
+non-GET with a foreign `Origin` → 403);
+unset (start.sh, tests) it does nothing. `build.py` runs PyInstaller (`unpain.spec`), then the built app's
+`--self-test` (which also proves TLS roots: the frozen app sets `SSL_CERT_FILE` to the bundled `certifi`), then packages (dmg / Inno Setup `windows/unpain.iss` / deb + tar.gz). **Any new
+non-Python file that code reads relative to its own location** (like `app/static`, `examples/`,
+`pipeline/formats`, `scripts/*/extractor.json`) must be added to `datas` in `unpain.spec` and, ideally, to
+the self-test. A missing data file builds fine and fails later, on a user's machine.
+Installer **file names carry no version** (`UnPAIN-macos-arm64.dmg`, `UnPAIN-windows-x64-setup.exe`, …):
+the website's Download section (`docs/index.html`) links to `releases/latest/download/<name>`, so renaming
+one in `build.py` breaks a download button. Those links only resolve once a release is *published*.
 
 ## Commands
 
@@ -60,6 +77,8 @@ add/save/delete buttons.
 - Read-only data audit: `.venv/bin/python -m pipeline.cli doctor [year]`
 - Check an exported workbook against the store: `.venv/bin/python -m pipeline.cli export-verify <file>`
 - Watch already-closed months: `.venv/bin/python -m pipeline.cli close-baseline [year]`
+- Desktop app: `python desktop/build.py` (needs a Python with tkinter + `desktop/requirements-build.txt`;
+  CI: `.github/workflows/desktop.yml`). Run the launcher from source: `python desktop/launcher.py`.
 - Tests: `./run-tests.sh` (all) / `./run-tests.sh --fast` (skip browser smoke only).
   The repository pre-commit hook chooses the full suite for UI changes and fast otherwise.
   GitHub Actions CI enforces the complete test suite, including the `tests/test_oracle.py` math invariant checker over 5 years of synthetic fixture data, on all branches.

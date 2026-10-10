@@ -8,6 +8,38 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Installable desktop app for macOS, Windows, and Linux.** Download, install, and double-click.
+  No terminal and no Python install. A small window shows that UnPAIN runs and where the data is,
+  and the browser opens the app. The data lives in `~/UnPAIN`, outside the app, so an update or an
+  uninstall never touches it. The installers are unsigned; README → Install explains the one-time
+  step on macOS and Windows. Sources are in `desktop/`.
+- **Download section on the website.** It guesses your computer, puts its installer first, and
+  shows the one-time security step for it. One click downloads the right file when the browser
+  says enough (Windows; a Mac in Chrome or Edge); otherwise it shows the choice. The installers
+  now have names without a version, so the links always point at the latest release.
+- **A Desktop workflow** builds the installers for macOS (Apple silicon and Intel), Windows, and
+  Linux. It self-tests every built app before it packages it. A `v*` tag attaches the installers to
+  a draft release.
+
+### Security
+
+- **Local-only guard for the desktop app.** The app answers only to its own host names. It
+  refuses every request to its data (`/api/`, `/receipts/`) that a page from another site makes,
+  GETs included, because the backup and the exports write files. Without the guard, any open web
+  page could post a form (an upload or a restore) to the local port, fire a backup from an
+  `<img>` tag, or read the app through DNS rebinding. Running from source keeps the old
+  behaviour (`UNPAIN_ALLOWED_HOSTS` unset).
+
+### Changed
+
+- **Website: readable primary buttons in light mode.** A dark-mode style also matched light-mode
+  visitors who never used the theme toggle, and put navy text on blue.
+- **A failed ECB rate download now says what to do.** The Ingest page used to show a bare
+  `<urlopen error ...>`. It now explains that UnPAIN needs the exchange rates once, and that the
+  file can be imported again when the computer is online.
+
 ## [1.5.0] - 2026-08-09
 
 The integrity release. 1.0 could compute a household's finances; 1.5 can show its work, and

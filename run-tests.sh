@@ -11,7 +11,7 @@ node --check app/static/i18n/de.js
 node --check tests/ui_smoke.js
 # checked-hash pycs: mtime+size validation cannot detect a same-second,
 # same-size source edit (observed in practice); hash validation always can.
-"$PY" -m compileall -q --invalidation-mode checked-hash pipeline app tests
+"$PY" -m compileall -q --invalidation-mode checked-hash pipeline app tests desktop
 
 # Ruff, the same check CI gates on. Without it here, a lint-only failure passes locally and
 # turns the branch red after the push — which is exactly how E741 reached main.
@@ -44,7 +44,7 @@ for t in tests/test_pipeline.py tests/test_oracle.py tests/test_feedback.py \
          tests/test_networth.py tests/test_balances.py tests/test_overview.py \
          tests/test_money.py tests/test_schemas.py tests/test_doctor_audit.py tests/test_format_lint.py tests/test_fx_audit.py tests/test_anomalies.py tests/test_audit_changes.py tests/test_export_provenance.py tests/test_mutation_bundle.py \
          tests/test_asset_versions.py \
-         tests/test_security.py \
+         tests/test_security.py tests/test_desktop_launcher.py \
          tests/test_ingest_pdf_flow.py tests/test_integrity_gates.py \
          tests/test_settlement_properties.py tests/test_format_matrix.py \
          tests/test_closed_period.py tests/test_http_contract.py \

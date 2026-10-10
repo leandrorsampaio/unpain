@@ -1,0 +1,9 @@
+# Tools that build the desktop app (desktop/build.py). The app's own dependencies stay in
+# requirements.txt. Regenerate the hash-pinned lockfile for every OS at once with uv
+# (pip-compile locks for the machine it runs on, and the Windows build needs pefile):
+#   uv pip compile --universal --generate-hashes --python-version 3.12 \
+#     desktop/requirements-build.in -o desktop/requirements-build.txt
+pyinstaller
+pillow
+# CA roots for the frozen app's HTTPS (ECB rates): its bundled OpenSSL cannot find the OS ones.
+certifi

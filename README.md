@@ -28,7 +28,68 @@ financial data never leaves your machine.
 - **Private by design.** No cloud, no telemetry, no login. Fully offline.
 - **German tax pack (optional).** Refund-relevant spending, bucketed for ELSTER or a Steuerberater.
 
-## Quick start
+## Install the app (no terminal)
+
+Download the installer for your computer from the
+[website](https://leandrorsampaio.github.io/unpain/#download) or the
+[latest release](https://github.com/leandrorsampaio/unpain/releases/latest). Python is inside the
+app. You do not need to install anything else.
+
+| Computer | File |
+|---|---|
+| Mac with Apple silicon (M1 and newer) | `UnPAIN-macos-arm64.dmg` |
+| Mac with Intel | `UnPAIN-macos-x86_64.dmg` |
+| Windows 10 or 11 (64-bit) | `UnPAIN-windows-x64-setup.exe` |
+| Linux: Debian, Ubuntu | `UnPAIN-linux-amd64.deb` |
+| Linux: other | `UnPAIN-linux-x86_64.tar.gz` |
+
+**The installers are not signed.** Signing costs money every year, and UnPAIN is free. Thus macOS
+and Windows show a warning the first time. You do this step one time only.
+
+**macOS**
+
+1. Open the `.dmg` file. Drag **UnPAIN** to **Applications**.
+2. Open UnPAIN from Applications. macOS says that it "could not verify" UnPAIN. Click **Done**.
+3. Open **System Settings → Privacy & Security**. Scroll down to "UnPAIN was blocked". Click
+   **Open Anyway**, then enter your password.
+
+After this, UnPAIN opens like any other app.
+
+**Windows**
+
+1. Open the setup file. Windows shows "Windows protected your PC".
+2. Click **More info**, then click **Run anyway**.
+3. Follow the installer. It does not need an administrator account.
+
+UnPAIN is now in the Start menu and on the desktop.
+
+**Linux.** Open the `.deb` file with your software installer, or run
+`sudo apt install ./UnPAIN-linux-amd64.deb`. Then start UnPAIN from the app menu. On other
+distributions, extract the `.tar.gz` file and run `UnPAIN/UnPAIN`. Only the automated build tests
+the Linux packages.
+
+**How it works.** When you open UnPAIN, a small window appears, and your browser opens the app. The
+window shows where your data is. To stop UnPAIN, close the window or click **Quit**. If you open
+UnPAIN again while it runs, it only opens the browser again.
+
+**Your data** is in the `UnPAIN` folder in your home folder: `~/UnPAIN` on macOS and Linux,
+`C:\Users\<you>\UnPAIN` on Windows. It is not in Documents, because macOS and Windows can sync
+Documents to iCloud or OneDrive. An update or an uninstall never touches this folder. To update,
+install the new version over the old one.
+
+**Move from a source install.** In the old app, go to **Settings → Data** and download a backup. In
+the new app, complete the setup wizard, then restore the backup in **Settings → Data**.
+
+**Limits of the installed app:**
+
+- It answers only on this computer (`127.0.0.1`). Other devices cannot reach it. For access from
+  your home network, run from source with `./start.sh --lan`.
+- PDF statement import needs the `pdftotext` program, and the app does not include it. On Linux,
+  install `poppler-utils`. On macOS and Windows, use the CSV export of your bank.
+
+To build the installers yourself, see [Desktop app](#desktop-app) under Development.
+
+## Run from source (terminal)
 
 ```bash
 git clone <repo-url> && cd unpain
@@ -100,9 +161,10 @@ directly — extraction goes through `inbox/` CSVs. For a visual walkthrough, op
 ## Data, privacy, and backups
 
 Everything stays in this folder: `data/` (transactions, decisions), `rules/` (your learned
-categorization), and `config.json`. Git ignores all of it. The in-app Backup button zips it. Back it
-up yourself, because git does not carry your data, and there is no server-side copy to recover from.
-See [SECURITY.md](SECURITY.md) for the threat model (no auth by design).
+categorization), and `config.json`. The installed app keeps the same files in `~/UnPAIN`. Git ignores
+all of it. The in-app Backup button zips it. Back it up yourself, because git does not carry your
+data, and there is no server-side copy to recover from. See [SECURITY.md](SECURITY.md) for the
+threat model (no auth by design).
 
 ## Development
 
@@ -115,6 +177,24 @@ git config core.hooksPath .githooks
 Stack: Python 3.12 and FastAPI, vanilla JS with vendored Material Design 3 components. There is no
 build step, and it is fully offline. Agents and contributors start at [PROJECT.md](PROJECT.md) and
 [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Desktop app
+
+`desktop/` packages the app for people who do not use a terminal. `desktop/launcher.py` starts the
+same server on `127.0.0.1`, keeps the data in `~/UnPAIN`, opens the browser, and shows one small
+window with **Quit**. PyInstaller bundles it with Python. Each OS then gets its own installer: a
+`.dmg` on macOS, an Inno Setup `.exe` on Windows, and a `.deb` plus a `.tar.gz` on Linux.
+
+```bash
+pip install --require-hashes -r desktop/requirements-build.txt   # in a Python that has tkinter
+python desktop/build.py                                          # app + self-test + installer → dist/
+```
+
+The build runs the built app with `--self-test` before it packages anything. The self-test starts
+the server on an empty folder and checks the page, the setup wizard, the bank formats, the window
+toolkit, and the local-only guard. The [Desktop workflow](.github/workflows/desktop.yml) builds and
+self-tests all four targets (macOS arm64 and Intel, Windows, Linux) when `desktop/` changes. A `v*`
+tag attaches the installers to a **draft** release. You publish it yourself.
 
 ## Author, status, and licence
 
