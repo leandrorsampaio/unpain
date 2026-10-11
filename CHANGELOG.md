@@ -8,6 +8,16 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-11
+
+The desktop release. Until now, UnPAIN started from a terminal. Now you download it, install it,
+and double-click it, on macOS, Windows, or Linux. Nothing about the ledger changes: same data
+files, same math, same guarantees. Source installs keep working exactly as before.
+
+An external code review was run against the desktop app before release. It found 13 problems,
+including three that only appear on a machine unlike the author's. All of them are fixed and
+covered by tests. Release notes for someone arriving cold: [docs/RELEASE-1.6.0.md](docs/RELEASE-1.6.0.md).
+
 ### Added
 
 - **Installable desktop app for macOS, Windows, and Linux.** Download, install, and double-click.
@@ -24,6 +34,25 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Linux. It self-tests every built app before it packages it. A `v*` tag attaches the installers to
   a draft release.
 
+### Changed
+
+- **A failed ECB rate download now says what to do.** The Ingest page used to show a bare
+  `<urlopen error ...>`. It now explains that UnPAIN needs the exchange rates once, and that the
+  file can be imported again when the computer is online.
+- **`requirements.txt` is compiled with `uv pip compile --universal`.** Same versions, plus the
+  platform markers that pip-compile on a Mac left out (see Fixed).
+
+### Fixed
+
+- **`pip install -r requirements.txt` failed on Windows.** The lockfile listed `uvloop`, which does
+  not support Windows, for every platform, and left out `colorama`, which `click` needs there. The
+  README's run-from-source steps for Windows could not work.
+- **The test workflow was red on `main` since 1.5.0.** Every CLI command checked for `config.json`
+  first, including `formats-lint`, which reads only the bank formats shipped with the code. A fresh
+  clone has no `config.json`, so `run-tests.sh` stopped at its first line in CI.
+- **Website: readable primary buttons in light mode.** A dark-mode style also matched light-mode
+  visitors who never used the theme toggle, and put navy text on blue.
+
 ### Security
 
 - **Local-only guard for the desktop app.** The app answers only to its own host names. It
@@ -32,14 +61,6 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   page could post a form (an upload or a restore) to the local port, fire a backup from an
   `<img>` tag, or read the app through DNS rebinding. Running from source keeps the old
   behaviour (`UNPAIN_ALLOWED_HOSTS` unset).
-
-### Changed
-
-- **Website: readable primary buttons in light mode.** A dark-mode style also matched light-mode
-  visitors who never used the theme toggle, and put navy text on blue.
-- **A failed ECB rate download now says what to do.** The Ingest page used to show a bare
-  `<urlopen error ...>`. It now explains that UnPAIN needs the exchange rates once, and that the
-  file can be imported again when the computer is online.
 
 ## [1.5.0] - 2026-08-09
 
